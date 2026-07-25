@@ -71,15 +71,18 @@ func (store *AcquisitionStore) Claim(
 
 	row := store.pool.QueryRow(ctx, `
 		WITH candidate AS (
-			SELECT id
-			FROM acquisitions
-			WHERE available_at <= now()
+			SELECT acquisition.id
+			FROM acquisitions AS acquisition
+			JOIN sources AS source ON source.id = acquisition.source_id
+			WHERE source.enabled = true
+			  AND source.archived_at IS NULL
+			  AND acquisition.available_at <= now()
 			  AND (
-				status IN ('pending', 'retry')
-				OR (status = 'running' AND lease_until < now())
+				acquisition.status IN ('pending', 'retry')
+				OR (acquisition.status = 'running' AND acquisition.lease_until < now())
 			  )
-			ORDER BY priority DESC, requested_at, id
-			FOR UPDATE SKIP LOCKED
+			ORDER BY acquisition.priority DESC, acquisition.requested_at, acquisition.id
+			FOR UPDATE OF acquisition SKIP LOCKED
 			LIMIT 1
 		)
 		UPDATE acquisitions AS acquisition

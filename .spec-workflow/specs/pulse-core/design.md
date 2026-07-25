@@ -95,3 +95,7 @@ type Driver interface {
 点击 Entry 不离开列表，而是在当前行下方展开正文、原文链接、已读、收藏、稍后阅读、显示标题和笔记操作；再次点击或使用“收起”恢复紧凑列表。窄屏下导航改为顶部横向区域，文章行隐藏来源和摘要列，保留标题、时间与展开能力。
 
 Reader 使用白名单清洗后渲染 Feed 富文本，仅保留排版元素以及 HTTP(S) 链接和图片；脚本、表单、内嵌页面、事件属性和危险协议全部移除。图片延迟加载并限制在正文宽度内。RSS Driver 优先使用 `content:encoded`，并在正文缺图时补充 Media RSS 缩略图或图片 Enclosure。Feed Checkpoint 带解析器版本，解析能力升级后强制完整抓取一次，再恢复 ETag/Last-Modified 条件请求。
+
+删除 Source 使用 `DELETE /api/v1/sources/{id}`，成功返回 204。该操作只设置 `enabled=false` 与 `archived_at`：Source 从公开查询、Folder 计数和后续 Acquisition 领取中消失，已有 Entry、阅读状态、收藏和笔记继续保留。界面必须在执行前显示确认对话框，并明确说明历史内容不会删除。
+
+Reader 采用高吞吐信息流交互：点击未读 Entry 时立即标记已读并将展开行平滑滚动到阅读区域顶部；再次点击或按 `Escape` 收起。收藏、稍后阅读、改回未读和标题/笔记编辑放入溢出菜单。顶部工具栏提供批量已读操作；在综合列表中更新所有未读 Entry，在单个 Source 中通过 `source_id` 限定更新范围。

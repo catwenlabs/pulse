@@ -108,3 +108,20 @@
   - Version Feed checkpoints so existing Sources are reprocessed once after parser upgrades.
   - Verify rich content, image loading, XSS removal and overflow behavior.
   - _Requirements: 8.7, 9.5_
+
+- [x] 18. Add safe Source deletion
+  - Expose idempotent `DELETE /api/v1/sources/{id}` with a 204 response.
+  - Archive and disable the Source while preserving existing Entries.
+  - Exclude archived Sources from public reads, Folder counts and Acquisition claims.
+  - Add an accessible confirmation dialog and remove the Source from navigation after success.
+  - Cover API, PostgreSQL and component behavior.
+  - _Requirements: 1.4, 8.5_
+
+- [x] 19. Refine the Reader interaction model
+  - Mark an unread Entry as read when it is expanded.
+  - Scroll the expanded Entry to the top of the reading region and allow `Escape` to collapse it.
+  - Move low-frequency Entry actions into a compact overflow menu.
+  - Add a toolbar action that marks all Entries, or only the selected Source's Entries, as read.
+  - Align the dense stream and expanded reading layout with high-throughput feed readers.
+  - Cover scrolling, keyboard interaction, scoped bulk updates and responsive rendering.
+  - _Requirements: 8.1-8.7, 9.1_

@@ -28,7 +28,10 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	if err := migrate.Run(context.Background(), pool); err != nil {
 		t.Fatalf("migrate test database: %v", err)
 	}
-	if _, err := pool.Exec(context.Background(), "TRUNCATE sources, folders CASCADE"); err != nil {
+	if _, err := pool.Exec(
+		context.Background(),
+		"TRUNCATE sources, folders, rules, tags, views CASCADE",
+	); err != nil {
 		t.Fatalf("truncate test data: %v", err)
 	}
 	return pool

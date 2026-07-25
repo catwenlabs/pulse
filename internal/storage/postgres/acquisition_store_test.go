@@ -96,6 +96,29 @@ func TestAcquisitionStoreConcurrentClaimHasSingleWinner(t *testing.T) {
 	}
 }
 
+func TestAcquisitionStoreDoesNotClaimArchivedSource(t *testing.T) {
+	pool := testPool(t)
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	src := createTestSource(t, sourceStore, "manual-archived")
+	ctx := context.Background()
+
+	if _, err := acquisitionStore.Enqueue(ctx, ingestion.EnqueueRequest{
+		SourceID:       src.ID,
+		Trigger:        ingestion.TriggerManual,
+		IdempotencyKey: "archived-job",
+	}); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+	if err := sourceStore.Archive(ctx, src.ID); err != nil {
+		t.Fatalf("Archive() error = %v", err)
+	}
+
+	if _, err := acquisitionStore.Claim(ctx, "worker-a", time.Minute); !errors.Is(err, ingestion.ErrNoAcquisition) {
+		t.Fatalf("Claim() error = %v, want ErrNoAcquisition", err)
+	}
+}
+
 func TestAcquisitionStoreReclaimsExpiredLease(t *testing.T) {
 	pool := testPool(t)
 	sourceStore := NewSourceStore(pool)

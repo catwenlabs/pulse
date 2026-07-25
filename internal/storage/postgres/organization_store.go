@@ -39,9 +39,12 @@ func (store *OrganizationStore) CreateFolder(ctx context.Context, name string) (
 
 func (store *OrganizationStore) ListFolders(ctx context.Context) ([]organization.Folder, error) {
 	rows, err := store.pool.Query(ctx, `
-		SELECT folder.id, folder.name, count(source_folders.source_id)::integer
+		SELECT folder.id, folder.name, count(source.id)::integer
 		FROM folders AS folder
 		LEFT JOIN source_folders ON source_folders.folder_id = folder.id
+		LEFT JOIN sources AS source
+			ON source.id = source_folders.source_id
+			AND source.archived_at IS NULL
 		GROUP BY folder.id, folder.name
 		ORDER BY lower(folder.name), folder.id
 	`)
