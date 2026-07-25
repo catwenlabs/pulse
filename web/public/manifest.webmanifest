@@ -1,0 +1,9 @@
+{
+  "name": "Pulse 阅读中枢",
+  "short_name": "Pulse",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f1ea",
+  "theme_color": "#f4f1ea",
+  "icons": []
+}

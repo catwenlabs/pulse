@@ -1,0 +1,12 @@
+backups/
+exports/
+imports/*
+!imports/.gitkeep
+pulse-config.json
+web/node_modules/
+web/coverage/
+web/dist/
+web/vite.config.js
+web/vite.config.d.ts
+*.tsbuildinfo
+.DS_Store

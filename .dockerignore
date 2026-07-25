@@ -1,0 +1,10 @@
+.git
+.spec-workflow
+docs
+imports
+exports
+coverage.out
+web/node_modules
+web/coverage
+web/dist
+backups

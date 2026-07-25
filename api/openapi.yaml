@@ -1,0 +1,674 @@
+openapi: 3.1.0
+info:
+  title: Pulse API
+  version: 0.1.0
+servers:
+  - url: /api/v1
+paths:
+  /sources:
+    get:
+      operationId: listSources
+      responses:
+        "200":
+          description: Active sources
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Source"
+    post:
+      operationId: createSource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSource"
+      responses:
+        "201":
+          description: Source created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Source"
+        "422":
+          $ref: "#/components/responses/Problem"
+  /sources/preview:
+    post:
+      operationId: previewSource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSource"
+      responses:
+        "200":
+          description: Ephemeral candidate and identity preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourcePreview"
+        "422":
+          $ref: "#/components/responses/Problem"
+  /sources/{sourceId}:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    get:
+      operationId: getSource
+      responses:
+        "200":
+          description: Source
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Source"
+        "404":
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: setSourceEnabled
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled:
+                  type: boolean
+      responses:
+        "200":
+          description: Updated source
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Source"
+        "404":
+          $ref: "#/components/responses/Problem"
+  /sources/{sourceId}/runs:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    post:
+      operationId: runSource
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Acquisition enqueued
+  /sources/{sourceId}/health:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    get:
+      operationId: getSourceHealth
+      responses:
+        "200":
+          description: Latest acquisition health and scheduling statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceHealth"
+  /sources/{sourceId}/entries:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    post:
+      operationId: createManualEntry
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushedCandidate"
+      responses:
+        "202":
+          description: Manual Entry acquisition enqueued
+  /sources/{sourceId}/secret:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    post:
+      operationId: rotateSourceSecret
+      responses:
+        "200":
+          description: Newly generated Source secret, returned once
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [secret]
+                properties:
+                  secret:
+                    type: string
+  /webhooks/{sourceId}:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    post:
+      operationId: receiveWebhook
+      parameters:
+        - name: X-Pulse-Webhook-Secret
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushedCandidate"
+      responses:
+        "202":
+          description: Webhook acquisition enqueued
+        "401":
+          $ref: "#/components/responses/Problem"
+  /entries:
+    get:
+      operationId: listEntries
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+            enum: [inbox, unread, starred, later, hidden]
+        - name: tag
+          in: query
+          schema:
+            type: string
+        - name: source_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Inbox entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Entry"
+  /entries/{entryId}:
+    parameters:
+      - name: entryId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getEntry
+      responses:
+        "200":
+          description: Entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Entry"
+    patch:
+      operationId: updateEntry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EntryPatch"
+      responses:
+        "200":
+          description: Updated Entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Entry"
+  /entries/{entryId}/tags:
+    parameters:
+      - $ref: "#/components/parameters/EntryId"
+    post:
+      operationId: addEntryTag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        "201":
+          description: Tag added
+  /entries/{entryId}/tags/{tagId}:
+    parameters:
+      - $ref: "#/components/parameters/EntryId"
+      - $ref: "#/components/parameters/TagId"
+    delete:
+      operationId: removeEntryTag
+      responses:
+        "204":
+          description: User tag removed
+  /entries/{entryId}/export.md:
+    parameters:
+      - $ref: "#/components/parameters/EntryId"
+    get:
+      operationId: exportEntryMarkdown
+      responses:
+        "200":
+          description: Single Entry Markdown export
+          content:
+            text/markdown:
+              schema:
+                type: string
+  /folders:
+    get:
+      operationId: listFolders
+      responses:
+        "200":
+          description: One-level Source folders
+    post:
+      operationId: createFolder
+      responses:
+        "201":
+          description: Folder created
+  /folders/{folderId}:
+    parameters:
+      - $ref: "#/components/parameters/FolderId"
+    delete:
+      operationId: deleteFolder
+      responses:
+        "204":
+          description: Folder deleted
+  /folders/{folderId}/sources/{sourceId}:
+    parameters:
+      - $ref: "#/components/parameters/FolderId"
+      - $ref: "#/components/parameters/SourceId"
+    put:
+      operationId: addSourceToFolder
+      responses:
+        "204":
+          description: Source associated
+    delete:
+      operationId: removeSourceFromFolder
+      responses:
+        "204":
+          description: Source association removed
+  /views:
+    get:
+      operationId: listViews
+      responses:
+        "200":
+          description: Saved Entry queries
+    post:
+      operationId: createView
+      responses:
+        "201":
+          description: View created
+  /views/{viewId}:
+    parameters:
+      - $ref: "#/components/parameters/ViewId"
+    put:
+      operationId: updateView
+      responses:
+        "200":
+          description: View updated
+    delete:
+      operationId: deleteView
+      responses:
+        "204":
+          description: View deleted
+  /rules:
+    get:
+      operationId: listRules
+      responses:
+        "200":
+          description: Structured rules
+    post:
+      operationId: createRule
+      responses:
+        "201":
+          description: Rule created
+  /rules/{ruleId}:
+    parameters:
+      - $ref: "#/components/parameters/RuleId"
+    get:
+      operationId: getRule
+      responses:
+        "200":
+          description: Rule
+    put:
+      operationId: updateRule
+      responses:
+        "200":
+          description: Rule version updated
+    delete:
+      operationId: deleteRule
+      responses:
+        "204":
+          description: Rule deleted
+  /rules/{ruleId}/preview:
+    parameters:
+      - $ref: "#/components/parameters/RuleId"
+    post:
+      operationId: previewRule
+      responses:
+        "200":
+          description: Read-only historical match preview
+  /rules/{ruleId}/replay:
+    parameters:
+      - $ref: "#/components/parameters/RuleId"
+    post:
+      operationId: replayRule
+      responses:
+        "200":
+          description: Historical replay summary; Effects default to disabled
+  /export/config:
+    get:
+      operationId: exportRedactedConfig
+      responses:
+        "200":
+          description: Redacted Source, Rule and View configuration
+  /opml/import:
+    post:
+      operationId: importOPML
+      requestBody:
+        required: true
+        content:
+          text/x-opml:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: OPML import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OPMLImportResult"
+        "400":
+          $ref: "#/components/responses/Problem"
+  /opml/export:
+    get:
+      operationId: exportOPML
+      responses:
+        "200":
+          description: OPML subscription document
+          content:
+            text/x-opml:
+              schema:
+                type: string
+components:
+  parameters:
+    SourceId:
+      name: sourceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EntryId:
+      name: entryId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TagId:
+      name: tagId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    FolderId:
+      name: folderId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ViewId:
+      name: viewId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RuleId:
+      name: ruleId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    Problem:
+      description: Request problem
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    CreateSource:
+      type: object
+      required: [name, kind, locator]
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [rss, json-api, html, webhook, manual, file]
+        locator:
+          type: string
+        config:
+          type: object
+          additionalProperties: true
+        secret_ref:
+          type: string
+    Source:
+      allOf:
+        - $ref: "#/components/schemas/CreateSource"
+        - type: object
+          required: [id, enabled, normalized_locator, created_at, updated_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+            enabled:
+              type: boolean
+            normalized_locator:
+              type: string
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    SourceHealth:
+      type: object
+      required: [source_id, status, duration_milliseconds, candidate_count, new_count, updated_count, consecutive_failures]
+      properties:
+        source_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        next_scheduled_at:
+          type: string
+          format: date-time
+        duration_milliseconds:
+          type: integer
+        candidate_count:
+          type: integer
+        new_count:
+          type: integer
+        updated_count:
+          type: integer
+        consecutive_failures:
+          type: integer
+    SourcePreview:
+      type: object
+      required: [candidates, diagnostics]
+      properties:
+        candidates:
+          type: array
+          items:
+            type: object
+            required: [identity_key]
+            properties:
+              title:
+                type: string
+              url:
+                type: string
+              author:
+                type: string
+              summary:
+                type: string
+              identity_key:
+                type: string
+              identity_warning:
+                type: string
+        diagnostics:
+          type: object
+          required: [status, candidate_count]
+          properties:
+            status:
+              type: string
+            candidate_count:
+              type: integer
+    PushedCandidate:
+      type: object
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+        title:
+          type: string
+        author:
+          type: string
+        summary:
+          type: string
+        content_html:
+          type: string
+        published_at:
+          type: string
+          format: date-time
+    Entry:
+      type: object
+      required: [id, source_id, identity_key, source_title, discovered_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_id:
+          type: string
+          format: uuid
+        identity_key:
+          type: string
+        source_title:
+          type: string
+        canonical_url:
+          type: string
+        discovered_at:
+          type: string
+          format: date-time
+        later_at:
+          type: string
+          format: date-time
+        read_at:
+          type: string
+          format: date-time
+        starred_at:
+          type: string
+          format: date-time
+        hidden_at:
+          type: string
+          format: date-time
+        display_title:
+          type: string
+        note:
+          type: string
+    EntryPatch:
+      type: object
+      properties:
+        read:
+          type: boolean
+        starred:
+          type: boolean
+        hidden:
+          type: boolean
+        later:
+          type: boolean
+        display_title:
+          type: string
+        note:
+          type: string
+    Rule:
+      type: object
+      required: [name, condition, actions]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        version:
+          type: integer
+        enabled:
+          type: boolean
+        condition:
+          type: object
+          additionalProperties: true
+        actions:
+          type: array
+          items:
+            type: object
+            required: [kind]
+            properties:
+              kind:
+                type: string
+                enum: [tag, star, read, hide, later, notification, webhook]
+              value:
+                type: string
+    Problem:
+      type: object
+      required: [code, detail, field]
+      properties:
+        code:
+          type: string
+        detail:
+          type: string
+        field:
+          type: string
+    OPMLImportResult:
+      type: object
+      required: [created_sources, existing_sources, created_folders]
+      properties:
+        created_sources:
+          type: integer
+        existing_sources:
+          type: integer
+        created_folders:
+          type: integer
