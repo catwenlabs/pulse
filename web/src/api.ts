@@ -112,6 +112,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new Error(message)
   }
+  if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
 }
 
@@ -143,6 +144,10 @@ export function setSourceEnabled(sourceId: string, enabled: boolean): Promise<So
   })
 }
 
+export function archiveSource(sourceId: string): Promise<void> {
+  return request<void>(`/api/v1/sources/${sourceId}`, { method: 'DELETE' })
+}
+
 export function getSourceHealth(sourceId: string): Promise<SourceHealth> {
   return request<SourceHealth>(`/api/v1/sources/${sourceId}/health`)
 }
@@ -171,5 +176,16 @@ export function updateEntry(id: string, patch: EntryPatch): Promise<Entry> {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
+  })
+}
+
+export function markEntriesRead(sourceId?: string): Promise<{ updated_count: number }> {
+  const parameters = new URLSearchParams()
+  if (sourceId) parameters.set('source_id', sourceId)
+  const suffix = parameters.size > 0 ? `?${parameters}` : ''
+  return request<{ updated_count: number }>(`/api/v1/entries${suffix}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ read: true }),
   })
 }

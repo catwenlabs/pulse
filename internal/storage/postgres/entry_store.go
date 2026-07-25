@@ -12,6 +12,7 @@ import (
 
 	"github.com/wenpengfei/pulse/internal/entry"
 	"github.com/wenpengfei/pulse/internal/ingestion"
+	"github.com/wenpengfei/pulse/internal/source"
 )
 
 type EntryStore struct {
@@ -165,6 +166,19 @@ func (store *EntryStore) Update(ctx context.Context, id entry.ID, patch entry.Pa
 		return entry.Entry{}, fmt.Errorf("commit entry update %s: %w", id, err)
 	}
 	return item, nil
+}
+
+func (store *EntryStore) MarkRead(ctx context.Context, sourceID source.ID) (int64, error) {
+	result, err := store.pool.Exec(ctx, `
+		UPDATE entries
+		SET read_at = now()
+		WHERE read_at IS NULL
+		  AND ($1 = '' OR source_id = $1::uuid)
+	`, sourceID)
+	if err != nil {
+		return 0, fmt.Errorf("mark entries read: %w", err)
+	}
+	return result.RowsAffected(), nil
 }
 
 func (store *EntryStore) AddTag(ctx context.Context, id entry.ID, name string) (entry.Tag, error) {

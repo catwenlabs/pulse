@@ -149,6 +149,48 @@ func TestEntryStoreSearchStatePatchAndTags(t *testing.T) {
 	}
 }
 
+func TestEntryStoreMarkReadCanBeScopedToSource(t *testing.T) {
+	pool := testPool(t)
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	store := NewEntryStore(pool)
+	ctx := context.Background()
+	first := createTestSource(t, sourceStore, "mark-read-first")
+	second := createTestSource(t, sourceStore, "mark-read-second")
+
+	for _, item := range []struct {
+		sourceID source.ID
+		key      string
+	}{
+		{sourceID: first.ID, key: "mark-read-first"},
+		{sourceID: second.ID, key: "mark-read-second"},
+	} {
+		acquisition := claimTestAcquisition(t, acquisitionStore, item.sourceID, item.key)
+		if err := store.CommitBatch(ctx, acquisition, "worker", []ingestion.Candidate{
+			{ExternalID: item.key, Title: item.key},
+		}, json.RawMessage(`{}`)); err != nil {
+			t.Fatalf("CommitBatch(%s) error = %v", item.key, err)
+		}
+	}
+
+	updated, err := store.MarkRead(ctx, first.ID)
+	if err != nil || updated != 1 {
+		t.Fatalf("MarkRead() = %d, %v", updated, err)
+	}
+	firstUnread, err := store.Search(ctx, entry.Query{
+		Limit: 10, State: "unread", SourceID: first.ID,
+	})
+	if err != nil || len(firstUnread) != 0 {
+		t.Fatalf("first unread = %+v, %v", firstUnread, err)
+	}
+	secondUnread, err := store.Search(ctx, entry.Query{
+		Limit: 10, State: "unread", SourceID: second.ID,
+	})
+	if err != nil || len(secondUnread) != 1 {
+		t.Fatalf("second unread = %+v, %v", secondUnread, err)
+	}
+}
+
 func claimTestAcquisition(
 	t *testing.T,
 	store *AcquisitionStore,

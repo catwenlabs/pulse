@@ -31,6 +31,7 @@ type Backend interface {
 	ListSources(context.Context) ([]source.Source, error)
 	GetSource(context.Context, source.ID) (source.Source, error)
 	SetSourceEnabled(context.Context, source.ID, bool) (source.Source, error)
+	ArchiveSource(context.Context, source.ID) error
 	SetSourceSecret(context.Context, source.ID, string) error
 	GetSourceHealth(context.Context, source.ID) (source.Health, error)
 	CreateFolder(context.Context, string) (organization.Folder, error)
@@ -47,6 +48,7 @@ type Backend interface {
 	SearchEntries(context.Context, entry.Query) ([]entry.Entry, error)
 	GetEntry(context.Context, entry.ID) (entry.Entry, error)
 	UpdateEntry(context.Context, entry.ID, entry.Patch) (entry.Entry, error)
+	MarkEntriesRead(context.Context, source.ID) (int64, error)
 	AddEntryTag(context.Context, entry.ID, string) (entry.Tag, error)
 	RemoveEntryTag(context.Context, entry.ID, string) error
 	ImportOPML(context.Context, []opml.Subscription) (opml.ImportResult, error)
@@ -88,12 +90,14 @@ func newHandler(backend Backend, web fs.FS) http.Handler {
 	mux.HandleFunc("GET /api/v1/sources", listSources(backend))
 	mux.HandleFunc("GET /api/v1/sources/{id}", getSource(backend))
 	mux.HandleFunc("PATCH /api/v1/sources/{id}", setSourceEnabled(backend))
+	mux.HandleFunc("DELETE /api/v1/sources/{id}", archiveSource(backend))
 	mux.HandleFunc("POST /api/v1/sources/{id}/runs", runSource(backend))
 	mux.HandleFunc("POST /api/v1/sources/{id}/entries", createManualEntry(backend))
 	mux.HandleFunc("POST /api/v1/sources/{id}/secret", rotateSourceSecret(backend))
 	mux.HandleFunc("GET /api/v1/sources/{id}/health", getSourceHealth(backend))
 	mux.HandleFunc("POST /api/v1/webhooks/{id}", receiveWebhook(backend))
 	mux.HandleFunc("GET /api/v1/entries", listEntries(backend))
+	mux.HandleFunc("PATCH /api/v1/entries", markEntriesRead(backend))
 	mux.HandleFunc("GET /api/v1/entries/{id}", getEntry(backend))
 	mux.HandleFunc("PATCH /api/v1/entries/{id}", updateEntry(backend))
 	mux.HandleFunc("POST /api/v1/entries/{id}/tags", addEntryTag(backend))
@@ -632,6 +636,19 @@ func setSourceEnabled(backend Backend) http.HandlerFunc {
 	}
 }
 
+func archiveSource(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		if err := backend.ArchiveSource(
+			request.Context(),
+			source.ID(request.PathValue("id")),
+		); err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 func registerWeb(mux *http.ServeMux, web fs.FS) {
 	if web == nil {
 		return
@@ -847,6 +864,34 @@ func updateEntry(backend Backend) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, updated)
+	}
+}
+
+func markEntriesRead(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		request.Body = http.MaxBytesReader(w, request.Body, 1<<10)
+		var body struct {
+			Read bool `json:"read"`
+		}
+		decoder := json.NewDecoder(request.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&body); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		if !body.Read {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", "read must be true", "read")
+			return
+		}
+		updated, err := backend.MarkEntriesRead(
+			request.Context(),
+			source.ID(strings.TrimSpace(request.URL.Query().Get("source_id"))),
+		)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]int64{"updated_count": updated})
 	}
 }
 

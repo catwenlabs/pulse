@@ -87,6 +87,14 @@ paths:
                 $ref: "#/components/schemas/Source"
         "404":
           $ref: "#/components/responses/Problem"
+    delete:
+      operationId: archiveSource
+      description: Archives the Source and preserves existing Entries.
+      responses:
+        "204":
+          description: Source archived
+        "404":
+          $ref: "#/components/responses/Problem"
   /sources/{sourceId}/runs:
     parameters:
       - $ref: "#/components/parameters/SourceId"
@@ -211,6 +219,38 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Entry"
+    patch:
+      operationId: markEntriesRead
+      parameters:
+        - name: source_id
+          in: query
+          description: When present, only entries belonging to this Source are marked read.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [read]
+              properties:
+                read:
+                  type: boolean
+                  const: true
+      responses:
+        "200":
+          description: Number of entries newly marked as read
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated_count]
+                properties:
+                  updated_count:
+                    type: integer
+                    format: int64
   /entries/{entryId}:
     parameters:
       - name: entryId

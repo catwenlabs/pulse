@@ -2,7 +2,9 @@ package httpserver
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/wenpengfei/pulse/internal/entry"
 	"github.com/wenpengfei/pulse/internal/ingestion"
@@ -26,11 +28,23 @@ func (fakeSourceRepository) Get(_ context.Context, id source.ID) (source.Source,
 func (fakeSourceRepository) SetEnabled(_ context.Context, id source.ID, enabled bool) error {
 	return nil
 }
+func (fakeSourceRepository) Archive(context.Context, source.ID) error {
+	return nil
+}
 func (fakeSourceRepository) SetSecretRef(context.Context, source.ID, string) error {
 	return nil
 }
 func (fakeSourceRepository) Health(_ context.Context, id source.ID) (source.Health, error) {
 	return source.Health{SourceID: id, Status: "ok"}, nil
+}
+
+type archivedSourceRepository struct {
+	fakeSourceRepository
+}
+
+func (archivedSourceRepository) Get(_ context.Context, id source.ID) (source.Source, error) {
+	archivedAt := time.Now()
+	return source.Source{ID: id, ArchivedAt: &archivedAt}, nil
 }
 
 type fakeQueue struct{}
@@ -53,6 +67,7 @@ func (fakeEntries) Get(_ context.Context, id entry.ID) (entry.Entry, error) {
 func (fakeEntries) Update(_ context.Context, id entry.ID, _ entry.Patch) (entry.Entry, error) {
 	return entry.Entry{ID: id}, nil
 }
+func (fakeEntries) MarkRead(context.Context, source.ID) (int64, error) { return 0, nil }
 func (fakeEntries) AddTag(context.Context, entry.ID, string) (entry.Tag, error) {
 	return entry.Tag{ID: "tag", Name: "Go"}, nil
 }
@@ -134,6 +149,9 @@ func TestBackendForwardsOperations(t *testing.T) {
 	if err := backend.SetSourceSecret(ctx, "source", "secret"); err != nil {
 		t.Fatalf("SetSourceSecret() error = %v", err)
 	}
+	if err := backend.ArchiveSource(ctx, "source"); err != nil {
+		t.Fatalf("ArchiveSource() error = %v", err)
+	}
 	if health, err := backend.GetSourceHealth(ctx, "source"); err != nil || health.Status != "ok" {
 		t.Fatalf("GetSourceHealth() = %+v, %v", health, err)
 	}
@@ -162,5 +180,20 @@ func TestBackendForwardsOperations(t *testing.T) {
 	previewed, err := backend.PreviewSource(ctx, source.Spec{Kind: source.KindRSS})
 	if err != nil || len(previewed.Candidates) != 1 {
 		t.Fatalf("PreviewSource() = %+v, %v", previewed, err)
+	}
+}
+
+func TestBackendHidesArchivedSource(t *testing.T) {
+	backend := NewBackend(
+		archivedSourceRepository{},
+		fakeQueue{},
+		fakeEntries{},
+		fakeOPMLRepository{},
+		fakePreviewer{},
+		fakeOrganization{},
+	)
+
+	if _, err := backend.GetSource(context.Background(), "archived"); !errors.Is(err, source.ErrNotFound) {
+		t.Fatalf("GetSource() error = %v, want ErrNotFound", err)
 	}
 }

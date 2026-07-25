@@ -13,6 +13,8 @@ export function App() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
+  const [sourceToDelete, setSourceToDelete] = useState<Source | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [activeView, setActiveView] = useState<View>('inbox')
   const [selectedSourceID, setSelectedSourceID] = useState('')
@@ -79,6 +81,28 @@ export function App() {
         tone: 'error',
         message: error instanceof Error ? error.message : '无法更新信息源',
       })
+    }
+  }
+
+  async function handleArchive(source: Source) {
+    setDeleting(true)
+    try {
+      await api.archiveSource(source.id)
+      setSources((current) => current.filter((item) => item.id !== source.id))
+      setHealth((current) => Object.fromEntries(
+        Object.entries(current).filter(([id]) => id !== source.id),
+      ))
+      setSelectedSourceID((current) => current === source.id ? '' : current)
+      setFolders(await api.listFolders().catch(() => folders))
+      setSourceToDelete(null)
+      setNotice({ tone: 'success', message: `已删除 ${source.name}` })
+    } catch (error) {
+      setNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '无法删除信息源',
+      })
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -152,7 +176,7 @@ export function App() {
         </div>
       </aside>
 
-      <main className="main-content">
+      <main className={`main-content ${activeView === 'sources' ? 'source-main' : 'reader-main'}`}>
         {notice && (
           <div className={`notice ${notice.tone}`} role="status">
             {notice.message}
@@ -224,21 +248,30 @@ export function App() {
                       {health[source.id].last_error && <em>{health[source.id].last_error}</em>}
                     </div>
                   )}
-                  <button
-                    className="toggle-button"
-                    aria-label={`${source.enabled ? '暂停' : '恢复'} ${source.name}`}
-                    onClick={() => void handleToggle(source)}
-                  >
-                    {source.enabled ? '暂停' : '恢复'}
-                  </button>
-                  <button
-                    className="refresh-button"
-                    aria-label={`刷新 ${source.name}`}
-                    disabled={!source.enabled}
-                    onClick={() => void handleRun(source)}
-                  >
-                    ↻
-                  </button>
+                  <div className="source-actions">
+                    <button
+                      className="toggle-button"
+                      aria-label={`${source.enabled ? '暂停' : '恢复'} ${source.name}`}
+                      onClick={() => void handleToggle(source)}
+                    >
+                      {source.enabled ? '暂停' : '恢复'}
+                    </button>
+                    <button
+                      className="refresh-button"
+                      aria-label={`刷新 ${source.name}`}
+                      disabled={!source.enabled}
+                      onClick={() => void handleRun(source)}
+                    >
+                      ↻
+                    </button>
+                    <button
+                      className="delete-source-button"
+                      aria-label={`删除 ${source.name}`}
+                      onClick={() => setSourceToDelete(source)}
+                    >
+                      删除
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>
@@ -261,6 +294,61 @@ export function App() {
           onCreate={handleCreate}
         />
       )}
+      {sourceToDelete && (
+        <DeleteSourceDialog
+          source={sourceToDelete}
+          deleting={deleting}
+          onCancel={() => setSourceToDelete(null)}
+          onConfirm={() => void handleArchive(sourceToDelete)}
+        />
+      )}
+    </div>
+  )
+}
+
+function DeleteSourceDialog({
+  source,
+  deleting,
+  onCancel,
+  onConfirm,
+}: {
+  source: Source
+  deleting: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div className="dialog-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !deleting && onCancel()}>
+      <section
+        className="dialog delete-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-source-title"
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape' && !deleting) {
+            onCancel()
+          }
+        }}
+      >
+        <p className="eyebrow">ARCHIVE SOURCE</p>
+        <h2 id="delete-source-title">删除信息源？</h2>
+        <p className="dialog-description">
+          “{source.name}”将停止抓取并从订阅列表中移除。
+        </p>
+        <p className="delete-preservation">已经抓取的文章、收藏和笔记都会保留。</p>
+        <div className="dialog-actions">
+          <button className="button secondary" disabled={deleting} onClick={onCancel} autoFocus>取消删除</button>
+          <button
+            className="button danger"
+            disabled={deleting}
+            aria-label={`确认删除 ${source.name}`}
+            onClick={onConfirm}
+          >
+            {deleting ? '正在删除…' : '确认删除'}
+          </button>
+        </div>
+      </section>
     </div>
   )
 }
@@ -284,9 +372,13 @@ function Reader({
 }) {
   const [entries, setEntries] = useState<Entry[]>([])
   const [selected, setSelected] = useState<Entry | null>(null)
+  const [actionMenuOpen, setActionMenuOpen] = useState(false)
+  const [notesOpen, setNotesOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [markingAllRead, setMarkingAllRead] = useState(false)
+  const [readerNotice, setReaderNotice] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -307,10 +399,57 @@ function Reader({
     }
   }, [search, sourceID, view])
 
+  useEffect(() => {
+    if (!selected) return
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      setSelected(null)
+      setActionMenuOpen(false)
+      setNotesOpen(false)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [selected])
+
   async function patch(item: Entry, change: EntryPatch) {
     const updated = await api.updateEntry(item.id, change)
     setEntries((current) => current.map((candidate) => candidate.id === updated.id ? updated : candidate))
     setSelected(updated)
+  }
+
+  function toggleEntry(item: Entry, element: HTMLElement) {
+    if (selected?.id === item.id) {
+      setSelected(null)
+      setActionMenuOpen(false)
+      setNotesOpen(false)
+      return
+    }
+
+    setSelected(item)
+    setActionMenuOpen(false)
+    setNotesOpen(false)
+    window.requestAnimationFrame(() => {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+    if (!item.read_at) {
+      void patch(item, { read: true })
+    }
+  }
+
+  async function markAllRead() {
+    setMarkingAllRead(true)
+    setReaderNotice('')
+    try {
+      const result = await api.markEntriesRead(sourceID || undefined)
+      const readAt = new Date().toISOString()
+      setEntries((current) => current.map((item) => item.read_at ? item : { ...item, read_at: readAt }))
+      setSelected((current) => current && !current.read_at ? { ...current, read_at: readAt } : current)
+      setReaderNotice(result.updated_count > 0 ? `已将 ${result.updated_count} 篇文章标记为已读` : '没有未读文章')
+    } catch (cause) {
+      setReaderNotice(cause instanceof Error ? cause.message : '全部标记为已读失败')
+    } finally {
+      setMarkingAllRead(false)
+    }
   }
 
   const title = sourceName || (view === 'starred' ? '收藏' : view === 'later' ? '稍后阅读' : '全部文章')
@@ -318,21 +457,28 @@ function Reader({
   return (
     <div className="reader-page">
       <header className="reader-header">
-        <div>
-          <p className="eyebrow">{sourceName ? 'SUBSCRIPTION' : 'READER'}</p>
+        <div className="reader-title">
           <h1>{title}</h1>
-          <p className="reader-count">{loading ? '正在更新…' : `${entries.length} 篇文章`}</p>
+          <span className="reader-count">{loading ? '正在更新…' : `${entries.length} 篇`}</span>
         </div>
-        <label className="reader-search">
-          <span className="sr-only">搜索文章</span>
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索标题、作者、正文或笔记" />
-        </label>
+        <div className="reader-controls">
+          <button
+            className="mark-all-read"
+            disabled={markingAllRead}
+            aria-label={sourceName ? `将 ${sourceName} 全部标记为已读` : '将全部文章标记为已读'}
+            onClick={() => void markAllRead()}
+          >
+            <span aria-hidden="true">✓✓</span>
+            {markingAllRead ? '正在标记…' : '全部标记为已读'}
+          </button>
+          <label className="reader-search">
+            <span className="sr-only">搜索文章</span>
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索文章" />
+          </label>
+        </div>
       </header>
+      {readerNotice && <div className="reader-notice" role="status">{readerNotice}</div>}
       <section className="entry-stream" aria-label="文章列表">
-        <div className="stream-toolbar">
-          <span>按发布时间排序</span>
-          <span>点击文章展开阅读</span>
-        </div>
           {loading && <p className="reader-state">正在加载文章…</p>}
           {error && <p className="reader-state error-state">{error}</p>}
           {!loading && !error && entries.length === 0 && <p className="reader-state">这里还没有文章。</p>}
@@ -344,7 +490,7 @@ function Reader({
               <button
                 className="stream-entry-summary"
                 aria-expanded={selected?.id === item.id}
-                onClick={() => setSelected((current) => current?.id === item.id ? null : item)}
+                onClick={(event) => toggleEntry(item, event.currentTarget.closest('article')!)}
               >
                 <span className="unread-dot" aria-hidden="true" />
                 <span className="stream-source">{sourceNames[item.source_id] || item.author || '未知来源'}</span>
@@ -356,21 +502,42 @@ function Reader({
               {selected?.id === item.id && (
                 <div className="stream-entry-detail">
                   <div className="entry-reading-column">
-                    <div className="entry-toolbar">
-                      <button aria-label={selected.read_at ? '标记未读' : '标记已读'} onClick={() => void patch(selected, { read: !selected.read_at })}>
-                        {selected.read_at ? '设为未读' : '标记已读'}
-                      </button>
-                      <button aria-label={selected.starred_at ? '取消收藏' : '收藏文章'} onClick={() => void patch(selected, { starred: !selected.starred_at })}>
-                        {selected.starred_at ? '取消收藏' : '收藏'}
-                      </button>
-                      <button aria-label={selected.later_at ? '移出稍后阅读' : '稍后阅读'} onClick={() => void patch(selected, { later: !selected.later_at })}>
-                        {selected.later_at ? '移出稍后' : '稍后阅读'}
-                      </button>
-                      <button aria-label="收起文章" onClick={() => setSelected(null)}>收起</button>
+                    <div className="entry-detail-bar">
+                      <span>{selected.author || sourceNames[selected.source_id] || '未知来源'}</span>
+                      <div className="entry-detail-actions">
+                        {selected.canonical_url && (
+                          <a href={selected.canonical_url} target="_blank" rel="noreferrer">查看原文 ↗</a>
+                        )}
+                        <div className="entry-action-menu">
+                          <button
+                            className="entry-more-button"
+                            aria-label="更多操作"
+                            aria-expanded={actionMenuOpen}
+                            onClick={() => setActionMenuOpen((open) => !open)}
+                          >
+                            •••
+                          </button>
+                          {actionMenuOpen && (
+                            <div className="entry-action-popover">
+                              <button aria-label="标记未读" onClick={() => void patch(selected, { read: false })}>标记未读</button>
+                              <button aria-label={selected.starred_at ? '取消收藏' : '收藏文章'} onClick={() => void patch(selected, { starred: !selected.starred_at })}>
+                                {selected.starred_at ? '取消收藏' : '收藏文章'}
+                              </button>
+                              <button aria-label={selected.later_at ? '移出稍后阅读' : '稍后阅读'} onClick={() => void patch(selected, { later: !selected.later_at })}>
+                                {selected.later_at ? '移出稍后阅读' : '稍后阅读'}
+                              </button>
+                              <button onClick={() => {
+                                setNotesOpen((open) => !open)
+                                setActionMenuOpen(false)
+                              }}>
+                                编辑标题与笔记
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <p className="eyebrow">{selected.author || sourceNames[selected.source_id] || 'ARTICLE'}</p>
                     <h2>{selected.display_title || selected.source_title || '无标题'}</h2>
-                    {selected.canonical_url && <a className="original-link" href={selected.canonical_url} target="_blank" rel="noreferrer">查看原文 ↗</a>}
                     <div
                       className="entry-prose"
                       dangerouslySetInnerHTML={{
@@ -380,7 +547,7 @@ function Reader({
                         ),
                       }}
                     />
-                    <div className="entry-notes">
+                    {notesOpen && <div className="entry-notes">
                       <label>
                         <span>显示标题</span>
                         <input
@@ -403,7 +570,7 @@ function Reader({
                       })}>
                         保存标题与笔记
                       </button>
-                    </div>
+                    </div>}
                   </div>
                 </div>
               )}

@@ -24,6 +24,7 @@ type fakeBackend struct {
 	listSources     func(context.Context) ([]source.Source, error)
 	getSource       func(context.Context, source.ID) (source.Source, error)
 	setEnabled      func(context.Context, source.ID, bool) (source.Source, error)
+	archiveSource   func(context.Context, source.ID) error
 	setSecret       func(context.Context, source.ID, string) error
 	getSourceHealth func(context.Context, source.ID) (source.Health, error)
 	enqueue         func(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error)
@@ -31,6 +32,7 @@ type fakeBackend struct {
 	searchEntries   func(context.Context, entry.Query) ([]entry.Entry, error)
 	getEntry        func(context.Context, entry.ID) (entry.Entry, error)
 	updateEntry     func(context.Context, entry.ID, entry.Patch) (entry.Entry, error)
+	markEntriesRead func(context.Context, source.ID) (int64, error)
 	addEntryTag     func(context.Context, entry.ID, string) (entry.Tag, error)
 	removeEntryTag  func(context.Context, entry.ID, string) error
 	importOPML      func(context.Context, []opml.Subscription) (opml.ImportResult, error)
@@ -53,6 +55,10 @@ func (fake fakeBackend) GetSource(ctx context.Context, id source.ID) (source.Sou
 
 func (fake fakeBackend) SetSourceEnabled(ctx context.Context, id source.ID, enabled bool) (source.Source, error) {
 	return fake.setEnabled(ctx, id, enabled)
+}
+
+func (fake fakeBackend) ArchiveSource(ctx context.Context, id source.ID) error {
+	return fake.archiveSource(ctx, id)
 }
 
 func (fake fakeBackend) SetSourceSecret(ctx context.Context, id source.ID, secret string) error {
@@ -105,6 +111,10 @@ func (fake fakeBackend) GetEntry(ctx context.Context, id entry.ID) (entry.Entry,
 
 func (fake fakeBackend) UpdateEntry(ctx context.Context, id entry.ID, patch entry.Patch) (entry.Entry, error) {
 	return fake.updateEntry(ctx, id, patch)
+}
+
+func (fake fakeBackend) MarkEntriesRead(ctx context.Context, sourceID source.ID) (int64, error) {
+	return fake.markEntriesRead(ctx, sourceID)
 }
 
 func (fake fakeBackend) AddEntryTag(ctx context.Context, id entry.ID, name string) (entry.Tag, error) {
@@ -219,6 +229,27 @@ func TestCreateSource(t *testing.T) {
 	}
 	if created.ID != "source-1" {
 		t.Errorf("ID = %q", created.ID)
+	}
+}
+
+func TestDeleteSourceArchivesIt(t *testing.T) {
+	backend := completeFakeBackend()
+	var archived source.ID
+	backend.archiveSource = func(_ context.Context, id source.ID) error {
+		archived = id
+		return nil
+	}
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, httptest.NewRequest(
+		http.MethodDelete, "/api/v1/sources/source-1", nil,
+	))
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if archived != "source-1" {
+		t.Errorf("archived source = %q", archived)
 	}
 }
 
@@ -348,6 +379,28 @@ func TestReaderSearchAndPatch(t *testing.T) {
 	)
 	if patchResponse.Code != http.StatusOK {
 		t.Errorf("patch status = %d, body = %s", patchResponse.Code, patchResponse.Body.String())
+	}
+}
+
+func TestMarkEntriesReadScopesToSourceWhenRequested(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.markEntriesRead = func(_ context.Context, sourceID source.ID) (int64, error) {
+		if sourceID != "source-1" {
+			t.Errorf("source id = %q", sourceID)
+		}
+		return 7, nil
+	}
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(
+		response,
+		httptest.NewRequest(
+			http.MethodPatch,
+			"/api/v1/entries?source_id=source-1",
+			bytes.NewBufferString(`{"read":true}`),
+		),
+	)
+	if response.Code != http.StatusOK || response.Body.String() != "{\"updated_count\":7}\n" {
+		t.Errorf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
 
@@ -619,6 +672,9 @@ func completeFakeBackend() fakeBackend {
 		setEnabled: func(context.Context, source.ID, bool) (source.Source, error) {
 			return source.Source{}, errors.New("unexpected SetSourceEnabled")
 		},
+		archiveSource: func(context.Context, source.ID) error {
+			return errors.New("unexpected ArchiveSource")
+		},
 		setSecret: func(context.Context, source.ID, string) error {
 			return errors.New("unexpected SetSourceSecret")
 		},
@@ -639,6 +695,9 @@ func completeFakeBackend() fakeBackend {
 		},
 		updateEntry: func(context.Context, entry.ID, entry.Patch) (entry.Entry, error) {
 			return entry.Entry{}, errors.New("unexpected UpdateEntry")
+		},
+		markEntriesRead: func(context.Context, source.ID) (int64, error) {
+			return 0, errors.New("unexpected MarkEntriesRead")
 		},
 		addEntryTag: func(context.Context, entry.ID, string) (entry.Tag, error) {
 			return entry.Tag{}, errors.New("unexpected AddEntryTag")

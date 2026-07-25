@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/wenpengfei/pulse/internal/entry"
 	"github.com/wenpengfei/pulse/internal/ingestion"
@@ -17,6 +18,7 @@ type sourceRepository interface {
 	List(context.Context) ([]source.Source, error)
 	Get(context.Context, source.ID) (source.Source, error)
 	SetEnabled(context.Context, source.ID, bool) error
+	Archive(context.Context, source.ID) error
 	SetSecretRef(context.Context, source.ID, string) error
 	Health(context.Context, source.ID) (source.Health, error)
 }
@@ -30,6 +32,7 @@ type entryRepository interface {
 	Search(context.Context, entry.Query) ([]entry.Entry, error)
 	Get(context.Context, entry.ID) (entry.Entry, error)
 	Update(context.Context, entry.ID, entry.Patch) (entry.Entry, error)
+	MarkRead(context.Context, source.ID) (int64, error)
 	AddTag(context.Context, entry.ID, string) (entry.Tag, error)
 	RemoveTag(context.Context, entry.ID, string) error
 }
@@ -172,7 +175,14 @@ func (service *backend) ListSources(ctx context.Context) ([]source.Source, error
 }
 
 func (service *backend) GetSource(ctx context.Context, id source.ID) (source.Source, error) {
-	return service.sources.Get(ctx, id)
+	item, err := service.sources.Get(ctx, id)
+	if err != nil {
+		return source.Source{}, err
+	}
+	if item.ArchivedAt != nil {
+		return source.Source{}, fmt.Errorf("%w: %s", source.ErrNotFound, id)
+	}
+	return item, nil
 }
 
 func (service *backend) SetSourceEnabled(
@@ -186,6 +196,10 @@ func (service *backend) SetSourceEnabled(
 	return service.sources.Get(ctx, id)
 }
 
+func (service *backend) ArchiveSource(ctx context.Context, id source.ID) error {
+	return service.sources.Archive(ctx, id)
+}
+
 func (service *backend) SetSourceSecret(
 	ctx context.Context,
 	id source.ID,
@@ -195,7 +209,7 @@ func (service *backend) SetSourceSecret(
 }
 
 func (service *backend) GetSourceHealth(ctx context.Context, id source.ID) (source.Health, error) {
-	if _, err := service.sources.Get(ctx, id); err != nil {
+	if _, err := service.GetSource(ctx, id); err != nil {
 		return source.Health{}, err
 	}
 	return service.sources.Health(ctx, id)
@@ -222,6 +236,10 @@ func (service *backend) GetEntry(ctx context.Context, id entry.ID) (entry.Entry,
 
 func (service *backend) UpdateEntry(ctx context.Context, id entry.ID, patch entry.Patch) (entry.Entry, error) {
 	return service.entries.Update(ctx, id, patch)
+}
+
+func (service *backend) MarkEntriesRead(ctx context.Context, sourceID source.ID) (int64, error) {
+	return service.entries.MarkRead(ctx, sourceID)
 }
 
 func (service *backend) AddEntryTag(ctx context.Context, id entry.ID, name string) (entry.Tag, error) {
