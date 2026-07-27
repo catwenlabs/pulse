@@ -389,6 +389,36 @@ describe('App', () => {
     expect(await screen.findByRole('button', { name: 'Example Feed' })).toBeInTheDocument()
   })
 
+  it('treats a null folder list as an empty list', async () => {
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/api/v1/folders')) {
+        return new Response('null', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url.endsWith('/api/v1/sources')) {
+        return new Response(JSON.stringify([source]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url.includes('/api/v1/entries')) {
+        return new Response('[]', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+
+    render(<App />)
+
+    expect(await screen.findByText('尚未创建文件夹')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Example Feed' })).toBeInTheDocument()
+  })
+
   it('reports loading, creation, and refresh errors', async () => {
     let failSourceLoad = true
     let failPreview = false

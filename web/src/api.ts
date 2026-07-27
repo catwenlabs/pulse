@@ -116,12 +116,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+async function requestList<T>(path: string): Promise<T[]> {
+  return (await request<T[] | null>(path)) ?? []
+}
+
 export function listSources(): Promise<Source[]> {
-  return request<Source[]>('/api/v1/sources')
+  return requestList<Source>('/api/v1/sources')
 }
 
 export function listFolders(): Promise<Folder[]> {
-  return request<Folder[]>('/api/v1/folders')
+  return requestList<Folder>('/api/v1/folders')
 }
 
 export function createSource(input: CreateSourceInput): Promise<Source> {
@@ -168,7 +172,7 @@ export function listEntries(query: EntryQuery = {}): Promise<Entry[]> {
   if (query.sourceId) parameters.set('source_id', query.sourceId)
   if (query.limit) parameters.set('limit', String(query.limit))
   const suffix = parameters.size > 0 ? `?${parameters}` : ''
-  return request<Entry[]>(`/api/v1/entries${suffix}`)
+  return requestList<Entry>(`/api/v1/entries${suffix}`)
 }
 
 export function updateEntry(id: string, patch: EntryPatch): Promise<Entry> {

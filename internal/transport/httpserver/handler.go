@@ -145,7 +145,10 @@ func exportConfig(backend Backend) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Disposition", `attachment; filename="pulse-config.json"`)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"version": 1, "sources": sources, "rules": rules, "views": views,
+			"version": 1,
+			"sources": nonNilSlice(sources),
+			"rules":   nonNilSlice(rules),
+			"views":   nonNilSlice(views),
 		})
 	}
 }
@@ -230,7 +233,7 @@ func listRules(backend Backend) http.HandlerFunc {
 			writeDomainError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, items)
+		writeJSON(w, http.StatusOK, nonNilSlice(items))
 	}
 }
 
@@ -335,7 +338,7 @@ func listFolders(backend Backend) http.HandlerFunc {
 			writeDomainError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, items)
+		writeJSON(w, http.StatusOK, nonNilSlice(items))
 	}
 }
 
@@ -394,7 +397,7 @@ func listViews(backend Backend) http.HandlerFunc {
 			writeDomainError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, items)
+		writeJSON(w, http.StatusOK, nonNilSlice(items))
 	}
 }
 
@@ -752,7 +755,7 @@ func listSources(backend Backend) http.HandlerFunc {
 			writeDomainError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, sources)
+		writeJSON(w, http.StatusOK, nonNilSlice(sources))
 	}
 }
 
@@ -819,7 +822,7 @@ func listEntries(backend Backend) http.HandlerFunc {
 			writeDomainError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, entries)
+		writeJSON(w, http.StatusOK, nonNilSlice(entries))
 	}
 }
 
@@ -957,6 +960,13 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func nonNilSlice[T any](items []T) []T {
+	if items == nil {
+		return []T{}
+	}
+	return items
 }
 
 func randomKey() (string, error) {

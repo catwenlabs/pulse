@@ -27,6 +27,7 @@ type fakeBackend struct {
 	archiveSource   func(context.Context, source.ID) error
 	setSecret       func(context.Context, source.ID, string) error
 	getSourceHealth func(context.Context, source.ID) (source.Health, error)
+	listFolders     func(context.Context) ([]organization.Folder, error)
 	enqueue         func(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error)
 	listEntries     func(context.Context, int) ([]entry.Entry, error)
 	searchEntries   func(context.Context, entry.Query) ([]entry.Entry, error)
@@ -72,7 +73,10 @@ func (fake fakeBackend) GetSourceHealth(ctx context.Context, id source.ID) (sour
 func (fake fakeBackend) CreateFolder(context.Context, string) (organization.Folder, error) {
 	return organization.Folder{ID: "folder"}, nil
 }
-func (fake fakeBackend) ListFolders(context.Context) ([]organization.Folder, error) {
+func (fake fakeBackend) ListFolders(ctx context.Context) ([]organization.Folder, error) {
+	if fake.listFolders != nil {
+		return fake.listFolders(ctx)
+	}
 	return []organization.Folder{}, nil
 }
 func (fake fakeBackend) DeleteFolder(context.Context, string) error                      { return nil }
@@ -174,6 +178,25 @@ func TestReplayRuleDefaultsEffectsOff(t *testing.T) {
 	))
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"matched":1`) {
 		t.Errorf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestListFoldersEncodesEmptyArrayForNilResult(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.listFolders = func(context.Context) ([]organization.Folder, error) {
+		return nil, nil
+	}
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, httptest.NewRequest(
+		http.MethodGet, "/api/v1/folders", nil,
+	))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if response.Body.String() != "[]\n" {
+		t.Errorf("body = %q, want an empty JSON array", response.Body.String())
 	}
 }
 
