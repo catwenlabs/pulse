@@ -1,5 +1,6 @@
 backups/
 exports/
+.spec-workflow/
 imports/*
 !imports/.gitkeep
 pulse-config.json

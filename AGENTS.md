@@ -62,26 +62,30 @@ Prefer existing Make targets. Do not duplicate build commands across documentati
 Start PostgreSQL:
 
 ```sh
-docker compose -f compose.yaml -f compose.dev.yaml up -d postgres
+make dev-db-up
 ```
 
 Run the backend:
 
 ```sh
-PULSE_DATABASE_URL='postgres://pulse:pulse@127.0.0.1:54321/pulse?sslmode=disable' \
-PULSE_IMPORT_ROOTS='./imports' \
-  make run
+make dev-api
 ```
 
 Run the frontend in another terminal:
 
 ```sh
-cd web
-npm ci
-npm run dev
+make dev-web-install
+make dev-web
 ```
 
 The Vite server proxies `/api` and `/healthz` to the Go backend on port `8080`.
+Use `make dev-db-logs` to follow PostgreSQL logs and `make dev-db-down` to stop the development database.
+
+The development defaults can be overridden without changing tracked files:
+
+```sh
+make dev-api DEV_DATABASE_URL='postgres://...' DEV_IMPORT_ROOTS='./imports'
+```
 
 ## Build and Test Commands
 

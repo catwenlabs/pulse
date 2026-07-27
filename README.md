@@ -195,26 +195,23 @@ make export-entry ID=ENTRY_UUID
 
 ## Local Development
 
-只在 Docker 中启动 PostgreSQL，并将其暴露到本机 `54321`：
+只在 Docker 中启动 PostgreSQL，并将其暴露到本机 `54321`。该命令不会构建或启动 Pulse：
 
 ```sh
-docker compose -f compose.yaml -f compose.dev.yaml up -d postgres
+make dev-db-up
 ```
 
 在本机运行 Go 后端：
 
 ```sh
-PULSE_DATABASE_URL='postgres://pulse:pulse@127.0.0.1:54321/pulse?sslmode=disable' \
-PULSE_IMPORT_ROOTS='./imports' \
-  make run
+make dev-api
 ```
 
-启动带有 HMR 的 Vite 前端开发服务器：
+首次安装前端依赖，然后启动带有 HMR 的 Vite 开发服务器：
 
 ```sh
-cd web
-npm ci
-npm run dev
+make dev-web-install
+make dev-web
 ```
 
 访问 [http://localhost:5173](http://localhost:5173)。开发服务器会将 `/api` 和 `/healthz` 请求代理到本机 `8080` 端口。
@@ -222,7 +219,15 @@ npm run dev
 停止本地开发数据库：
 
 ```sh
-docker compose -f compose.yaml -f compose.dev.yaml down
+make dev-db-down
+```
+
+查看 PostgreSQL 日志可运行 `make dev-db-logs`。本地数据库地址和导入目录具有安全默认值，也可以显式覆盖：
+
+```sh
+make dev-api \
+  DEV_DATABASE_URL='postgres://pulse:pulse@127.0.0.1:54321/pulse?sslmode=disable' \
+  DEV_IMPORT_ROOTS='./imports'
 ```
 
 ### Environment variables
