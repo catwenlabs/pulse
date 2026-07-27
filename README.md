@@ -47,7 +47,28 @@ make export-entry ID=ENTRY_UUID
 
 配置导出包含 Source、Rule 和 View，但认证 Header、Token、Cookie、密码和 Webhook 密钥会被脱敏。单篇 Entry 可导出为 Markdown。
 
-## 本地验证
+## 本地开发与验证
+
+只启动 PostgreSQL 并将其暴露到本机 `54321` 端口：
+
+```sh
+docker compose -f compose.yaml -f compose.dev.yaml up -d postgres
+```
+
+本机运行 Go 后端时，将数据库地址设置为：
+
+```sh
+PULSE_DATABASE_URL='postgres://pulse:pulse@127.0.0.1:54321/pulse?sslmode=disable' make run
+```
+
+前端开发服务器运行于 `http://localhost:5173`，并将 API 请求代理到本机后端：
+
+```sh
+cd web
+npm run dev
+```
+
+完整验证命令：
 
 ```sh
 make test
