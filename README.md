@@ -18,68 +18,6 @@
 
 Pulse 是面向单用户、本机或局域网部署的信息阅读中枢。它将不同来源的内容统一为可搜索、可过滤、可阅读的 Entry，并使用结构化规则自动整理你的信息流。所有状态保存在自己的 PostgreSQL 中。
 
-## Agent Quick Reference
-
-本节是 AI Agent 和自动化工具的执行入口。除非任务明确要求改变架构，否则以这里列出的命令、端口和边界为准。
-
-### Runtime contract
-
-| 项目 | 值 |
-| --- | --- |
-| Go | `1.25`，模块入口为 `./cmd/pulse` |
-| Node.js | `22`，前端位于 `./web` |
-| PostgreSQL | `17`，唯一有状态基础设施 |
-| 应用端口 | `8080` |
-| Vite 开发端口 | `5173` |
-| 本机开发数据库端口 | `54321` |
-| 健康检查 | `GET /healthz` |
-| API 契约 | `api/openapi.yaml` |
-| 容器镜像 | `ghcr.io/wenpengfei/pulse` |
-
-默认进程同时启用 `web,scheduler,worker,effect-worker`。数据库迁移在应用启动时自动执行，不需要单独运行迁移命令。
-
-### Repository map
-
-| 路径 | 职责 |
-| --- | --- |
-| `cmd/pulse/` | 进程入口、角色组装和生命周期 |
-| `internal/source/` | Source 领域模型 |
-| `internal/ingestion/` | Acquisition 与统一摄取管道 |
-| `internal/drivers/` | RSS、API、HTML、Webhook 和文件 Driver |
-| `internal/storage/` | PostgreSQL Adapter 与 SQL 迁移 |
-| `internal/transport/httpserver/` | HTTP API 与静态前端服务 |
-| `web/src/` | React 客户端 |
-| `api/openapi.yaml` | HTTP API 的事实来源 |
-| `docs/architecture.md` | 系统边界、事务和失败模型 |
-| `CONTEXT.md` | 项目领域语言和命名约束 |
-
-### Agent workflow
-
-1. 修改前阅读 `CONTEXT.md`，涉及架构时再阅读 `docs/architecture.md`。
-2. API 变更必须同步检查 `api/openapi.yaml`、HTTP Handler 和 `web/src/api.ts`。
-3. 优先使用已有 Make target，不在文档、CI 和脚本中复制另一套构建逻辑。
-4. 只运行与改动匹配的最小验证集；提交前运行对应的完整验证。
-5. Docker 构建必须继续使用仓库根目录的 `Dockerfile`，本地 Compose 与 CI 共用该构建事实来源。
-
-### Verification matrix
-
-| 改动范围 | 必须运行 |
-| --- | --- |
-| Go | `make vet && make test-race` |
-| React / TypeScript | `cd web && npm ci && npm run lint && npm test && npm run build` |
-| Compose | `docker compose config --quiet` |
-| Dockerfile / 跨端改动 | `docker compose build pulse` |
-| RSS 浏览器旅程 | 完整应用启动后运行 `make e2e` |
-
-### Safety rules
-
-- 不要提交、打印或记录 `PULSE_MASTER_KEY`、Token、Cookie、密码和认证 Header。
-- 已有数据使用的 `PULSE_MASTER_KEY` 不得重新生成；更换会导致已保存的来源凭据无法解密。
-- 不要执行 `docker compose down -v`，它会删除 PostgreSQL 命名卷。
-- 不要让 File Source 访问 `PULSE_IMPORT_ROOTS` 之外的路径；Compose 中的 `imports/` 必须保持只读挂载。
-- 不要绕过统一安全 HTTP Client 创建新的网络 Driver。
-- 不要把 Source、Driver、Acquisition、Candidate 和 Entry 混用；使用 `CONTEXT.md` 中的定义。
-
 ## Why Pulse?
 
 - 📡 **统一摄取** — RSS、API、网页、Webhook、手工条目和本地文件进入同一条可靠管道。
@@ -299,6 +237,8 @@ docker compose -f compose.yaml -f compose.dev.yaml down
 | `PULSE_IMPORT_ROOTS` | `/data/imports` | File Source 允许读取的路径列表 |
 
 本机使用 Vite 时，浏览器访问 `5173`，Go 后端只需在 `8080` 提供 API；正式镜像则由 Go 服务直接提供 `/web` 中的前端静态资源。
+
+参与开发或使用 AI 编码 Agent 前，请阅读 [AGENTS.md](AGENTS.md)。其中包含仓库结构、架构边界、验证矩阵和数据安全规则。
 
 ## Verification
 
