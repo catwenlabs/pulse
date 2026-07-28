@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wenpengfei/pulse/internal/annotation"
 	"github.com/wenpengfei/pulse/internal/entry"
 	"github.com/wenpengfei/pulse/internal/ingestion"
 	"github.com/wenpengfei/pulse/internal/source"
@@ -68,6 +69,47 @@ func TestEntryStoreCommitBatchIsAtomicAndUpdatesExistingEntry(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].SourceTitle != "Updated title" {
 		t.Errorf("List() = %+v", entries)
+	}
+}
+
+func TestEntryStoreCommitsAnnotationDetailWithEntry(t *testing.T) {
+	pool := testPool(t)
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	store := NewEntryStore(pool)
+	ctx := context.Background()
+	src := createTestSource(t, sourceStore, "annotation-source")
+	acquisition := claimTestAcquisition(t, acquisitionStore, src.ID, "annotation")
+	highlightedAt := time.Date(2026, 7, 27, 10, 0, 0, 0, time.UTC)
+
+	if err := store.CommitBatch(ctx, acquisition, "worker", []ingestion.Candidate{{
+		ExternalID: "apple-books:book-123:1284",
+		Title:      "思考，快与慢",
+		Summary:    "系统一自动而快速地运行。",
+		Annotation: &annotation.Detail{
+			Provider: "apple-books", BookIdentity: "book-123",
+			BookTitle: "思考，快与慢", BookAuthor: "Daniel Kahneman",
+			Chapter: "第三章", Location: "1284", HighlightColor: "yellow",
+			AnnotationNote: "intuitive judgment", HighlightedAt: &highlightedAt,
+		},
+	}}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("CommitBatch() error = %v", err)
+	}
+
+	items, err := store.List(ctx, 10)
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(items) != 1 || items[0].Annotation == nil {
+		t.Fatalf("items = %#v", items)
+	}
+	if items[0].Annotation.BookIdentity != "book-123" ||
+		items[0].Annotation.AnnotationNote != "intuitive judgment" {
+		t.Errorf("annotation = %#v", items[0].Annotation)
+	}
+	searched, err := store.Search(ctx, entry.Query{Limit: 10, Search: "intuitive"})
+	if err != nil || len(searched) != 1 || searched[0].Annotation == nil {
+		t.Fatalf("Search() = %#v, %v", searched, err)
 	}
 }
 

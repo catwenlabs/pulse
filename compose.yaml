@@ -22,7 +22,7 @@ services:
       # Base64 of exactly 32 random bytes. Required before adding authenticated sources.
       PULSE_MASTER_KEY: ${PULSE_MASTER_KEY:-}
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
         condition: service_healthy

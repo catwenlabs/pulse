@@ -1,4 +1,4 @@
-export type SourceKind = 'rss' | 'json-api' | 'html' | 'webhook' | 'manual' | 'file'
+export type SourceKind = 'rss' | 'json-api' | 'html' | 'webhook' | 'manual' | 'file' | 'annotations'
 
 export interface Source {
   id: string
@@ -77,6 +77,7 @@ export interface Entry {
   hidden_at?: string
   later_at?: string
   note: string
+  annotation?: AnnotationDetail
 }
 
 export interface EntryQuery {
@@ -85,6 +86,7 @@ export interface EntryQuery {
   tag?: string
   sourceId?: string
   limit?: number
+  offset?: number
 }
 
 export interface EntryPatch {
@@ -94,6 +96,37 @@ export interface EntryPatch {
   later?: boolean
   display_title?: string
   note?: string
+}
+
+export interface ManualEntryInput {
+  url: string
+  title: string
+}
+
+export interface AnnotationInput {
+  id?: string
+  provider: string
+  book_identity?: string
+  book_title: string
+  book_author?: string
+  chapter?: string
+  location?: string
+  highlight_color?: string
+  highlight: string
+  note?: string
+  highlighted_at?: string
+}
+
+export interface AnnotationDetail {
+  provider: string
+  book_identity: string
+  book_title: string
+  book_author: string
+  chapter: string
+  location: string
+  highlight_color: string
+  annotation_note: string
+  highlighted_at?: string
 }
 
 interface Problem {
@@ -164,6 +197,40 @@ export function previewSource(input: CreateSourceInput): Promise<PreviewResult> 
   })
 }
 
+export function createManualEntry(
+  sourceId: string,
+  input: ManualEntryInput,
+): Promise<{ id: string; status: string }> {
+  const idempotencyKey = typeof globalThis.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  return request(`/api/v1/sources/${sourceId}/entries`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
+    },
+    body: JSON.stringify(input),
+  })
+}
+
+export function importAnnotations(
+  sourceId: string,
+  annotations: AnnotationInput[],
+): Promise<{ id: string; status: string }> {
+  const idempotencyKey = typeof globalThis.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  return request(`/api/v1/sources/${sourceId}/annotations`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
+    },
+    body: JSON.stringify({ annotations }),
+  })
+}
+
 export function listEntries(query: EntryQuery = {}): Promise<Entry[]> {
   const parameters = new URLSearchParams()
   if (query.q) parameters.set('q', query.q)
@@ -171,6 +238,7 @@ export function listEntries(query: EntryQuery = {}): Promise<Entry[]> {
   if (query.tag) parameters.set('tag', query.tag)
   if (query.sourceId) parameters.set('source_id', query.sourceId)
   if (query.limit) parameters.set('limit', String(query.limit))
+  if (query.offset) parameters.set('offset', String(query.offset))
   const suffix = parameters.size > 0 ? `?${parameters}` : ''
   return requestList<Entry>(`/api/v1/entries${suffix}`)
 }

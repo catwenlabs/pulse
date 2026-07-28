@@ -1,11 +1,12 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from 'react'
 
 import * as api from './api'
-import type { CreateSourceInput, Entry, EntryPatch, Folder, PreviewResult, Source, SourceHealth, SourceKind } from './api'
+import type { AnnotationInput, CreateSourceInput, Entry, EntryPatch, Folder, PreviewResult, Source, SourceHealth, SourceKind } from './api'
 import './styles.css'
 
 type Notice = { tone: 'success' | 'error'; message: string }
-type View = 'sources' | 'inbox' | 'starred' | 'later'
+type View = 'sources' | 'inbox' | 'starred' | 'later' | 'annotations'
+type SaveRequest = { url: string; title: string }
 
 export function App() {
   const [sources, setSources] = useState<Source[]>([])
@@ -19,6 +20,14 @@ export function App() {
   const [activeView, setActiveView] = useState<View>('inbox')
   const [selectedSourceID, setSelectedSourceID] = useState('')
   const [health, setHealth] = useState<Record<string, SourceHealth>>({})
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
+  const [showBookmarklet, setShowBookmarklet] = useState(false)
+  const [saveRequest, setSaveRequest] = useState<SaveRequest | null>(() => readSaveRequest())
+  const isMobile = useMediaQuery('(max-width: 760px)')
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
+  const mobileDrawerCloseRef = useRef<HTMLButtonElement>(null)
+  const mobileDrawerRef = useRef<HTMLElement>(null)
+  const bookmarkletButtonRef = useRef<HTMLButtonElement>(null)
 
   async function load() {
     setLoading(true)
@@ -48,6 +57,28 @@ export function App() {
   useEffect(() => {
     void load()
   }, [])
+
+  useEffect(() => {
+    const update = () => setSaveRequest(readSaveRequest())
+    window.addEventListener('hashchange', update)
+    return () => window.removeEventListener('hashchange', update)
+  }, [])
+
+  useEffect(() => {
+    if (!saveRequest || !window.location.hash.startsWith('#save?')) return
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+  }, [saveRequest])
+
+  useEffect(() => {
+    if (!isMobile || !mobileNavigationOpen) return
+    mobileDrawerCloseRef.current?.focus()
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      closeMobileNavigation()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [isMobile, mobileNavigationOpen])
 
   async function handleCreate(input: CreateSourceInput) {
     const created = await api.createSource(input)
@@ -109,25 +140,109 @@ export function App() {
   function showStream(view: Exclude<View, 'sources'>, sourceID = '') {
     setActiveView(view)
     setSelectedSourceID(sourceID)
+    closeMobileNavigation()
+  }
+
+  function closeMobileNavigation(restoreFocus = true) {
+    if (!mobileNavigationOpen) return
+    setMobileNavigationOpen(false)
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => mobileMenuButtonRef.current?.focus())
+    }
+  }
+
+  function trapMobileNavigationFocus(event: React.KeyboardEvent<HTMLElement>) {
+    if (!isMobile || !mobileNavigationOpen || event.key !== 'Tab') return
+    const focusable = Array.from(mobileDrawerRef.current?.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ) ?? [])
+    if (focusable.length === 0) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
+  const activeSourceName = sources.find((source) => source.id === selectedSourceID)?.name
+  const mobileTitle = activeView === 'sources'
+    ? '信息源'
+    : activeSourceName || (
+      activeView === 'starred'
+        ? '收藏'
+        : activeView === 'later'
+          ? '稍后阅读'
+          : activeView === 'annotations'
+            ? '阅读笔记'
+            : '全部文章'
+    )
+
+  if (saveRequest) {
+    return (
+      <SavePage
+        key={`${saveRequest.url}\u0000${saveRequest.title}`}
+        request={saveRequest}
+        sources={sources}
+        loading={loading}
+        loadError={loadError}
+        onSourceCreated={(created) => setSources((current) => [...current, created])}
+        onSourceUpdated={(updated) => setSources((current) => (
+          current.map((source) => source.id === updated.id ? updated : source)
+        ))}
+        onClose={() => {
+          window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+          setSaveRequest(null)
+        }}
+      />
+    )
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div className={`app-shell ${mobileNavigationOpen ? 'mobile-navigation-open' : ''}`}>
+      <aside
+        className="sidebar"
+        id="mobile-navigation"
+        ref={mobileDrawerRef}
+        role="navigation"
+        aria-label="移动导航抽屉"
+        aria-hidden={isMobile ? !mobileNavigationOpen : undefined}
+        inert={isMobile && !mobileNavigationOpen ? true : undefined}
+        onKeyDown={trapMobileNavigationFocus}
+      >
         <div className="sidebar-brand-row">
           <a className="brand" href="/" aria-label="Pulse 首页" onClick={() => showStream('inbox')}>
             <span className="brand-mark" aria-hidden="true">P</span>
             <span>Pulse</span>
           </a>
-          <button className="sidebar-add" aria-label="添加信息源" onClick={() => setShowCreate(true)}>
-            <span aria-hidden="true">＋</span><span className="sr-only">添加信息源</span>
-          </button>
+          <div className="sidebar-header-actions">
+            <button className="sidebar-add" aria-label="添加信息源" onClick={() => {
+              closeMobileNavigation(false)
+              setShowCreate(true)
+            }}>
+              <span aria-hidden="true">＋</span><span className="sr-only">添加信息源</span>
+            </button>
+            {isMobile && (
+              <button
+                className="sidebar-dismiss"
+                ref={mobileDrawerCloseRef}
+                aria-label="关闭导航"
+                onClick={() => closeMobileNavigation()}
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <nav className="main-nav" aria-label="主导航">
           <a className={activeView === 'inbox' && !selectedSourceID ? 'active' : ''} href="#inbox" onClick={() => showStream('inbox')}><NavIcon name="inbox" />全部文章</a>
           <a className={activeView === 'starred' ? 'active' : ''} href="#starred" onClick={() => showStream('starred')}><NavIcon name="star" />收藏</a>
           <a className={activeView === 'later' ? 'active' : ''} href="#later" onClick={() => showStream('later')}><NavIcon name="clock" />稍后阅读</a>
+          <a className={activeView === 'annotations' ? 'active' : ''} href="#annotations" onClick={() => showStream('annotations')}><NavIcon name="book" />阅读笔记</a>
         </nav>
 
         <section className="sidebar-section folder-section" aria-labelledby="folder-label">
@@ -169,14 +284,43 @@ export function App() {
         </section>
 
         <div className="sidebar-footer">
-          <button className={activeView === 'sources' ? 'active' : ''} onClick={() => setActiveView('sources')}>
+          <button ref={bookmarkletButtonRef} onClick={() => {
+            closeMobileNavigation(false)
+            setShowBookmarklet(true)
+          }}>
+            <NavIcon name="bookmark" />安装保存书签
+          </button>
+          <button className={activeView === 'sources' ? 'active' : ''} onClick={() => {
+            setActiveView('sources')
+            closeMobileNavigation()
+          }}>
             <NavIcon name="source" />管理信息源
           </button>
           <span><span className="status-dot" />本地服务已连接</span>
         </div>
       </aside>
 
-      <main className={`main-content ${activeView === 'sources' ? 'source-main' : 'reader-main'}`}>
+      <main
+        className={`main-content ${activeView === 'sources' ? 'source-main' : 'reader-main'}`}
+        inert={isMobile && mobileNavigationOpen ? true : undefined}
+      >
+        {isMobile && (
+          <header className="mobile-app-bar">
+            <button
+              className="mobile-menu-button"
+              ref={mobileMenuButtonRef}
+              aria-label="打开导航"
+              aria-controls="mobile-navigation"
+              aria-expanded={mobileNavigationOpen}
+              onClick={() => setMobileNavigationOpen(true)}
+            >
+              <span aria-hidden="true" />
+              <span aria-hidden="true" />
+              <span aria-hidden="true" />
+            </button>
+            <h1>{mobileTitle}</h1>
+          </header>
+        )}
         {notice && (
           <div className={`notice ${notice.tone}`} role="status">
             {notice.message}
@@ -278,16 +422,32 @@ export function App() {
           )}
         </section>
           </>
+        ) : activeView === 'annotations' ? (
+          <AnnotationsPage
+            sources={sources}
+            onSourceCreated={(created) => setSources((current) => [...current, created])}
+            onSourceUpdated={(updated) => setSources((current) => (
+              current.map((source) => source.id === updated.id ? updated : source)
+            ))}
+          />
         ) : (
           <Reader
             view={activeView}
             sourceID={selectedSourceID}
-            sourceName={sources.find((source) => source.id === selectedSourceID)?.name}
+            sourceName={activeSourceName}
             sources={sources}
+            mobile={isMobile}
           />
         )}
       </main>
 
+      {isMobile && mobileNavigationOpen && (
+        <div
+          className="mobile-drawer-backdrop"
+          aria-hidden="true"
+          onMouseDown={() => closeMobileNavigation()}
+        />
+      )}
       {showCreate && (
         <CreateSourceDialog
           onClose={() => setShowCreate(false)}
@@ -302,8 +462,514 @@ export function App() {
           onConfirm={() => void handleArchive(sourceToDelete)}
         />
       )}
+      {showBookmarklet && (
+        <BookmarkletDialog
+          onClose={() => setShowBookmarklet(false)}
+          returnFocusElement={isMobile ? mobileMenuButtonRef.current : bookmarkletButtonRef.current}
+        />
+      )}
     </div>
   )
+}
+
+function AnnotationsPage({
+  sources,
+  onSourceCreated,
+  onSourceUpdated,
+}: {
+  sources: Source[]
+  onSourceCreated: (source: Source) => void
+  onSourceUpdated: (source: Source) => void
+}) {
+  const annotationSources = sources.filter((source) => source.kind === 'annotations')
+  const [entries, setEntries] = useState<Entry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [showImport, setShowImport] = useState(false)
+  const [expandedBooks, setExpandedBooks] = useState<Set<string>>(() => new Set())
+  const [importing, setImporting] = useState(false)
+  const [importMessage, setImportMessage] = useState('')
+  const [form, setForm] = useState<AnnotationInput>({
+    provider: 'apple-books',
+    book_title: '',
+    book_author: '',
+    chapter: '',
+    location: '',
+    highlight_color: 'yellow',
+    highlight: '',
+    note: '',
+  })
+
+  useEffect(() => {
+    let active = true
+    async function loadAnnotations() {
+      setLoading(true)
+      setError('')
+      try {
+        const batches = await Promise.all(annotationSources.map(async (source) => {
+          const result: Entry[] = []
+          let offset = 0
+          for (;;) {
+            const page = await api.listEntries({ sourceId: source.id, limit: 200, offset })
+            result.push(...page)
+            if (page.length < 200) return result
+            offset += page.length
+          }
+        }))
+        if (active) setEntries(batches.flat().filter((entry) => entry.annotation))
+      } catch (cause) {
+        if (active) setError(cause instanceof Error ? cause.message : '无法加载阅读笔记')
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    void loadAnnotations()
+    return () => {
+      active = false
+    }
+  }, [sources])
+
+  const books = Array.from(entries.reduce((groups, item) => {
+    const detail = item.annotation!
+    const key = annotationBookKey(detail)
+    const group = groups.get(key)
+    if (group) group.entries.push(item)
+    else groups.set(key, { detail, entries: [item] })
+    return groups
+  }, new Map<string, { detail: NonNullable<Entry['annotation']>; entries: Entry[] }>()).values())
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setImporting(true)
+    setImportMessage('')
+    try {
+      let target = annotationSources.find((source) => source.locator.startsWith(form.provider))
+      if (!target) {
+        target = await api.createSource({
+          name: form.provider === 'kindle' ? 'Kindle 批注' : 'Apple Books 批注',
+          kind: 'annotations',
+          locator: `${form.provider}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        })
+        onSourceCreated(target)
+      } else if (!target.enabled) {
+        target = await api.setSourceEnabled(target.id, true)
+        onSourceUpdated(target)
+      }
+      await api.importAnnotations(target.id, [form])
+      setImportMessage('批注已加入导入队列')
+      setForm((current) => ({ ...current, chapter: '', location: '', highlight: '', note: '' }))
+    } catch (cause) {
+      setImportMessage(cause instanceof Error ? cause.message : '导入批注失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  return (
+    <div className="annotations-page">
+      <header className="page-header annotation-header">
+        <div>
+          <p className="eyebrow">READING NOTES</p>
+          <h1>阅读笔记</h1>
+          <p className="page-description">集中保存 Apple Books、Kindle 和其他阅读器中的高亮与批注。</p>
+        </div>
+        <button className="button primary" onClick={() => setShowImport((current) => !current)}>
+          {showImport ? '收起导入' : '导入批注'}
+        </button>
+      </header>
+
+      {showImport && (
+        <section className="annotation-import" aria-labelledby="annotation-import-title">
+          <div>
+            <p className="eyebrow">NEW ANNOTATION</p>
+            <h2 id="annotation-import-title">添加一条阅读批注</h2>
+            <p>第一版支持结构化手工导入；Apple Books 与 Kindle 批量格式将在取得真实导出样本后接入。</p>
+          </div>
+          <form onSubmit={(event) => void submit(event)}>
+            <div className="annotation-form-grid">
+              <label>
+                <span>来源平台</span>
+                <select value={form.provider} onChange={(event) => setForm({ ...form, provider: event.target.value })}>
+                  <option value="apple-books">Apple Books</option>
+                  <option value="kindle">Kindle</option>
+                  <option value="other">其他</option>
+                </select>
+              </label>
+              <label>
+                <span>书名</span>
+                <input required value={form.book_title} onChange={(event) => setForm({ ...form, book_title: event.target.value })} />
+              </label>
+              <label>
+                <span>作者</span>
+                <input value={form.book_author} onChange={(event) => setForm({ ...form, book_author: event.target.value })} />
+              </label>
+              <label>
+                <span>章节</span>
+                <input value={form.chapter} onChange={(event) => setForm({ ...form, chapter: event.target.value })} />
+              </label>
+              <label>
+                <span>位置</span>
+                <input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} />
+              </label>
+              <label>
+                <span>高亮颜色</span>
+                <select value={form.highlight_color} onChange={(event) => setForm({ ...form, highlight_color: event.target.value })}>
+                  <option value="yellow">黄色</option>
+                  <option value="green">绿色</option>
+                  <option value="blue">蓝色</option>
+                  <option value="pink">粉色</option>
+                  <option value="">未指定</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              <span>高亮原文</span>
+              <textarea required value={form.highlight} onChange={(event) => setForm({ ...form, highlight: event.target.value })} />
+            </label>
+            <label>
+              <span>原始批注</span>
+              <textarea value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
+            </label>
+            {importMessage && <p className="annotation-import-message" role="status">{importMessage}</p>}
+            <button className="button primary" type="submit" disabled={importing}>
+              {importing ? '正在导入…' : '加入导入队列'}
+            </button>
+          </form>
+        </section>
+      )}
+
+      {loading && <div className="reader-state">正在加载阅读笔记…</div>}
+      {!loading && error && <div className="reader-state">{error}</div>}
+      {!loading && !error && books.length === 0 && (
+        <div className="annotation-empty">
+          <strong>还没有阅读批注</strong>
+          <span>导入第一条高亮后，Pulse 会按书籍自动整理。</span>
+        </div>
+      )}
+      {!loading && !error && books.length > 0 && (
+        <section className="annotation-books" aria-label="书籍批注">
+          {books.map(({ detail, entries: bookEntries }) => (
+            <article className="annotation-book" key={annotationBookKey(detail)}>
+              <div className="annotation-book-heading">
+                <div>
+                  <span>{detail.provider === 'apple-books' ? 'APPLE BOOKS' : detail.provider.toUpperCase()}</span>
+                  <h2>{detail.book_title}</h2>
+                  {detail.book_author && <p>{detail.book_author}</p>}
+                </div>
+                <strong>{bookEntries.length} 条批注</strong>
+              </div>
+              <div className="annotation-highlights">
+                {(expandedBooks.has(annotationBookKey(detail)) ? bookEntries : bookEntries.slice(0, 3)).map((item) => (
+                  <blockquote key={item.id}>
+                    <p>{item.summary}</p>
+                    {item.annotation?.annotation_note && <footer>{item.annotation.annotation_note}</footer>}
+                    <small>{[item.annotation?.chapter, item.annotation?.location].filter(Boolean).join(' · ')}</small>
+                  </blockquote>
+                ))}
+                {bookEntries.length > 3 && (
+                  <button
+                    className="annotation-expand"
+                    onClick={() => setExpandedBooks((current) => {
+                      const next = new Set(current)
+                      const key = annotationBookKey(detail)
+                      if (next.has(key)) next.delete(key)
+                      else next.add(key)
+                      return next
+                    })}
+                  >
+                    {expandedBooks.has(annotationBookKey(detail))
+                      ? '收起批注'
+                      : `展开全部 ${bookEntries.length} 条`}
+                  </button>
+                )}
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
+    </div>
+  )
+}
+
+function annotationBookKey(detail: NonNullable<Entry['annotation']>): string {
+  return `${detail.provider}\u0000${detail.book_identity || detail.book_title}\u0000${detail.book_author}`
+}
+
+function readSaveRequest(): SaveRequest | null {
+  if (!window.location.hash.startsWith('#save?')) return null
+  const parameters = new URLSearchParams(window.location.hash.slice('#save?'.length))
+  return {
+    url: parameters.get('url') || '',
+    title: parameters.get('title') || '',
+  }
+}
+
+function normalizeSavedURL(value: string): string {
+  let parsed: URL
+  try {
+    parsed = new URL(value.trim())
+  } catch {
+    throw new Error('请输入有效的网页地址')
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('只支持 HTTP 或 HTTPS 网页地址')
+  }
+  return parsed.href
+}
+
+function SavePage({
+  request,
+  sources,
+  loading,
+  loadError,
+  onSourceCreated,
+  onSourceUpdated,
+  onClose,
+}: {
+  request: SaveRequest
+  sources: Source[]
+  loading: boolean
+  loadError: string
+  onSourceCreated: (source: Source) => void
+  onSourceUpdated: (source: Source) => void
+  onClose: () => void
+}) {
+  const manualSources = sources.filter((source) => source.kind === 'manual')
+  const [url, setURL] = useState(request.url)
+  const [title, setTitle] = useState(request.title)
+  const [sourceID, setSourceID] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  useEffect(() => {
+    if (manualSources.some((source) => source.id === sourceID)) return
+    setSourceID(manualSources[0]?.id || '')
+  }, [manualSources, sourceID])
+
+  async function save(targetSourceID: string, message: string) {
+    const normalizedURL = normalizeSavedURL(url)
+    if (!title.trim()) throw new Error('请输入标题')
+    const targetSource = manualSources.find((source) => source.id === targetSourceID)
+    if (targetSource && !targetSource.enabled) {
+      onSourceUpdated(await api.setSourceEnabled(targetSource.id, true))
+    }
+    await api.createManualEntry(targetSourceID, {
+      url: normalizedURL,
+      title: title.trim(),
+    })
+    setSuccess(message)
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setError('')
+    setSuccess('')
+    setSaving(true)
+    try {
+      const targetSourceID = sourceID || manualSources[0]?.id
+      if (!targetSourceID) throw new Error('请先创建或选择一个 Manual Source')
+      await save(targetSourceID, '已加入保存队列')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '保存网页失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function createSourceAndSave() {
+    setError('')
+    setSuccess('')
+    setSaving(true)
+    try {
+      const normalizedURL = normalizeSavedURL(url)
+      if (!title.trim()) throw new Error('请输入标题')
+      const created = await api.createSource({
+        name: '网页收藏',
+        kind: 'manual',
+        locator: `reading-list-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      })
+      onSourceCreated(created)
+      await api.createManualEntry(created.id, {
+        url: normalizedURL,
+        title: title.trim(),
+      })
+      setSourceID(created.id)
+      setSuccess('已创建“网页收藏”并加入保存队列')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '创建收藏 Source 失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <main className="save-page">
+      <section className="save-card" aria-labelledby="save-page-title">
+        <div className="save-brand"><span className="brand-mark" aria-hidden="true">P</span>Pulse</div>
+        <p className="eyebrow">READ LATER</p>
+        <h1 id="save-page-title">保存到 Pulse</h1>
+        <p className="save-description">确认网页信息后，将它加入你的阅读列表。</p>
+        <form onSubmit={(event) => void submit(event)}>
+          <label>
+            <span>网页地址</span>
+            <input
+              autoFocus
+              required
+              type="url"
+              maxLength={2048}
+              value={url}
+              onChange={(event) => setURL(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>标题</span>
+            <input required maxLength={500} value={title} onChange={(event) => setTitle(event.target.value)} />
+          </label>
+          {manualSources.length > 0 && (
+            <label>
+              <span>保存到</span>
+              <select value={sourceID} onChange={(event) => setSourceID(event.target.value)}>
+                {manualSources.map((source) => (
+                  <option key={source.id} value={source.id}>
+                    {source.name}{source.enabled ? '' : '（已暂停，将自动恢复）'}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {loading && <p className="save-help">正在加载 Manual Source…</p>}
+          {!loading && loadError && <p className="form-error" role="alert">{loadError}</p>}
+          {!loading && !loadError && manualSources.length === 0 && (
+            <div className="save-empty-source">
+              <strong>还没有 Manual Source</strong>
+              <span>Pulse 会在你确认后创建“网页收藏”，不会创建隐藏 Source。</span>
+            </div>
+          )}
+          {error && <p className="form-error" role="alert">{error}</p>}
+          {success && <p className="save-success" role="status">{success}</p>}
+          <div className="dialog-actions">
+            <button className="button secondary" type="button" onClick={onClose}>关闭</button>
+            {manualSources.length > 0 ? (
+              <button className="button primary" type="submit" disabled={saving || loading}>
+                {saving ? '正在保存…' : '保存网页'}
+              </button>
+            ) : (
+              <button
+                className="button primary"
+                type="button"
+                disabled={saving || loading || Boolean(loadError)}
+                onClick={() => void createSourceAndSave()}
+              >
+                {saving ? '正在创建…' : '创建“网页收藏”并保存'}
+              </button>
+            )}
+          </div>
+        </form>
+      </section>
+    </main>
+  )
+}
+
+function BookmarkletDialog({
+  onClose,
+  returnFocusElement,
+}: {
+  onClose: () => void
+  returnFocusElement: HTMLElement | null
+}) {
+  const dialogRef = useRef<HTMLElement>(null)
+  const saveTarget = `${window.location.origin}${window.location.pathname}#save?`
+  const bookmarklet = `javascript:(()=>{const p=new URLSearchParams({url:location.href,title:document.title});window.open(${JSON.stringify(saveTarget)}+p.toString(),'_blank','popup,width=520,height=680,noopener');void 0})()`
+
+  useEffect(() => {
+    return () => returnFocusElement?.focus()
+  }, [returnFocusElement])
+
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      onClose()
+      return
+    }
+    if (event.key !== 'Tab') return
+    const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+    ) || [])
+    if (focusable.length === 0) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
+  return (
+    <div className="dialog-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section
+        ref={dialogRef}
+        className="dialog bookmarklet-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bookmarklet-title"
+        onKeyDown={handleKeyDown}
+      >
+        <button className="dialog-close" aria-label="关闭" onClick={onClose}>×</button>
+        <p className="eyebrow">BOOKMARKLET</p>
+        <h2 id="bookmarklet-title">安装“保存到 Pulse”</h2>
+        <p className="dialog-description">新建一个浏览器书签，把下面整段代码粘贴到书签的地址栏。</p>
+        <label className="bookmarklet-code">
+          <span>Bookmarklet 代码</span>
+          <textarea autoFocus readOnly value={bookmarklet} onFocus={(event) => event.currentTarget.select()} />
+        </label>
+        <div className="bookmarklet-platforms">
+          <section>
+            <h3>Mac Chrome</h3>
+            <ol className="bookmarklet-steps">
+              <li>复制上面的完整代码。</li>
+              <li>新建书签，名称填写“保存到 Pulse”。</li>
+              <li>将代码粘贴到书签地址，然后在任意文章页点击它。</li>
+            </ol>
+          </section>
+          <section>
+            <h3>iPhone Chrome</h3>
+            <ol className="bookmarklet-steps">
+              <li>先把任意网页添加到 Chrome 书签。</li>
+              <li>长按刚创建的书签，选择“编辑”，名称改为“保存到 Pulse”。</li>
+              <li>把 URL 替换为上面的完整代码并保存。</li>
+              <li>打开要收藏的网页，再从书签中点“保存到 Pulse”。</li>
+            </ol>
+          </section>
+        </div>
+        <div className="dialog-actions">
+          <button className="button primary" onClick={onClose}>完成</button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => (
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia(query).matches
+      : false
+  ))
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const media = window.matchMedia(query)
+    const update = () => setMatches(media.matches)
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [query])
+
+  return matches
 }
 
 function DeleteSourceDialog({
@@ -364,11 +1030,13 @@ function Reader({
   sourceID,
   sourceName,
   sources,
+  mobile,
 }: {
   view: Exclude<View, 'sources'>
   sourceID: string
   sourceName?: string
   sources: Source[]
+  mobile: boolean
 }) {
   const [entries, setEntries] = useState<Entry[]>([])
   const [selected, setSelected] = useState<Entry | null>(null)
@@ -457,7 +1125,7 @@ function Reader({
   return (
     <div className="reader-page">
       <header className="reader-header">
-        <div className="reader-title">
+        <div className="reader-title" aria-hidden={mobile || undefined}>
           <h1>{title}</h1>
           <span className="reader-count">{loading ? '正在更新…' : `${entries.length} 篇`}</span>
         </div>
@@ -469,7 +1137,7 @@ function Reader({
             onClick={() => void markAllRead()}
           >
             <span aria-hidden="true">✓✓</span>
-            {markingAllRead ? '正在标记…' : '全部标记为已读'}
+            <span className="reader-action-label">{markingAllRead ? '正在标记…' : '全部标记为已读'}</span>
           </button>
           <label className="reader-search">
             <span className="sr-only">搜索文章</span>
@@ -943,6 +1611,8 @@ function NavIcon({ name }: { name: string }) {
     source: 'M5 6a13 13 0 0 1 13 13 M5 11a8 8 0 0 1 8 8 M6 18h.01',
     star: 'm12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.8-5.4 2.8 1-6.1-4.4-4.3 6.1-.9z',
     clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 7v5l3 2',
+    bookmark: 'M6 4h12v17l-6-4-6 4z',
+    book: 'M4 5.5A3.5 3.5 0 0 1 7.5 2H12v18H7.5A3.5 3.5 0 0 0 4 23z M20 5.5A3.5 3.5 0 0 0 16.5 2H12v18h4.5A3.5 3.5 0 0 1 20 23z',
   }
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24">

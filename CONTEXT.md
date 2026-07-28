@@ -28,6 +28,10 @@ _Avoid_: Raw Entry、Article
 完成统一化并进入阅读库的内容记录，是搜索、规则和阅读操作的共同对象。
 _Avoid_: Item、Post、Article
 
+**Annotation**:
+用户在外部阅读器中产生的一条阅读批注，由高亮原文、个人批注、书籍身份和阅读位置组成；摄取后成为一个 Entry，来源批注与用户在 Pulse 中追加的 Note 分开保存。
+_Avoid_: Highlight Entry、Book Note
+
 **Checkpoint**:
 Source 在成功摄取后保存的外部进度位置，例如游标、ETag、文件偏移或页面指纹。
 _Avoid_: Cursor、Sync State

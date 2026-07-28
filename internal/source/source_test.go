@@ -87,3 +87,15 @@ func TestValidateRequiresName(t *testing.T) {
 		t.Fatalf("error = %v, want name ValidationError", err)
 	}
 }
+
+func TestValidateAcceptsAnnotationSource(t *testing.T) {
+	got, err := (Spec{
+		Name: "Apple Books", Kind: KindAnnotations, Locator: "apple-books",
+	}).Validate()
+	if err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if got.Kind != KindAnnotations || got.NormalizedLocator != "apple-books" {
+		t.Errorf("validated = %#v", got)
+	}
+}
