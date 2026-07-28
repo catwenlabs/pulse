@@ -82,7 +82,7 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 		jsonapidriver.New(safeHTTPClient),
 		htmldriver.New(safeHTTPClient),
 		push.New(source.KindWebhook),
-		push.New(source.KindManual),
+		push.NewManual(safeHTTPClient),
 		filedriver.New(cfg.ImportRoots),
 		annotationdriver.New(),
 	)

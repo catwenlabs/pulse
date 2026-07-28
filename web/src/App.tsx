@@ -769,7 +769,7 @@ function SavePage({
     try {
       const targetSourceID = sourceID || manualSources[0]?.id
       if (!targetSourceID) throw new Error('请先创建或选择一个 Manual Source')
-      await save(targetSourceID, '已加入保存队列')
+      await save(targetSourceID, '已加入保存队列，Pulse 将在后台提取正文')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '保存网页失败')
     } finally {
@@ -795,7 +795,7 @@ function SavePage({
         title: title.trim(),
       })
       setSourceID(created.id)
-      setSuccess('已创建“网页收藏”并加入保存队列')
+      setSuccess('已创建“网页收藏”并加入保存队列，Pulse 将在后台提取正文')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '创建收藏 Source 失败')
     } finally {

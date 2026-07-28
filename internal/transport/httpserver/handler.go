@@ -12,6 +12,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -521,6 +522,10 @@ func createManualEntry(backend Backend) http.HandlerFunc {
 			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
 			return
 		}
+		if err := validateManualEntryURL(payload); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "url")
+			return
+		}
 		key := request.Header.Get("Idempotency-Key")
 		if strings.TrimSpace(key) == "" {
 			digest := sha256.Sum256(payload)
@@ -536,6 +541,24 @@ func createManualEntry(backend Backend) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusAccepted, acquisition)
 	}
+}
+
+func validateManualEntryURL(payload []byte) error {
+	var value struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(payload, &value); err != nil {
+		return fmt.Errorf("decode manual entry: %w", err)
+	}
+	if strings.TrimSpace(value.URL) == "" {
+		return nil
+	}
+	parsed, err := url.ParseRequestURI(value.URL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.Host == "" || parsed.User != nil {
+		return fmt.Errorf("url must be an HTTP or HTTPS page without embedded credentials")
+	}
+	return nil
 }
 
 func importAnnotations(backend Backend) http.HandlerFunc {

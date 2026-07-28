@@ -579,6 +579,35 @@ func TestManualEntryAndSecretRotation(t *testing.T) {
 	}
 }
 
+func TestManualEntryRejectsUnsafeSnapshotURLBeforeEnqueue(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.getSource = func(_ context.Context, id source.ID) (source.Source, error) {
+		return source.Source{ID: id, Kind: source.KindManual, Enabled: true}, nil
+	}
+	backend.enqueue = func(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error) {
+		t.Fatal("unsafe URL must not be enqueued")
+		return ingestion.Acquisition{}, nil
+	}
+
+	for _, value := range []string{
+		`{"title":"Unsafe","url":"javascript:alert(1)"}`,
+		`{"title":"Credentialed","url":"https://user:secret@example.com/article"}`,
+	} {
+		response := httptest.NewRecorder()
+		NewHandler(backend).ServeHTTP(
+			response,
+			httptest.NewRequest(
+				http.MethodPost,
+				"/api/v1/sources/manual-source/entries",
+				bytes.NewBufferString(value),
+			),
+		)
+		if response.Code != http.StatusBadRequest {
+			t.Errorf("payload %s status = %d, body = %s", value, response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestAnnotationImportQueuesWholeBatch(t *testing.T) {
 	backend := completeFakeBackend()
 	backend.getSource = func(_ context.Context, id source.ID) (source.Source, error) {
