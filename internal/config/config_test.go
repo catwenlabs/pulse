@@ -13,8 +13,8 @@ func TestLoadUsesDefaults(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.HTTPAddr != ":8080" {
-		t.Errorf("HTTPAddr = %q, want %q", cfg.HTTPAddr, ":8080")
+	if cfg.HTTPAddr != "127.0.0.1:8080" {
+		t.Errorf("HTTPAddr = %q, want %q", cfg.HTTPAddr, "127.0.0.1:8080")
 	}
 	if cfg.DatabaseURL != "postgres://pulse:pulse@postgres:5432/pulse?sslmode=disable" {
 		t.Errorf("DatabaseURL = %q", cfg.DatabaseURL)

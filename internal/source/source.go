@@ -22,12 +22,13 @@ type ID string
 type Kind string
 
 const (
-	KindRSS     Kind = "rss"
-	KindJSONAPI Kind = "json-api"
-	KindHTML    Kind = "html"
-	KindWebhook Kind = "webhook"
-	KindManual  Kind = "manual"
-	KindFile    Kind = "file"
+	KindRSS         Kind = "rss"
+	KindJSONAPI     Kind = "json-api"
+	KindHTML        Kind = "html"
+	KindWebhook     Kind = "webhook"
+	KindManual      Kind = "manual"
+	KindFile        Kind = "file"
+	KindAnnotations Kind = "annotations"
 )
 
 type Spec struct {
@@ -126,7 +127,7 @@ func (spec Spec) Validate() (ValidatedSpec, error) {
 
 func (kind Kind) Valid() bool {
 	switch kind {
-	case KindRSS, KindJSONAPI, KindHTML, KindWebhook, KindManual, KindFile:
+	case KindRSS, KindJSONAPI, KindHTML, KindWebhook, KindManual, KindFile, KindAnnotations:
 		return true
 	default:
 		return false

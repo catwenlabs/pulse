@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/wenpengfei/pulse/internal/config"
+	annotationdriver "github.com/wenpengfei/pulse/internal/drivers/annotations"
 	"github.com/wenpengfei/pulse/internal/drivers/feed"
 	filedriver "github.com/wenpengfei/pulse/internal/drivers/file"
 	htmldriver "github.com/wenpengfei/pulse/internal/drivers/html"
@@ -83,6 +84,7 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 		push.New(source.KindWebhook),
 		push.New(source.KindManual),
 		filedriver.New(cfg.ImportRoots),
+		annotationdriver.New(),
 	)
 	if err != nil {
 		return fmt.Errorf("create driver registry: %w", err)

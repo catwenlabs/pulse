@@ -61,6 +61,28 @@ await waitFor(`document.body.innerText.includes('添加信息源')`, 'Pulse sour
 await evaluate(`Array.from(document.querySelectorAll('button')).find((button) => button.textContent.includes('添加信息源')).click()`)
 await waitFor(`document.querySelector('[role="dialog"]') !== null`, 'source dialog')
 
+await command('Emulation.setDeviceMetricsOverride', {
+  width: 390,
+  height: 480,
+  deviceScaleFactor: 1,
+  mobile: true,
+})
+const mobileDialog = await evaluate(`(() => {
+  const dialog = document.querySelector('[role="dialog"]')
+  const action = Array.from(dialog.querySelectorAll('button')).find((button) => button.textContent.includes('测试并预览'))
+  dialog.scrollTop = dialog.scrollHeight
+  const dialogRect = dialog.getBoundingClientRect()
+  const actionRect = action.getBoundingClientRect()
+  return {
+    scrollable: dialog.scrollHeight > dialog.clientHeight,
+    contained: dialogRect.top >= 0 && dialogRect.bottom <= window.innerHeight,
+    actionVisible: actionRect.top >= 0 && actionRect.bottom <= window.innerHeight,
+  }
+})()`)
+if (!mobileDialog.scrollable || !mobileDialog.contained || !mobileDialog.actionVisible) {
+  throw new Error(`Mobile dialog layout assertion failed: ${JSON.stringify(mobileDialog)}`)
+}
+
 await evaluate(`(() => {
   const set = (selector, value) => {
     const input = document.querySelector(selector)

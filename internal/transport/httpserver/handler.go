@@ -17,6 +17,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/wenpengfei/pulse/internal/annotation"
 	"github.com/wenpengfei/pulse/internal/entry"
 	"github.com/wenpengfei/pulse/internal/ingestion"
 	"github.com/wenpengfei/pulse/internal/opml"
@@ -93,6 +94,7 @@ func newHandler(backend Backend, web fs.FS) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/sources/{id}", archiveSource(backend))
 	mux.HandleFunc("POST /api/v1/sources/{id}/runs", runSource(backend))
 	mux.HandleFunc("POST /api/v1/sources/{id}/entries", createManualEntry(backend))
+	mux.HandleFunc("POST /api/v1/sources/{id}/annotations", importAnnotations(backend))
 	mux.HandleFunc("POST /api/v1/sources/{id}/secret", rotateSourceSecret(backend))
 	mux.HandleFunc("GET /api/v1/sources/{id}/health", getSourceHealth(backend))
 	mux.HandleFunc("POST /api/v1/webhooks/{id}", receiveWebhook(backend))
@@ -536,6 +538,47 @@ func createManualEntry(backend Backend) http.HandlerFunc {
 	}
 }
 
+func importAnnotations(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		src, err := backend.GetSource(request.Context(), source.ID(request.PathValue("id")))
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		if src.Kind != source.KindAnnotations {
+			writeProblem(w, http.StatusUnprocessableEntity, "wrong_source_kind", "source is not annotations", "")
+			return
+		}
+		if !src.Enabled {
+			writeProblem(w, http.StatusConflict, "source_paused", "source is paused", "")
+			return
+		}
+		payload, err := readJSONPayload(w, request)
+		if err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		if _, err := annotation.DecodeBatch(payload); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "annotations")
+			return
+		}
+		key := strings.TrimSpace(request.Header.Get("Idempotency-Key"))
+		if key == "" {
+			digest := sha256.Sum256(payload)
+			key = hex.EncodeToString(digest[:])
+		}
+		acquisition, err := backend.Enqueue(request.Context(), ingestion.EnqueueRequest{
+			SourceID: src.ID, Trigger: ingestion.TriggerImport, Payload: payload,
+			IdempotencyKey: key, Priority: 100,
+		})
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, acquisition)
+	}
+}
+
 func rotateSourceSecret(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
 		id := source.ID(request.PathValue("id"))
@@ -662,6 +705,8 @@ func registerWeb(mux *http.ServeMux, web fs.FS) {
 			http.NotFound(w, request)
 			return
 		}
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		w.Header().Set("X-Frame-Options", "DENY")
 		name := strings.TrimPrefix(path.Clean(request.URL.Path), "/")
 		if name == "." {
 			name = "index.html"
@@ -811,8 +856,18 @@ func listEntries(backend Backend) http.HandlerFunc {
 			}
 			limit = parsed
 		}
+		offset := 0
+		if value := request.URL.Query().Get("offset"); value != "" {
+			parsed, err := strconv.Atoi(value)
+			if err != nil || parsed < 0 {
+				writeProblem(w, http.StatusBadRequest, "invalid_request", "offset must be zero or greater", "offset")
+				return
+			}
+			offset = parsed
+		}
 		entries, err := backend.SearchEntries(request.Context(), entry.Query{
 			Limit:    limit,
+			Offset:   offset,
 			Search:   request.URL.Query().Get("q"),
 			State:    request.URL.Query().Get("state"),
 			Tag:      request.URL.Query().Get("tag"),

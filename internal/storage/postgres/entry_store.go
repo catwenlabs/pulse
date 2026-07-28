@@ -31,12 +31,18 @@ func (store *EntryStore) Search(ctx context.Context, query entry.Query) ([]entry
 	if query.Limit <= 0 || query.Limit > 200 {
 		query.Limit = 50
 	}
+	if query.Offset < 0 {
+		query.Offset = 0
+	}
 	rows, err := store.pool.Query(ctx, `
 		SELECT
-			id, source_id, identity_key, external_id, canonical_url,
-			source_title, display_title, author, summary, content_html,
-			published_at, discovered_at, read_at, starred_at, hidden_at, later_at, note
+			entry.id, entry.source_id, entry.identity_key, entry.external_id, entry.canonical_url,
+			entry.source_title, entry.display_title, entry.author, entry.summary, entry.content_html,
+			entry.published_at, entry.discovered_at, entry.read_at, entry.starred_at,
+			entry.hidden_at, entry.later_at, entry.note,
+			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at'
 		FROM entries AS entry
+		LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entry.id
 		WHERE
 			($2 = '' OR to_tsvector(
 				'simple',
@@ -45,7 +51,11 @@ func (store *EntryStore) Search(ctx context.Context, query entry.Query) ([]entry
 				coalesce(author, '') || ' ' ||
 				coalesce(summary, '') || ' ' ||
 				coalesce(content_html, '') || ' ' ||
-				coalesce(note, '')
+				coalesce(note, '') || ' ' ||
+				coalesce(entry_annotation.book_title, '') || ' ' ||
+				coalesce(entry_annotation.book_author, '') || ' ' ||
+				coalesce(entry_annotation.chapter, '') || ' ' ||
+				coalesce(entry_annotation.annotation_note, '')
 			) @@ plainto_tsquery('simple', $2))
 			AND (
 				$3 = ''
@@ -68,12 +78,14 @@ func (store *EntryStore) Search(ctx context.Context, query entry.Query) ([]entry
 			AND ($5 = '' OR entry.source_id = $5::uuid)
 		ORDER BY discovered_at DESC, id DESC
 		LIMIT $1
+		OFFSET $6
 	`,
 		query.Limit,
 		strings.TrimSpace(query.Search),
 		strings.TrimSpace(query.State),
 		strings.TrimSpace(query.Tag),
 		query.SourceID,
+		query.Offset,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("search entries: %w", err)
@@ -97,11 +109,14 @@ func (store *EntryStore) Search(ctx context.Context, query entry.Query) ([]entry
 func (store *EntryStore) Get(ctx context.Context, id entry.ID) (entry.Entry, error) {
 	row := store.pool.QueryRow(ctx, `
 		SELECT
-			id, source_id, identity_key, external_id, canonical_url,
-			source_title, display_title, author, summary, content_html,
-			published_at, discovered_at, read_at, starred_at, hidden_at, later_at, note
-		FROM entries
-		WHERE id = $1
+			entry.id, entry.source_id, entry.identity_key, entry.external_id, entry.canonical_url,
+			entry.source_title, entry.display_title, entry.author, entry.summary, entry.content_html,
+			entry.published_at, entry.discovered_at, entry.read_at, entry.starred_at,
+			entry.hidden_at, entry.later_at, entry.note,
+			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at'
+		FROM entries AS entry
+		LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entry.id
+		WHERE entry.id = $1
 	`, id)
 	item, err := scanEntry(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -129,10 +144,11 @@ func (store *EntryStore) Update(ctx context.Context, id entry.ID, patch entry.Pa
 			display_title = CASE WHEN $10 THEN $11 ELSE display_title END,
 			note = CASE WHEN $12 THEN $13 ELSE note END
 		WHERE id = $1
-		RETURNING
-			id, source_id, identity_key, external_id, canonical_url,
-			source_title, display_title, author, summary, content_html,
-			published_at, discovered_at, read_at, starred_at, hidden_at, later_at, note
+			RETURNING
+				id, source_id, identity_key, external_id, canonical_url,
+				source_title, display_title, author, summary, content_html,
+				published_at, discovered_at, read_at, starred_at, hidden_at, later_at, note,
+				NULL::jsonb
 	`,
 		id,
 		patch.Read != nil, boolValue(patch.Read),
@@ -154,10 +170,14 @@ func (store *EntryStore) Update(ctx context.Context, id entry.ID, patch entry.Pa
 	}
 	item, err := scanEntry(tx.QueryRow(ctx, `
 		SELECT
-			id, source_id, identity_key, external_id, canonical_url,
-			source_title, display_title, author, summary, content_html,
-			published_at, discovered_at, read_at, starred_at, hidden_at, later_at, note
-		FROM entries WHERE id = $1
+			entry.id, entry.source_id, entry.identity_key, entry.external_id, entry.canonical_url,
+			entry.source_title, entry.display_title, entry.author, entry.summary, entry.content_html,
+			entry.published_at, entry.discovered_at, entry.read_at, entry.starred_at,
+			entry.hidden_at, entry.later_at, entry.note,
+			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at'
+		FROM entries AS entry
+		LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entry.id
+		WHERE entry.id = $1
 	`, id))
 	if err != nil {
 		return entry.Entry{}, fmt.Errorf("reload entry %s: %w", id, err)
@@ -225,6 +245,7 @@ type entryRow interface {
 
 func scanEntry(row entryRow) (entry.Entry, error) {
 	var item entry.Entry
+	var annotationJSON []byte
 	err := row.Scan(
 		&item.ID,
 		&item.SourceID,
@@ -243,7 +264,13 @@ func scanEntry(row entryRow) (entry.Entry, error) {
 		&item.HiddenAt,
 		&item.LaterAt,
 		&item.Note,
+		&annotationJSON,
 	)
+	if err == nil && len(annotationJSON) > 0 && string(annotationJSON) != "null" {
+		if err := json.Unmarshal(annotationJSON, &item.Annotation); err != nil {
+			return entry.Entry{}, fmt.Errorf("decode entry annotation: %w", err)
+		}
+	}
 	return item, err
 }
 
@@ -333,6 +360,32 @@ func (store *EntryStore) CommitBatch(
 		}
 		if err != nil {
 			return fmt.Errorf("upsert entry %q: %w", item.identityKey, err)
+		}
+		if candidate.Annotation != nil {
+			detail := candidate.Annotation
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO entry_annotations (
+					entry_id, provider, book_identity, book_title, book_author,
+					chapter, location, highlight_color, annotation_note, highlighted_at
+				)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+				ON CONFLICT (entry_id)
+				DO UPDATE SET
+					provider = EXCLUDED.provider,
+					book_identity = EXCLUDED.book_identity,
+					book_title = EXCLUDED.book_title,
+					book_author = EXCLUDED.book_author,
+					chapter = EXCLUDED.chapter,
+					location = EXCLUDED.location,
+					highlight_color = EXCLUDED.highlight_color,
+					annotation_note = EXCLUDED.annotation_note,
+					highlighted_at = EXCLUDED.highlighted_at,
+					imported_at = now()
+			`, entryID, detail.Provider, detail.BookIdentity, detail.BookTitle,
+				detail.BookAuthor, detail.Chapter, detail.Location, detail.HighlightColor,
+				detail.AnnotationNote, detail.HighlightedAt); err != nil {
+				return fmt.Errorf("upsert annotation for entry %q: %w", item.identityKey, err)
+			}
 		}
 		if err := applyEnabledRulesTx(ctx, tx, entryID); err != nil {
 			return fmt.Errorf("apply rules to entry %q: %w", item.identityKey, err)

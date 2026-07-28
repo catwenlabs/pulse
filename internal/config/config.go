@@ -29,7 +29,7 @@ type LookupEnv func(string) (string, bool)
 
 func Load(lookup LookupEnv) (Config, error) {
 	cfg := Config{
-		HTTPAddr:    ":8080",
+		HTTPAddr:    "127.0.0.1:8080",
 		DatabaseURL: "postgres://pulse:pulse@postgres:5432/pulse?sslmode=disable",
 		WebDir:      "/web",
 		ImportRoots: []string{"/data/imports"},

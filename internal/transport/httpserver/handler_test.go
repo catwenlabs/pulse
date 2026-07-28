@@ -58,6 +58,14 @@ func TestWebAppServesIndexAssetsAndSPAFallback(t *testing.T) {
 		if test.wantContent != "" && !strings.Contains(response.Body.String(), test.wantContent) {
 			t.Errorf("%s body = %q, want %q", test.path, response.Body.String(), test.wantContent)
 		}
+		if !strings.HasPrefix(test.path, "/api/") {
+			if got := response.Header().Get("Content-Security-Policy"); got != "frame-ancestors 'none'" {
+				t.Errorf("%s Content-Security-Policy = %q", test.path, got)
+			}
+			if got := response.Header().Get("X-Frame-Options"); got != "DENY" {
+				t.Errorf("%s X-Frame-Options = %q", test.path, got)
+			}
+		}
 	}
 
 	if _, err := fs.Stat(web, "assets/ignored.js"); err != nil {

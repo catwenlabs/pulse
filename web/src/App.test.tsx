@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { App } from './App'
@@ -18,6 +18,7 @@ const scrollIntoView = vi.fn()
 
 describe('App', () => {
   beforeEach(() => {
+    window.history.replaceState(null, '', '/')
     scrollIntoView.mockClear()
     Object.defineProperty(Element.prototype, 'scrollIntoView', {
       configurable: true,
@@ -29,6 +30,12 @@ describe('App', () => {
     })
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      if (url.includes('/api/v1/sources/') && url.endsWith('/entries') && init?.method === 'POST') {
+        return new Response(JSON.stringify({ id: 'manual-job', status: 'pending' }), {
+          status: 202,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
       if (url.includes('/api/v1/entries')) {
         if (init?.method === 'PATCH' && !url.includes('/entries/')) {
           return new Response(JSON.stringify({ updated_count: 1 }), {
@@ -68,7 +75,19 @@ describe('App', () => {
         }]), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
       if (url.endsWith('/api/v1/sources') && init?.method === 'POST') {
-        return new Response(JSON.stringify({ ...source, id: 'source-2', name: 'New Feed' }), {
+        const input = JSON.parse(String(init.body)) as {
+          name: string
+          kind: string
+          locator: string
+        }
+        return new Response(JSON.stringify({
+          ...source,
+          id: 'source-2',
+          name: input.name,
+          kind: input.kind,
+          locator: input.locator,
+          normalized_locator: input.locator,
+        }), {
           status: 201,
           headers: { 'Content-Type': 'application/json' },
         })
@@ -339,6 +358,314 @@ describe('App', () => {
       expect(vi.mocked(fetch).mock.calls.some(([url]) =>
         String(url).includes('/api/v1/entries?') && String(url).includes('source_id=source-1'))).toBe(true)
     })
+  })
+
+  it('uses an accessible off-canvas navigation drawer on mobile', async () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(max-width: 760px)',
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })))
+
+    render(<App />)
+    await screen.findByText('Reader article')
+
+    const drawer = document.getElementById('mobile-navigation')
+    expect(drawer).not.toBeNull()
+    const menuButton = screen.getByRole('button', { name: '打开导航' })
+    expect(drawer!).toHaveAttribute('aria-hidden', 'true')
+    expect(menuButton).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(menuButton)
+    expect(drawer!).toHaveAttribute('aria-hidden', 'false')
+    expect(menuButton).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('main')).toHaveAttribute('inert')
+    const closeButton = screen.getByRole('button', { name: '关闭导航' })
+    expect(closeButton).toHaveFocus()
+    screen.getByRole('link', { name: 'Pulse 首页' }).focus()
+    fireEvent.keyDown(screen.getByRole('link', { name: 'Pulse 首页' }), { key: 'Tab', shiftKey: true })
+    expect(screen.getByRole('button', { name: '管理信息源' })).toHaveFocus()
+    fireEvent.keyDown(screen.getByRole('button', { name: '管理信息源' }), { key: 'Tab' })
+    expect(screen.getByRole('link', { name: 'Pulse 首页' })).toHaveFocus()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(drawer!).toHaveAttribute('aria-hidden', 'true')
+    expect(menuButton).toHaveFocus()
+    expect(screen.getByRole('heading', { level: 1, name: '全部文章' })).toBeInTheDocument()
+
+    fireEvent.click(menuButton)
+    fireEvent.click(screen.getByRole('button', { name: 'Example Feed' }))
+    expect(drawer!).toHaveAttribute('aria-hidden', 'true')
+    expect(menuButton).toHaveFocus()
+    expect(await screen.findByRole('heading', { name: 'Example Feed' })).toBeInTheDocument()
+  })
+
+  it('shows an installable bookmarklet from the navigation', async () => {
+    render(<App />)
+    await screen.findByText('Reader article')
+
+    const installButton = screen.getByRole('button', { name: '安装保存书签' })
+    installButton.focus()
+    fireEvent.click(installButton)
+
+    const dialog = screen.getByRole('dialog', { name: '安装“保存到 Pulse”' })
+    const code = screen.getByLabelText('Bookmarklet 代码')
+    expect(dialog).toBeInTheDocument()
+    expect((code as HTMLTextAreaElement).value).toContain('javascript:')
+    expect((code as HTMLTextAreaElement).value).toContain(`${window.location.origin}/#save?`)
+    expect((code as HTMLTextAreaElement).value).toContain("'_blank'")
+    expect((code as HTMLTextAreaElement).value).toContain('noopener')
+    expect(within(dialog).getByRole('heading', { name: 'Mac Chrome' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('heading', { name: 'iPhone Chrome' })).toBeInTheDocument()
+    expect(within(dialog).getByText(/长按刚创建的书签/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/打开要收藏的网页，再从书签中点“保存到 Pulse”/)).toBeInTheDocument()
+
+    const closeButton = within(dialog).getByRole('button', { name: '关闭' })
+    const doneButton = within(dialog).getByRole('button', { name: '完成' })
+    doneButton.focus()
+    fireEvent.keyDown(dialog, { key: 'Tab' })
+    expect(closeButton).toHaveFocus()
+    closeButton.focus()
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true })
+    expect(doneButton).toHaveFocus()
+
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: '安装“保存到 Pulse”' })).not.toBeInTheDocument()
+    expect(installButton).toHaveFocus()
+  })
+
+  it('returns focus to the navigation menu after closing the bookmarklet dialog on mobile', async () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(max-width: 760px)',
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })))
+
+    render(<App />)
+    await screen.findByText('Reader article')
+
+    const menuButton = screen.getByRole('button', { name: '打开导航' })
+    fireEvent.click(menuButton)
+    fireEvent.click(screen.getByRole('button', { name: '安装保存书签' }))
+    const dialog = screen.getByRole('dialog', { name: '安装“保存到 Pulse”' })
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+
+    expect(dialog).not.toBeInTheDocument()
+    expect(menuButton).toHaveFocus()
+  })
+
+  it('groups reading annotations by book and imports a new highlight', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    const annotationSource = {
+      ...source,
+      id: 'annotation-source',
+      name: 'Apple Books 批注',
+      kind: 'annotations',
+      locator: 'apple-books',
+    }
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/api/v1/sources') && !init?.method) {
+        return new Response(JSON.stringify([source, annotationSource]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url.includes('/api/v1/entries?') && url.includes('source_id=annotation-source')) {
+        return new Response(JSON.stringify(Array.from({ length: 4 }, (_, index) => ({
+          id: `annotation-entry-${index}`,
+          source_id: 'annotation-source',
+          identity_key: `external:apple-books:book-123:${1284 + index}`,
+          source_title: '思考，快与慢',
+          display_title: '',
+          author: 'Daniel Kahneman',
+          summary: index === 3 ? '第四条可展开的批注。' : '系统一自动而快速地运行。',
+          content_html: '<blockquote>系统一自动而快速地运行。</blockquote>',
+          discovered_at: '2026-07-27T10:00:00Z',
+          note: '',
+          annotation: {
+            provider: 'apple-books',
+            book_identity: 'book-123',
+            book_title: '思考，快与慢',
+            book_author: 'Daniel Kahneman',
+            chapter: '第三章',
+            location: String(1284 + index),
+            highlight_color: 'yellow',
+            annotation_note: '这里对应直觉判断。',
+          },
+        }))), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url.endsWith('/api/v1/sources/annotation-source/annotations') && init?.method === 'POST') {
+        return new Response('{"id":"annotation-job","status":"pending"}', {
+          status: 202,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return defaultFetch(input, init)
+    })
+
+    render(<App />)
+    await screen.findByText('Reader article')
+    fireEvent.click(screen.getByRole('link', { name: '阅读笔记' }))
+
+    expect(await screen.findByRole('heading', { name: '阅读笔记' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '思考，快与慢' })).toBeInTheDocument()
+    expect(screen.getByText('4 条批注')).toBeInTheDocument()
+    expect(screen.queryByText('第四条可展开的批注。')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '展开全部 4 条' }))
+    expect(screen.getByText('第四条可展开的批注。')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '导入批注' }))
+    fireEvent.change(screen.getByLabelText('来源平台'), { target: { value: 'apple-books' } })
+    fireEvent.change(screen.getByLabelText('书名'), { target: { value: '原则' } })
+    fireEvent.change(screen.getByLabelText('作者'), { target: { value: 'Ray Dalio' } })
+    fireEvent.change(screen.getByLabelText('高亮原文'), { target: { value: '可信度加权决策。' } })
+    fireEvent.click(screen.getByRole('button', { name: '加入导入队列' }))
+
+    await waitFor(() => {
+      const request = vi.mocked(fetch).mock.calls.find(([url, init]) =>
+        String(url).endsWith('/api/v1/sources/annotation-source/annotations') &&
+        init?.method === 'POST')
+      expect(request).toBeDefined()
+      expect(String(request?.[1]?.body)).toContain('可信度加权决策')
+    })
+  })
+
+  it('saves a bookmarklet URL into an existing Manual Source', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    const manualSource = {
+      ...source,
+      id: 'manual-source',
+      name: '网页收藏',
+      kind: 'manual',
+      locator: 'reading-list',
+      normalized_locator: 'reading-list',
+    }
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/api/v1/sources') && !init?.method) {
+        return new Response(JSON.stringify([source, manualSource]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return defaultFetch(input, init)
+    })
+    window.history.replaceState(null, '', '/#save?url=https%3A%2F%2Fexample.com%2Fstory&title=Saved%20Story')
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: '保存到 Pulse' })).toBeInTheDocument()
+    await waitFor(() => expect(window.location.hash).toBe(''))
+    expect(screen.getByLabelText('网页地址')).toHaveValue('https://example.com/story')
+    expect(screen.getByLabelText('标题')).toHaveValue('Saved Story')
+    expect(screen.getByLabelText('保存到')).toHaveValue('manual-source')
+    fireEvent.click(screen.getByRole('button', { name: '保存网页' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('已加入保存队列')
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/sources/manual-source/entries',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          url: 'https://example.com/story',
+          title: 'Saved Story',
+        }),
+      }),
+    )
+  })
+
+  it('explicitly creates a Manual Source before saving when none exists', async () => {
+    window.history.replaceState(null, '', '/#save?url=https%3A%2F%2Fexample.com%2Fnew&title=New')
+
+    render(<App />)
+    await screen.findByRole('heading', { name: '保存到 Pulse' })
+    fireEvent.click(screen.getByRole('button', { name: '创建“网页收藏”并保存' }))
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith('/api/v1/sources', expect.objectContaining({
+        method: 'POST',
+      }))
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/v1/sources/source-2/entries',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+    expect(screen.getByRole('status')).toHaveTextContent('已创建“网页收藏”并加入保存队列')
+    const createCall = vi.mocked(fetch).mock.calls.find(([url, init]) =>
+      String(url).endsWith('/api/v1/sources') && init?.method === 'POST')
+    expect(JSON.parse(String(createCall?.[1]?.body)).locator).toMatch(/^reading-list-/)
+  })
+
+  it('re-enables a paused Manual Source instead of creating a conflicting one', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    const pausedSource = {
+      ...source,
+      id: 'manual-paused',
+      name: '旧网页收藏',
+      kind: 'manual',
+      locator: 'reading-list',
+      normalized_locator: 'reading-list',
+      enabled: false,
+    }
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/api/v1/sources') && !init?.method) {
+        return new Response(JSON.stringify([source, pausedSource]), { status: 200 })
+      }
+      if (url.endsWith('/api/v1/sources/manual-paused') && init?.method === 'PATCH') {
+        return new Response(JSON.stringify({ ...pausedSource, enabled: true }), { status: 200 })
+      }
+      return defaultFetch(input, init)
+    })
+    window.history.replaceState(null, '', '/#save?url=https%3A%2F%2Fexample.com%2Fpaused&title=Paused')
+
+    render(<App />)
+    await screen.findByRole('heading', { name: '保存到 Pulse' })
+    expect(screen.getByLabelText('保存到')).toHaveValue('manual-paused')
+    fireEvent.click(screen.getByRole('button', { name: '保存网页' }))
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith('/api/v1/sources/manual-paused', expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: true }),
+      }))
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/v1/sources/manual-paused/entries',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+  })
+
+  it('refreshes the save form when a reused popup receives another page', async () => {
+    window.history.replaceState(null, '', '/#save?url=https%3A%2F%2Fexample.com%2Ffirst&title=First')
+    render(<App />)
+    await screen.findByRole('heading', { name: '保存到 Pulse' })
+
+    window.location.hash = '#save?url=https%3A%2F%2Fexample.com%2Fsecond&title=Second'
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('网页地址')).toHaveValue('https://example.com/second')
+      expect(screen.getByLabelText('标题')).toHaveValue('Second')
+    })
+  })
+
+  it('rejects unsafe bookmarklet URLs before submitting', async () => {
+    window.history.replaceState(null, '', '/#save?url=javascript%3Aalert(1)&title=Unsafe')
+
+    render(<App />)
+    await screen.findByRole('heading', { name: '保存到 Pulse' })
+    fireEvent.click(screen.getByRole('button', { name: '创建“网页收藏”并保存' }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent('只支持 HTTP 或 HTTPS 网页地址')
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/entries'))).toBe(false)
   })
 
   it('marks all entries or only the selected source as read from the reader toolbar', async () => {

@@ -186,7 +186,8 @@ func (store *RuleStore) allEntries(ctx context.Context) ([]entry.Entry, error) {
 		SELECT
 			id, source_id, identity_key, external_id, canonical_url,
 			source_title, display_title, author, summary, content_html,
-			published_at, discovered_at, read_at, starred_at, hidden_at, later_at, note
+			published_at, discovered_at, read_at, starred_at, hidden_at, later_at, note,
+			NULL::jsonb
 		FROM entries
 		ORDER BY discovered_at, id
 	`)
@@ -294,7 +295,8 @@ func applyEnabledRulesTx(ctx context.Context, tx pgx.Tx, entryID entry.ID) error
 		SELECT
 			id, source_id, identity_key, external_id, canonical_url,
 			source_title, display_title, author, summary, content_html,
-			published_at, discovered_at, read_at, starred_at, hidden_at, later_at, note
+			published_at, discovered_at, read_at, starred_at, hidden_at, later_at, note,
+			NULL::jsonb
 		FROM entries WHERE id = $1
 	`, entryID))
 	if err != nil {

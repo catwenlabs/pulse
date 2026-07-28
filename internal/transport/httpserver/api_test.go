@@ -347,8 +347,8 @@ func TestListSourcesAndEntries(t *testing.T) {
 		return []entry.Entry{{ID: "entry-1", SourceTitle: "Entry"}}, nil
 	}
 	backend.searchEntries = func(_ context.Context, query entry.Query) ([]entry.Entry, error) {
-		if query.Limit != 25 {
-			t.Errorf("limit = %d, want 25", query.Limit)
+		if query.Limit != 25 || query.Offset != 50 {
+			t.Errorf("query = %+v, want limit 25 offset 50", query)
 		}
 		return []entry.Entry{{ID: "entry-1", SourceTitle: "Entry"}}, nil
 	}
@@ -358,7 +358,7 @@ func TestListSourcesAndEntries(t *testing.T) {
 		want string
 	}{
 		{path: "/api/v1/sources", want: "source-1"},
-		{path: "/api/v1/entries?limit=25", want: "entry-1"},
+		{path: "/api/v1/entries?limit=25&offset=50", want: "entry-1"},
 	} {
 		response := httptest.NewRecorder()
 		NewHandler(backend).ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
@@ -576,6 +576,88 @@ func TestManualEntryAndSecretRotation(t *testing.T) {
 		bytes.Contains(secretResponse.Body.Bytes(), []byte(rotated)) {
 		t.Errorf("secret status = %d, rotated = %q, body = %s",
 			secretResponse.Code, rotated, secretResponse.Body.String())
+	}
+}
+
+func TestAnnotationImportQueuesWholeBatch(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.getSource = func(_ context.Context, id source.ID) (source.Source, error) {
+		return source.Source{ID: id, Kind: source.KindAnnotations, Enabled: true}, nil
+	}
+	var queued ingestion.EnqueueRequest
+	backend.enqueue = func(_ context.Context, request ingestion.EnqueueRequest) (ingestion.Acquisition, error) {
+		queued = request
+		return ingestion.Acquisition{ID: "annotation-job", Status: ingestion.StatusPending}, nil
+	}
+	body := `{"annotations":[{"provider":"kindle","book_title":"Deep Work","highlight":"Focus."}]}`
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/sources/annotation-source/annotations",
+		bytes.NewBufferString(body),
+	)
+	request.Header.Set("Idempotency-Key", "annotation-import-1")
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, request)
+
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if queued.SourceID != "annotation-source" || queued.Trigger != ingestion.TriggerImport ||
+		queued.IdempotencyKey != "annotation-import-1" || string(queued.Payload) != body {
+		t.Errorf("queued = %#v", queued)
+	}
+}
+
+func TestAnnotationImportRejectsWrongSourceKind(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.getSource = func(_ context.Context, id source.ID) (source.Source, error) {
+		return source.Source{ID: id, Kind: source.KindManual, Enabled: true}, nil
+	}
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(
+		response,
+		httptest.NewRequest(
+			http.MethodPost,
+			"/api/v1/sources/manual-source/annotations",
+			bytes.NewBufferString(`{"annotations":[]}`),
+		),
+	)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", response.Code)
+	}
+}
+
+func TestAnnotationImportRejectsInvalidBatchBeforeQueueing(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.getSource = func(_ context.Context, id source.ID) (source.Source, error) {
+		return source.Source{ID: id, Kind: source.KindAnnotations, Enabled: true}, nil
+	}
+	queued := false
+	backend.enqueue = func(_ context.Context, request ingestion.EnqueueRequest) (ingestion.Acquisition, error) {
+		queued = true
+		return ingestion.Acquisition{}, nil
+	}
+	for _, body := range []string{
+		`{"annotations":[]}`,
+		`{"annotations":[{"provider":"kindle","book_title":"","highlight":"text"}]}`,
+		`{"annotations":[{"provider":"` + strings.Repeat("x", 65) + `","book_title":"Book","highlight":"text"}]}`,
+	} {
+		response := httptest.NewRecorder()
+		NewHandler(backend).ServeHTTP(
+			response,
+			httptest.NewRequest(
+				http.MethodPost,
+				"/api/v1/sources/annotation-source/annotations",
+				bytes.NewBufferString(body),
+			),
+		)
+		if response.Code != http.StatusBadRequest {
+			t.Errorf("body %q status = %d, want 400", body, response.Code)
+		}
+	}
+	if queued {
+		t.Fatal("invalid annotation batch was queued")
 	}
 }
 

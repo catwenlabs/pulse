@@ -139,6 +139,30 @@ paths:
       responses:
         "202":
           description: Manual Entry acquisition enqueued
+  /sources/{sourceId}/annotations:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    post:
+      operationId: importAnnotations
+      description: Enqueues an atomic batch of book annotations for an annotations Source.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnnotationBatch"
+      responses:
+        "202":
+          description: Annotation Acquisition enqueued
+        "409":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
   /sources/{sourceId}/secret:
     parameters:
       - $ref: "#/components/parameters/SourceId"
@@ -192,6 +216,12 @@ paths:
             minimum: 1
             maximum: 200
             default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
         - name: q
           in: query
           schema:
@@ -518,7 +548,7 @@ components:
           type: string
         kind:
           type: string
-          enum: [rss, json-api, html, webhook, manual, file]
+          enum: [rss, json-api, html, webhook, manual, file, annotations]
         locator:
           type: string
         config:
@@ -615,6 +645,77 @@ components:
         published_at:
           type: string
           format: date-time
+    AnnotationInput:
+      type: object
+      required: [provider, book_title, highlight]
+      properties:
+        id:
+          type: string
+          maxLength: 512
+        provider:
+          type: string
+          maxLength: 64
+        book_identity:
+          type: string
+          maxLength: 512
+        book_title:
+          type: string
+          maxLength: 2048
+        book_author:
+          type: string
+          maxLength: 512
+        chapter:
+          type: string
+          maxLength: 1024
+        location:
+          type: string
+          maxLength: 256
+        highlight_color:
+          type: string
+          maxLength: 32
+        highlight:
+          type: string
+          maxLength: 262144
+        note:
+          type: string
+          maxLength: 262144
+        highlighted_at:
+          type: string
+          format: date-time
+          maxLength: 64
+    AnnotationBatch:
+      type: object
+      required: [annotations]
+      properties:
+        annotations:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/AnnotationInput"
+    AnnotationDetail:
+      type: object
+      required: [provider, book_identity, book_title, book_author, chapter, location, highlight_color, annotation_note]
+      properties:
+        provider:
+          type: string
+        book_identity:
+          type: string
+        book_title:
+          type: string
+        book_author:
+          type: string
+        chapter:
+          type: string
+        location:
+          type: string
+        highlight_color:
+          type: string
+        annotation_note:
+          type: string
+        highlighted_at:
+          type: string
+          format: date-time
     Entry:
       type: object
       required: [id, source_id, identity_key, source_title, discovered_at]
@@ -650,6 +751,8 @@ components:
           type: string
         note:
           type: string
+        annotation:
+          $ref: "#/components/schemas/AnnotationDetail"
     EntryPatch:
       type: object
       properties:

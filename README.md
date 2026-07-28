@@ -67,13 +67,88 @@ docker compose up --build -d
 
 未配置主密钥时仍可使用无凭据来源，但 Pulse 会拒绝保存包含 Token、Cookie、密码或认证 Header 的配置。默认 Compose 仅运行 Pulse 和 PostgreSQL；同一 Pulse 镜像同时承担 Web、Scheduler、Acquisition Worker 和 Effect Worker 角色。
 
-### First-use flow
+### Source 是什么
 
-1. 打开 `http://localhost:8080`。
-2. 选择“添加信息源”。
-3. 输入名称和来源地址。
-4. 先执行测试与预览，再保存并启用 Source。
-5. Source 成功摄取后，在阅读流中查看 Entry。
+Source 是一项持久化的信息来源配置，描述“内容从哪里来”以及“Pulse 应该怎样取得内容”。Source 通常对应一个会持续产生或接收多条内容的入口，并不等于一篇文章或一个待收藏网页。
+
+例如，一个 RSS Source 对应一个 Feed，之后发布的新文章都会进入同一个 Source；一个 Manual Source 则类似网页收藏夹，可以接收来自不同网站的任意多个网页。使用 Bookmarklet 保存十个不同网页时，不需要创建十个 Source，只需要把它们保存到同一个 Manual Source，它们会成为十个独立的 Entry。
+
+### 支持的 Source 类型
+
+| 类型 | Source 中填写或绑定的入口 | 适用场景 | 是否需要为每篇内容创建 Source |
+| --- | --- | --- | --- |
+| RSS / Atom / JSON Feed (`rss`) | Feed URL，例如 `https://example.com/feed.xml` | 订阅博客、新闻站和播客等标准 Feed；Pulse 会持续检查新增或更新的条目 | 不需要；通常每个 Feed 创建一个 Source |
+| JSON API (`json-api`) | 返回内容列表的 HTTP API URL | 从结构化 JSON 接口摄取内容；支持字段映射及页码、下一页 URL、游标分页 | 不需要；通常每个 API 数据集或查询创建一个 Source |
+| Static HTML (`html`) | 公开网页 URL | 从没有 Feed/API 的网页提取内容；列表模式可从一个页面提取多条内容，单文档模式用于持续关注一个页面 | 列表页面不需要；单文档模式通常每个需要独立跟踪的页面创建一个 Source |
+| Webhook (`webhook`) | Pulse 为该 Source 提供的 Webhook 接收地址和独立密钥 | 由外部系统主动向 Pulse 推送内容 | 不需要；通常每个外部系统或推送用途创建一个 Source |
+| Manual Source (`manual`) | 一个收藏集合标识，不是待收藏网页 URL | 通过 Bookmarklet 或 API 手工保存任意网站的网页和内容 | 不需要；一个“网页收藏”Source 可以保存任意多个网页 |
+| Local files (`file`) | `PULSE_IMPORT_ROOTS` 白名单内的 Markdown 或 HTML 文件路径 | 将本机或挂载目录中的单个文档摄取为 Entry | 当前每个被跟踪的文件创建一个 Source |
+| Book Annotations (`annotations`) | Apple Books、Kindle 或其他阅读器的批注集合 | 保存高亮原文、书籍、章节、位置、颜色和来源笔记；每条 Annotation 成为一条 Entry | 不需要；通常每个阅读平台创建一个 Source |
+
+HTTP Source 目前只接受 `http://` 或 `https://` 地址。File Source 只允许读取 `PULSE_IMPORT_ROOTS` 下的 `.md`、`.markdown`、`.html` 或 `.htm` 文件。
+
+当前网页端的“添加信息源”向导直接支持 RSS、JSON API 和 Static HTML，并会在保存前执行测试与预览。Manual Source 可以在首次使用 Bookmarklet 时由保存确认页创建；Book Annotations Source 可以在“阅读笔记”首次导入时创建。Webhook、File 以及更复杂的配置可以通过 HTTP API 创建；接口契约见 [`api/openapi.yaml`](api/openapi.yaml)。
+
+### 首次使用
+
+根据目标选择其中一条路径：
+
+#### 订阅持续更新的内容
+
+1. 打开 `http://localhost:8080`，选择“添加信息源”。
+2. 选择 RSS、JSON API 或 Static HTML。
+3. 填写便于识别的 Source 名称，以及对应的 Feed、API 或网页入口地址。
+4. JSON API 需要配置字段映射；Static HTML 需要配置页面模式和 CSS Selector。
+5. 选择“测试与预览”，确认 Pulse 能取得内容且标题、链接等字段正确。
+6. 保存并启用 Source。之后 Pulse 会持续执行 Acquisition，并把取得的内容统一为阅读流中的 Entry。
+
+如果要订阅另一个 Feed、API 数据集或独立 HTML 入口，再为它创建新的 Source；同一入口产生的每篇内容不需要单独创建 Source。
+
+#### 手工收藏当前网页
+
+1. 打开左侧导航底部的“安装保存书签”。
+2. 按下面的 Mac 或 iPhone 步骤安装 Bookmarklet。
+3. 在要收藏的网页上运行“保存到 Pulse”。
+4. 首次保存时创建“网页收藏”Manual Source；以后继续选择同一个 Source。
+5. 每次保存的网页都会成为该 Manual Source 下的一条独立 Entry。
+
+### 使用 Bookmarklet 保存网页
+
+Pulse 提供类似 Instapaper 的轻量网页收藏入口，无需安装浏览器扩展。Mac 和 iPhone Chrome 使用同一段 Bookmarklet 代码。
+
+在 Mac Chrome 上：
+
+1. 在 Pulse 左侧导航底部选择“安装保存书签”，复制完整 Bookmarklet 代码。
+2. 新建名为“保存到 Pulse”的书签，并将代码粘贴到书签地址。
+3. 浏览网页时点击书签栏中的“保存到 Pulse”。
+
+在 iPhone Chrome 上：
+
+1. 打开 Pulse 的“安装保存书签”弹窗并复制完整代码。
+2. 先将任意网页添加到 Chrome 书签。
+3. 长按刚创建的书签并选择“编辑”，名称改为“保存到 Pulse”。
+4. 将书签 URL 替换为复制的完整代码并保存。
+5. 打开要收藏的网页，再从 Chrome 书签中点击“保存到 Pulse”。
+
+随后在打开的 Pulse 页面中确认或修改标题、URL 和目标 Manual Source，然后选择“保存网页”。
+
+首次使用时，如果还没有 Manual Source，可以在确认页面创建“网页收藏”并立即保存。已暂停的 Manual Source 被选中后会自动重新启用。保存请求进入统一摄取管道，完成处理后会作为 Entry 出现在阅读流中。
+
+Bookmarklet 仅接受 `http://` 和 `https://` 网页。它会绑定安装时所使用的 Pulse 地址；如果之后更换域名、端口或部署路径，请从新地址重新安装。浏览器必须能够访问该 Pulse 实例，因此局域网或本机地址无法从网络外部直接使用。
+
+### 导入阅读批注
+
+“阅读笔记”用于保存 Apple Books、Kindle 和其他阅读器产生的高亮与批注。一个阅读平台通常只需要一个 Book Annotations Source；每条高亮会成为该 Source 下独立且可搜索的 Entry，Pulse 按书籍自动分组。
+
+1. 在左侧导航选择“阅读笔记”。
+2. 选择“导入批注”。
+3. 选择来源平台，填写书名、高亮原文，以及可选的作者、章节、位置、颜色和原始批注。
+4. 选择“加入导入队列”。首次导入会自动创建对应的 Book Annotations Source。
+5. Worker 完成 Acquisition 后，重新进入“阅读笔记”即可按书查看。
+
+相同平台、书籍和位置的批注重复导入时会更新现有 Entry；没有稳定位置时，Pulse 使用书籍与高亮文本指纹去重。来自阅读器的原始批注与用户后来在 Pulse 中追加的 Note 分开保存，重新导入不会覆盖 Pulse Note。
+
+当前界面提供结构化单条导入，HTTP API 支持一次提交最多 500 条 Annotation。Apple Books 分享文本和 Kindle `My Clippings.txt` 的批量解析需要基于真实、脱敏的导出样本验证格式后接入，避免依赖未经验证的私有格式。
 
 如果服务没有就绪：
 
@@ -235,13 +310,15 @@ make dev-api \
 | 变量 | 容器默认值 | 用途 |
 | --- | --- | --- |
 | `PULSE_DATABASE_URL` | `postgres://pulse:pulse@postgres:5432/pulse?sslmode=disable` | PostgreSQL 连接地址 |
-| `PULSE_HTTP_ADDR` | `:8080` | HTTP 监听地址 |
+| `PULSE_HTTP_ADDR` | `127.0.0.1:8080`（容器内覆盖为 `:8080`） | HTTP 监听地址 |
 | `PULSE_ROLES` | `web,scheduler,worker,effect-worker` | 当前进程启用的运行角色 |
 | `PULSE_MASTER_KEY` | 空 | Base64 编码的 32 字节来源凭据主密钥 |
 | `PULSE_WEB_DIR` | `/web` | 已构建前端静态文件目录 |
 | `PULSE_IMPORT_ROOTS` | `/data/imports` | File Source 允许读取的路径列表 |
 
 本机使用 Vite 时，浏览器访问 `5173`，Go 后端只需在 `8080` 提供 API；正式镜像则由 Go 服务直接提供 `/web` 中的前端静态资源。
+
+Pulse 当前不提供内置用户认证，并且阅读批注可能包含敏感内容。直接运行程序和默认 Compose 端口映射都只对本机开放；容器内部仍监听 `:8080`。不要将该端口直接暴露到公网；需要让 iPhone 等其他设备访问时，应通过可信 VPN 或带认证的反向代理开放，而不是直接改成公网监听。
 
 参与开发或使用 AI 编码 Agent 前，请阅读 [AGENTS.md](AGENTS.md)。其中包含仓库结构、架构边界、验证矩阵和数据安全规则。
 

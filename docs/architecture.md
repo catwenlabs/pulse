@@ -25,7 +25,7 @@ flowchart LR
 
     Q --> E["Acquisition Engine"]
     E --> D["Driver Registry"]
-    D --> X["RSS / API / Web / File Drivers"]
+    D --> X["RSS / API / Web / File / Annotation Drivers"]
     X --> P["Entry Pipeline"]
     P --> N["Normalize"]
     N --> U["Identify & Deduplicate"]
@@ -111,6 +111,7 @@ Driver 负责外部协议和来源特有知识：
 - Webhook Driver：校验签名并解析推送 Payload。
 - Manual Driver：接收粘贴 URL、浏览器扩展或书签脚本保存的内容。
 - File Driver：读取白名单目录中的 Markdown、HTML 或目录变化。
+- Annotation Driver：接收 Apple Books、Kindle 或其他阅读器的结构化批注批次，为每条 Annotation 生成一个 Candidate。
 
 Driver 不负责 Entry 去重、规则、标签、阅读状态或数据库事务。需要 JavaScript 的 Browser Driver 属于后续阶段，并作为独立可选 Worker 接入，避免 Chromium 成为核心运行时依赖。
 
@@ -250,6 +251,7 @@ sources
 source_checkpoints
 acquisitions
 entries
+entry_annotations
 entry_tombstones
 folders
 tags
@@ -265,6 +267,7 @@ diagnostic_snapshots
 
 - `sources(driver_kind, normalized_locator)` 唯一。
 - `entries(source_id, identity_key)` 唯一。
+- `entry_annotations(entry_id)` 唯一，Annotation 与 Entry 同一事务提交；来源批注不得覆盖 Entry 上由用户维护的 Note。
 - `rule_executions(rule_id, rule_version, entry_id)` 唯一。
 - `effects(idempotency_key)` 唯一。
 - Source 配置与 Checkpoint 分开保存，修改显示名称不会重置摄取进度。

@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  createManualEntry,
   createSource,
+  importAnnotations,
   listEntries,
   listSources,
   previewSource,
@@ -31,7 +33,7 @@ describe('source API', () => {
     await runSource('source-1')
     await setSourceEnabled('source-1', false)
     await previewSource({ name: 'Feed', kind: 'rss', locator: 'https://example.com/feed' })
-    await listEntries({ q: 'go', state: 'unread', sourceId: 'source-1' })
+    await listEntries({ q: 'go', state: 'unread', sourceId: 'source-1', offset: 50 })
     await updateEntry('entry-1', { read: true })
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/sources', undefined)
@@ -50,8 +52,67 @@ describe('source API', () => {
     }))
     expect(String(fetchMock.mock.calls[5][0])).toContain('q=go')
     expect(String(fetchMock.mock.calls[5][0])).toContain('source_id=source-1')
+    expect(String(fetchMock.mock.calls[5][0])).toContain('offset=50')
     expect(fetchMock).toHaveBeenNthCalledWith(7, '/api/v1/entries/entry-1', expect.objectContaining({
       method: 'PATCH',
     }))
+  })
+
+  it('enqueues a manually saved web page with an idempotency key', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      '{"id":"acquisition-1","status":"pending"}',
+      { status: 202 },
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await createManualEntry('manual-source', {
+      url: 'https://example.com/article',
+      title: 'Saved article',
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/sources/manual-source/entries', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': expect.not.stringContaining('example.com'),
+      },
+      body: JSON.stringify({
+        url: 'https://example.com/article',
+        title: 'Saved article',
+      }),
+    })
+    expect(String(fetchMock.mock.calls[0][1]?.headers && (
+      fetchMock.mock.calls[0][1]!.headers as Record<string, string>
+    )['Idempotency-Key']).length).toBeLessThanOrEqual(64)
+  })
+
+  it('enqueues a batch of book annotations', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      '{"id":"acquisition-1","status":"pending"}',
+      { status: 202 },
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+    const annotations = [{
+      provider: 'apple-books',
+      book_identity: 'book-123',
+      book_title: '思考，快与慢',
+      book_author: 'Daniel Kahneman',
+      chapter: '第三章',
+      location: '1284',
+      highlight_color: 'yellow',
+      highlight: '系统一自动而快速地运行。',
+      note: '这里对应直觉判断。',
+    }]
+
+    await importAnnotations('annotation-source', annotations)
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/sources/annotation-source/annotations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': expect.any(String),
+      },
+      body: JSON.stringify({ annotations }),
+    })
   })
 })
