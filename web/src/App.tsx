@@ -1047,6 +1047,7 @@ function Reader({
   const [error, setError] = useState('')
   const [markingAllRead, setMarkingAllRead] = useState(false)
   const [readerNotice, setReaderNotice] = useState('')
+  const selectedEntryElement = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -1071,9 +1072,14 @@ function Reader({
     if (!selected) return
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== 'Escape') return
+      const element = selectedEntryElement.current
       setSelected(null)
       setActionMenuOpen(false)
       setNotesOpen(false)
+      window.requestAnimationFrame(() => {
+        element?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        selectedEntryElement.current = null
+      })
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
@@ -1082,7 +1088,7 @@ function Reader({
   async function patch(item: Entry, change: EntryPatch) {
     const updated = await api.updateEntry(item.id, change)
     setEntries((current) => current.map((candidate) => candidate.id === updated.id ? updated : candidate))
-    setSelected(updated)
+    setSelected((current) => current?.id === updated.id ? updated : current)
   }
 
   function toggleEntry(item: Entry, element: HTMLElement) {
@@ -1090,9 +1096,11 @@ function Reader({
       setSelected(null)
       setActionMenuOpen(false)
       setNotesOpen(false)
+      selectedEntryElement.current = null
       return
     }
 
+    selectedEntryElement.current = element
     setSelected(item)
     setActionMenuOpen(false)
     setNotesOpen(false)
