@@ -125,6 +125,11 @@ paths:
       - $ref: "#/components/parameters/SourceId"
     post:
       operationId: createManualEntry
+      description: >
+        Enqueues a Manual Entry. When an HTTP(S) URL is supplied without
+        content_html, Pulse fetches it through the controlled HTTP client and
+        stores a sanitized readability snapshot. Fetch or extraction failure
+        still preserves the URL-only Entry.
       parameters:
         - name: Idempotency-Key
           in: header
@@ -138,7 +143,7 @@ paths:
               $ref: "#/components/schemas/PushedCandidate"
       responses:
         "202":
-          description: Manual Entry acquisition enqueued
+          description: Manual Entry and optional article snapshot acquisition enqueued
   /sources/{sourceId}/annotations:
     parameters:
       - $ref: "#/components/parameters/SourceId"

@@ -109,7 +109,7 @@ Driver 负责外部协议和来源特有知识：
 - API Driver：静态认证、声明式分页、速率限制、JSONPath 字段映射。
 - Web Driver：静态 HTML 获取、CSS Selector 提取、页面指纹。
 - Webhook Driver：校验签名并解析推送 Payload。
-- Manual Driver：接收粘贴 URL、浏览器扩展或书签脚本保存的内容。
+- Manual Driver：接收粘贴 URL、浏览器扩展或书签脚本保存的内容；只有 URL 时通过受控 HTTP Client 获取页面，使用 Readability 提取正文并保存清理后的快照，提取失败仍产出 URL-only Candidate。
 - File Driver：读取白名单目录中的 Markdown、HTML 或目录变化。
 - Annotation Driver：接收 Apple Books、Kindle 或其他阅读器的结构化批注批次，为每条 Annotation 生成一个 Candidate。
 

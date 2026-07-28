@@ -110,7 +110,7 @@ HTTP Source 目前只接受 `http://` 或 `https://` 地址。File Source 只允
 2. 按下面的 Mac 或 iPhone 步骤安装 Bookmarklet。
 3. 在要收藏的网页上运行“保存到 Pulse”。
 4. 首次保存时创建“网页收藏”Manual Source；以后继续选择同一个 Source。
-5. 每次保存的网页都会成为该 Manual Source 下的一条独立 Entry。
+5. Pulse 在后台抓取并提取网页正文；每个网页会成为该 Manual Source 下的一条独立 Entry。
 
 ### 使用 Bookmarklet 保存网页
 
@@ -132,7 +132,9 @@ Pulse 提供类似 Instapaper 的轻量网页收藏入口，无需安装浏览�
 
 随后在打开的 Pulse 页面中确认或修改标题、URL 和目标 Manual Source，然后选择“保存网页”。
 
-首次使用时，如果还没有 Manual Source，可以在确认页面创建“网页收藏”并立即保存。已暂停的 Manual Source 被选中后会自动重新启用。保存请求进入统一摄取管道，完成处理后会作为 Entry 出现在阅读流中。
+首次使用时，如果还没有 Manual Source，可以在确认页面创建“网页收藏”并立即保存。已暂停的 Manual Source 被选中后会自动重新启用。保存请求进入统一摄取管道，后端通过受控 HTTP Client 获取页面，使用 Readability 提取主要正文并清理不安全 HTML，完成后会作为可在 Pulse 内阅读的 Entry 出现在阅读流中。标题、作者、摘要和发布时间会在页面能够提供时一并补全。
+
+如果目标站点需要登录、主要依赖 JavaScript 渲染、拒绝服务器访问，或者没有可识别的文章正文，Pulse 仍会保留标题和原始 URL，不会因为正文提取失败而丢失收藏。当前保存的是清理后的文章正文快照，不是包含脚本、样式和所有资源的完整网页归档；外部图片仍可能依赖原站可访问。
 
 Bookmarklet 仅接受 `http://` 和 `https://` 网页。它会绑定安装时所使用的 Pulse 地址；如果之后更换域名、端口或部署路径，请从新地址重新安装。浏览器必须能够访问该 Pulse 实例，因此局域网或本机地址无法从网络外部直接使用。
 
