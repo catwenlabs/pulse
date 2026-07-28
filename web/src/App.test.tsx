@@ -342,10 +342,13 @@ describe('App', () => {
 
     fireEvent.click(screen.getByText('Reader article'))
     expect(screen.getByText('Article body')).toBeInTheDocument()
+    scrollIntoView.mockClear()
     fireEvent.keyDown(document, { key: 'Escape' })
 
     expect(screen.queryByText('Article body')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { expanded: false })).toBeInTheDocument()
+    expect(scrollIntoView).toHaveBeenCalledOnce()
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
   })
 
   it('filters the stream when a subscription is selected', async () => {
