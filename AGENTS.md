@@ -59,7 +59,15 @@ Prefer existing Make targets. Do not duplicate build commands across documentati
 
 ## Local Development
 
-Start PostgreSQL:
+Start PostgreSQL, the backend, and the frontend development server together:
+
+```sh
+make dev
+```
+
+The first run installs frontend dependencies when they are missing. Press `Ctrl+C` to stop services started by this command.
+
+Alternatively, start PostgreSQL separately:
 
 ```sh
 make dev-db-up

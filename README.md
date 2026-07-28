@@ -272,7 +272,16 @@ make export-entry ID=ENTRY_UUID
 
 ## Local Development
 
-只在 Docker 中启动 PostgreSQL，并将其暴露到本机 `54321`。该命令不会构建或启动 Pulse：
+一键启动 PostgreSQL、Go 后端和带 HMR 的 Vite 开发服务器：
+
+```sh
+make dev
+```
+
+首次运行且 `web/node_modules` 不存在时会自动安装前端依赖。访问
+[http://localhost:5173](http://localhost:5173)，按 `Ctrl+C` 停止本次启动的服务。
+
+也可以分别启动各个组件。只在 Docker 中启动 PostgreSQL，并将其暴露到本机 `54321`：
 
 ```sh
 make dev-db-up
