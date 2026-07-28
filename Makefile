@@ -3,7 +3,7 @@ DEV_COMPOSE := docker compose -f compose.yaml -f compose.dev.yaml
 DEV_DATABASE_URL ?= postgres://pulse:pulse@127.0.0.1:54321/pulse?sslmode=disable
 DEV_IMPORT_ROOTS ?= ./imports
 
-.PHONY: test test-race vet run dev-db-up dev-db-down dev-db-logs dev-api dev-web-install dev-web compose-config backup backup-verify export-config export-entry e2e
+.PHONY: test test-race vet run dev dev-db-up dev-db-down dev-db-logs dev-api dev-web-install dev-web compose-config backup backup-verify export-config export-entry e2e
 
 test:
 	GOCACHE=$(GOCACHE) go test -cover ./...
@@ -16,6 +16,9 @@ vet:
 
 run:
 	GOCACHE=$(GOCACHE) go run ./cmd/pulse
+
+dev:
+	sh scripts/dev.sh
 
 dev-db-up:
 	$(DEV_COMPOSE) up -d postgres

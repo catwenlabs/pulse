@@ -285,7 +285,7 @@ describe('App', () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/sources/source-1', { method: 'DELETE' })
   })
 
-  it('marks an unread entry as read when it is expanded', async () => {
+  it('scrolls the reading area to the top and marks an unread entry as read when expanded', async () => {
     render(<App />)
     await screen.findByRole('button', { name: 'Example Feed' })
 
@@ -293,6 +293,7 @@ describe('App', () => {
     fireEvent.click(screen.getByText('Reader article'))
     expect(screen.getByText('Article body')).toBeInTheDocument()
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    expect(scrollIntoView.mock.contexts.at(-1)).toHaveClass('stream-entry-detail')
 
     await waitFor(() => {
       const patches = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
@@ -349,6 +350,7 @@ describe('App', () => {
     expect(screen.getByRole('button', { expanded: false })).toBeInTheDocument()
     expect(scrollIntoView).toHaveBeenCalledOnce()
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    expect(scrollIntoView.mock.contexts.at(-1)).toHaveClass('stream-entry')
   })
 
   it('filters the stream when a subscription is selected', async () => {

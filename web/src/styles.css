@@ -250,7 +250,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .stream-entry.read .stream-summary, .stream-entry.read .stream-source { color: #aaa69e; }
 .stream-entry.read .unread-dot { background: transparent; border: 1px solid #aaa69c; }
 .stream-entry.expanded { background: #fff; box-shadow: inset 3px 0 #cbd1d8; }
-.stream-entry-summary { display: grid; grid-template-columns: 8px minmax(110px, 15%) minmax(220px, 31%) minmax(180px, 1fr) 54px 16px; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 0 14px; border: 0; color: #27313d; background: #fff; cursor: pointer; text-align: left; }
+.stream-entry-summary { display: grid; grid-template-columns: 8px minmax(110px, 15%) minmax(220px, 31%) minmax(180px, 1fr) 54px 16px; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 0 10px; border: 0; color: #27313d; background: #fff; cursor: pointer; text-align: left; }
 .stream-entry-summary:hover { background: #f7f9fa; }
 .unread-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .stream-source, .stream-entry-summary strong, .stream-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -374,7 +374,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .source-row { grid-template-columns: 42px minmax(0, 1fr) auto; }
   .source-health, .source-diagnostics { display: none; }
   .field-grid { grid-template-columns: 1fr; }
-  .reader-page { display: grid; height: 100%; min-height: 0; overflow: hidden; }
+  .reader-page { display: grid; height: auto; min-height: 0; overflow: hidden; }
   .reader-header { position: static; align-items: center; min-height: 52px; padding: 8px 12px; }
   .reader-title { display: none; }
   .reader-controls { justify-content: stretch; width: 100%; }
@@ -384,7 +384,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .entry-stream { overflow-x: hidden; overflow-y: auto; scrollbar-gutter: auto; -webkit-overflow-scrolling: touch; }
   .stream-entry-summary {
     grid-template-columns: 8px minmax(0, 1fr) 48px 14px; grid-template-rows: auto auto;
-    gap: 3px 8px; min-height: 66px; padding: 9px 12px;
+    gap: 2px 7px; min-height: 58px; padding: 6px 10px;
   }
   .unread-dot { grid-row: 1 / 3; }
   .stream-source { grid-column: 2; grid-row: 1; display: block; font-size: 11px; }

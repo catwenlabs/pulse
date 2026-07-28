@@ -1048,6 +1048,7 @@ function Reader({
   const [markingAllRead, setMarkingAllRead] = useState(false)
   const [readerNotice, setReaderNotice] = useState('')
   const selectedEntryElement = useRef<HTMLElement | null>(null)
+  const readingAreaToScroll = useRef('')
 
   useEffect(() => {
     let cancelled = false
@@ -1076,6 +1077,7 @@ function Reader({
       setSelected(null)
       setActionMenuOpen(false)
       setNotesOpen(false)
+      readingAreaToScroll.current = ''
       window.requestAnimationFrame(() => {
         element?.scrollIntoView({ behavior: 'smooth', block: 'start' })
         selectedEntryElement.current = null
@@ -1097,16 +1099,15 @@ function Reader({
       setActionMenuOpen(false)
       setNotesOpen(false)
       selectedEntryElement.current = null
+      readingAreaToScroll.current = ''
       return
     }
 
     selectedEntryElement.current = element
+    readingAreaToScroll.current = item.id
     setSelected(item)
     setActionMenuOpen(false)
     setNotesOpen(false)
-    window.requestAnimationFrame(() => {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    })
     if (!item.read_at) {
       void patch(item, { read: true })
     }
@@ -1176,7 +1177,16 @@ function Reader({
                 <span className="expand-chevron" aria-hidden="true">⌄</span>
               </button>
               {selected?.id === item.id && (
-                <div className="stream-entry-detail">
+                <div
+                  className="stream-entry-detail"
+                  ref={(element) => {
+                    if (!element || readingAreaToScroll.current !== item.id) return
+                    readingAreaToScroll.current = ''
+                    window.requestAnimationFrame(() => {
+                      element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    })
+                  }}
+                >
                   <div className="entry-reading-column">
                     <div className="entry-detail-bar">
                       <span>{selected.author || sourceNames[selected.source_id] || '未知来源'}</span>
