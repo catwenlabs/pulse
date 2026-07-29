@@ -1,4 +1,21 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
+import {
+  BookOpen,
+  Bookmark,
+  CheckCheck,
+  ChevronDown,
+  Clock3,
+  Inbox,
+  Menu,
+  MoreHorizontal,
+  Plus,
+  RefreshCw,
+  Rss,
+  Search,
+  Star,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
 
 import * as api from './api'
 import type { AnnotationInput, CreateSourceInput, Entry, EntryPatch, Folder, PreviewResult, Source, SourceHealth, SourceKind } from './api'
@@ -226,7 +243,7 @@ export function App() {
               closeMobileNavigation(false)
               setShowCreate(true)
             }}>
-              <span aria-hidden="true">＋</span><span className="sr-only">添加信息源</span>
+              <Plus className="size-4" aria-hidden="true" /><span className="sr-only">添加信息源</span>
             </Button>
             {isMobile && (
               <Button unstyled
@@ -235,7 +252,7 @@ export function App() {
                 aria-label="关闭导航"
                 onClick={() => closeMobileNavigation()}
               >
-                <span aria-hidden="true">×</span>
+                <X className="size-5" aria-hidden="true" />
               </Button>
             )}
           </div>
@@ -257,7 +274,7 @@ export function App() {
           <div className="grid gap-0.5">
             {folders.map((folder) => (
               <div className="grid min-h-[29px] grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-[5px] px-[7px] text-[11px] text-[#68655d]" key={folder.id}>
-                <span aria-hidden="true">▾</span>
+                <ChevronDown className="size-3.5" aria-hidden="true" />
                 <strong>{folder.name}</strong>
                 <span>{folder.source_count}</span>
               </div>
@@ -321,9 +338,7 @@ export function App() {
               aria-expanded={mobileNavigationOpen}
               onClick={() => setMobileNavigationOpen(true)}
             >
-              <span aria-hidden="true" />
-              <span aria-hidden="true" />
-              <span aria-hidden="true" />
+              <Menu className="size-5" aria-hidden="true" />
             </Button>
             <h1>{mobileTitle}</h1>
           </header>
@@ -334,7 +349,7 @@ export function App() {
             notice.tone === 'success' ? 'border-emerald-200 text-emerald-700' : 'border-destructive/30 text-destructive',
           )} role="status">
             {notice.message}
-            <Button unstyled aria-label="关闭提示" onClick={() => setNotice(null)}>×</Button>
+            <Button unstyled aria-label="关闭提示" onClick={() => setNotice(null)}><X className="size-4" aria-hidden="true" /></Button>
           </div>
         )}
         {activeView === 'sources' ? (
@@ -348,7 +363,7 @@ export function App() {
           <div className="flex gap-2.5 max-md:w-full">
             <a className={buttonVariants({ variant: 'secondary', className: 'max-md:flex-1' })} href="/api/v1/opml/export">导出 OPML</a>
             <Button className="max-md:flex-1" onClick={() => setShowCreate(true)}>
-              <span aria-hidden="true">＋</span> 添加信息源
+              <Plus className="size-4" aria-hidden="true" /> 添加信息源
             </Button>
           </div>
         </header>
@@ -359,7 +374,7 @@ export function App() {
               <h2 id="source-heading">全部信息源</h2>
               <span>{sources.length} 个来源</span>
             </div>
-            <Button unstyled className="grid size-9 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="重新载入" onClick={() => void load()}>↻</Button>
+            <Button unstyled className="grid size-9 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="重新载入" onClick={() => void load()}><RefreshCw className="size-4" aria-hidden="true" /></Button>
           </div>
 
           {loading && <div className="grid min-h-[250px] place-items-center gap-[7px] text-center text-[13px] text-[#8b887f]">正在同步信息源…</div>}
@@ -416,7 +431,7 @@ export function App() {
                       disabled={!source.enabled}
                       onClick={() => void handleRun(source)}
                     >
-                      ↻
+                      <RefreshCw className="size-4" aria-hidden="true" />
                     </Button>
                     <Button unstyled
                       className="min-h-[30px] cursor-pointer rounded-md border-0 bg-transparent px-[7px] text-[10px] text-[#9a3f2c] hover:bg-[#f3ded5]"
@@ -891,7 +906,7 @@ function BookmarkletDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="w-[min(560px,100%)]">
-        <DialogClose className="absolute right-[17px] top-[15px] cursor-pointer border-0 bg-transparent text-2xl text-[#77736b]" aria-label="关闭">×</DialogClose>
+        <DialogClose className="absolute right-4 top-4 grid size-8 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="关闭"><X className="size-4" aria-hidden="true" /></DialogClose>
         <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">BOOKMARKLET</p>
         <DialogTitle>安装“保存到 Pulse”</DialogTitle>
         <DialogDescription className="mb-[25px] mt-[9px] text-[13px] leading-normal text-muted-foreground">新建一个浏览器书签，把下面整段代码粘贴到书签的地址栏。</DialogDescription>
@@ -1113,19 +1128,12 @@ function Reader({
             aria-label={sourceName ? `将 ${sourceName} 全部标记为已读` : '将全部文章标记为已读'}
             onClick={() => void markAllRead()}
           >
-            <span aria-hidden="true">✓✓</span>
+            <CheckCheck className="size-4" aria-hidden="true" />
             <span className="max-md:hidden">{markingAllRead ? '正在标记…' : '全部标记为已读'}</span>
           </Button>
           <label className="relative w-[min(390px,55%)] max-md:w-auto max-md:flex-1">
             <span className="sr-only">搜索文章</span>
-            <svg
-              className="pointer-events-none absolute left-2.5 top-1/2 z-[1] size-[22px] -translate-y-1/2 fill-none stroke-muted-foreground [stroke-linecap:round] [stroke-width:2.25]"
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-            >
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-4-4" />
-            </svg>
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 z-[1] size-[22px] -translate-y-1/2 text-muted-foreground" strokeWidth={2.25} aria-hidden="true" />
             <Input
               className="h-9 w-full border-border bg-background pl-10 pr-3 text-sm text-foreground shadow-sm focus-visible:ring-2 focus-visible:ring-ring/20"
               value={search}
@@ -1162,7 +1170,7 @@ function Reader({
                 <span className="text-xs font-[550] text-[#66717d] max-md:col-start-2 max-md:row-start-1 max-md:text-[11px]">{sourceNames[item.source_id] || item.author || '未知来源'}</span>
                 <strong>{item.display_title || item.source_title || '无标题'}</strong>
                 <time dateTime={item.discovered_at}>{compactTime(item.discovered_at)}</time>
-                <span className={cn('text-muted-foreground transition-transform max-md:col-start-4 max-md:row-span-2 max-md:self-center', selected?.id === item.id && 'rotate-180')} aria-hidden="true">⌄</span>
+                <ChevronDown className={cn('size-4 text-muted-foreground transition-transform max-md:col-start-4 max-md:row-span-2 max-md:self-center', selected?.id === item.id && 'rotate-180')} aria-hidden="true" />
               </Button>
               {selected?.id === item.id && (
                 <div
@@ -1185,7 +1193,7 @@ function Reader({
                         )}
                         <DropdownMenu open={actionMenuOpen} onOpenChange={setActionMenuOpen}>
                           <DropdownMenuTrigger asChild>
-                            <Button unstyled className="h-7 w-8 cursor-pointer rounded-[5px] border-0 bg-transparent p-0 tracking-[1px] text-[#8b877e] hover:bg-[#f0ede7] hover:text-[#4f4c46]" aria-label="更多操作">•••</Button>
+                            <Button unstyled className="grid h-7 w-8 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="更多操作"><MoreHorizontal className="size-4" aria-hidden="true" /></Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent>
                             <DropdownMenuItem onSelect={() => void patch(selected, { read: false })}>标记未读</DropdownMenuItem>
@@ -1400,7 +1408,7 @@ function CreateSourceDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
-        <DialogClose className="absolute right-[17px] top-[15px] cursor-pointer border-0 bg-transparent text-2xl text-[#77736b]" aria-label="关闭">×</DialogClose>
+        <DialogClose className="absolute right-4 top-4 grid size-8 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="关闭"><X className="size-4" aria-hidden="true" /></DialogClose>
         <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">NEW SOURCE</p>
         <DialogTitle>添加信息源</DialogTitle>
         <div className="mt-3.5 flex gap-2 text-[10px] font-bold text-[#99958b]" aria-label="配置步骤">
@@ -1594,17 +1602,14 @@ function CreateSourceDialog({
 }
 
 function NavIcon({ name }: { name: string }) {
-  const paths: Record<string, string> = {
-    inbox: 'M4 5h16v12H4z M4 13h4l2 3h4l2-3h4',
-    source: 'M5 6a13 13 0 0 1 13 13 M5 11a8 8 0 0 1 8 8 M6 18h.01',
-    star: 'm12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.8-5.4 2.8 1-6.1-4.4-4.3 6.1-.9z',
-    clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 7v5l3 2',
-    bookmark: 'M6 4h12v17l-6-4-6 4z',
-    book: 'M4 5.5A3.5 3.5 0 0 1 7.5 2H12v18H7.5A3.5 3.5 0 0 0 4 23z M20 5.5A3.5 3.5 0 0 0 16.5 2H12v18h4.5A3.5 3.5 0 0 1 20 23z',
+  const icons: Record<string, LucideIcon> = {
+    inbox: Inbox,
+    source: Rss,
+    star: Star,
+    clock: Clock3,
+    bookmark: Bookmark,
+    book: BookOpen,
   }
-  return (
-    <svg className="size-4 shrink-0 fill-none stroke-current [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:1.8]" aria-hidden="true" viewBox="0 0 24 24">
-      <path d={paths[name]} />
-    </svg>
-  )
+  const Icon = icons[name] ?? Inbox
+  return <Icon className="size-4 shrink-0" strokeWidth={1.8} aria-hidden="true" />
 }
