@@ -1118,9 +1118,9 @@ function Reader({
           </Button>
           <label className="relative w-[min(390px,55%)] max-md:w-auto max-md:flex-1">
             <span className="sr-only">搜索文章</span>
-            <span className="pointer-events-none absolute left-3 top-1/2 z-[1] -translate-y-1/2 text-sm text-muted-foreground" aria-hidden="true">⌕</span>
+            <span className="pointer-events-none absolute left-2.5 top-1/2 z-[1] -translate-y-1/2 text-lg leading-none text-muted-foreground" aria-hidden="true">⌕</span>
             <Input
-              className="h-9 w-full border-border bg-background pl-8 pr-3 text-sm text-foreground shadow-sm focus-visible:ring-2 focus-visible:ring-ring/20"
+              className="h-9 w-full border-border bg-background pl-9 pr-3 text-sm text-foreground shadow-sm focus-visible:ring-2 focus-visible:ring-ring/20"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="搜索文章"
