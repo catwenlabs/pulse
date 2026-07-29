@@ -32,6 +32,7 @@ type Backend interface {
 	CreateSource(context.Context, source.Spec) (source.Source, error)
 	ListSources(context.Context) ([]source.Source, error)
 	GetSource(context.Context, source.ID) (source.Source, error)
+	UpdateSource(context.Context, source.ID, string, string) (source.Source, error)
 	SetSourceEnabled(context.Context, source.ID, bool) (source.Source, error)
 	ArchiveSource(context.Context, source.ID) error
 	SetSourceSecret(context.Context, source.ID, string) error
@@ -91,7 +92,7 @@ func newHandler(backend Backend, web fs.FS) http.Handler {
 	mux.HandleFunc("POST /api/v1/sources/preview", previewSource(backend))
 	mux.HandleFunc("GET /api/v1/sources", listSources(backend))
 	mux.HandleFunc("GET /api/v1/sources/{id}", getSource(backend))
-	mux.HandleFunc("PATCH /api/v1/sources/{id}", setSourceEnabled(backend))
+	mux.HandleFunc("PATCH /api/v1/sources/{id}", updateSource(backend))
 	mux.HandleFunc("DELETE /api/v1/sources/{id}", archiveSource(backend))
 	mux.HandleFunc("POST /api/v1/sources/{id}/runs", runSource(backend))
 	mux.HandleFunc("POST /api/v1/sources/{id}/entries", createManualEntry(backend))
@@ -680,23 +681,34 @@ func previewSource(backend Backend) http.HandlerFunc {
 	}
 }
 
-func setSourceEnabled(backend Backend) http.HandlerFunc {
+func updateSource(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
 		request.Body = http.MaxBytesReader(w, request.Body, 1<<20)
 		var body struct {
-			Enabled *bool `json:"enabled"`
+			Enabled *bool   `json:"enabled"`
+			Name    *string `json:"name"`
+			Locator *string `json:"locator"`
 		}
 		decoder := json.NewDecoder(request.Body)
 		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&body); err != nil || body.Enabled == nil {
-			writeProblem(w, http.StatusBadRequest, "invalid_request", "enabled must be a boolean", "enabled")
+		if err := decoder.Decode(&body); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
 			return
 		}
-		updated, err := backend.SetSourceEnabled(
-			request.Context(),
-			source.ID(request.PathValue("id")),
-			*body.Enabled,
+		id := source.ID(request.PathValue("id"))
+		var (
+			updated source.Source
+			err     error
 		)
+		switch {
+		case body.Name != nil && body.Locator != nil && body.Enabled == nil:
+			updated, err = backend.UpdateSource(request.Context(), id, *body.Name, *body.Locator)
+		case body.Enabled != nil && body.Name == nil && body.Locator == nil:
+			updated, err = backend.SetSourceEnabled(request.Context(), id, *body.Enabled)
+		default:
+			writeProblem(w, http.StatusBadRequest, "invalid_request", "provide enabled, or both name and locator", "")
+			return
+		}
 		if err != nil {
 			writeDomainError(w, err)
 			return

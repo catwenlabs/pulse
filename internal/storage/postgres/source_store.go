@@ -149,6 +149,39 @@ func (store *SourceStore) SetEnabled(ctx context.Context, id source.ID, enabled 
 	return nil
 }
 
+func (store *SourceStore) Update(ctx context.Context, id source.ID, spec source.Spec) (source.Source, error) {
+	validated, err := spec.Validate()
+	if err != nil {
+		return source.Source{}, err
+	}
+
+	row := store.pool.QueryRow(ctx, `
+		UPDATE sources
+		SET
+			name = $2,
+			locator = $3,
+			normalized_locator = $4,
+			updated_at = now()
+		WHERE id = $1 AND archived_at IS NULL
+		RETURNING
+			id, name, driver_kind, locator, normalized_locator, config,
+			secret_ref, enabled, created_at, updated_at, archived_at
+	`, id, validated.Name, validated.Locator, validated.NormalizedLocator)
+
+	updated, err := store.scanSource(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return source.Source{}, fmt.Errorf("%w: %s", source.ErrNotFound, id)
+	}
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return source.Source{}, fmt.Errorf("%w: %s %s", source.ErrDuplicate, validated.Kind, validated.NormalizedLocator)
+		}
+		return source.Source{}, fmt.Errorf("update source %s: %w", id, err)
+	}
+	return updated, nil
+}
+
 func (store *SourceStore) SetSecretRef(ctx context.Context, id source.ID, secretRef string) error {
 	tag, err := store.pool.Exec(ctx, `
 		UPDATE sources

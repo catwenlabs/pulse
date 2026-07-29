@@ -126,7 +126,8 @@ describe('App', () => {
         })
       }
       if (init?.method === 'PATCH') {
-        return new Response(JSON.stringify({ ...source, enabled: false }), {
+        const patch = JSON.parse(String(init.body)) as { enabled?: boolean; name?: string; locator?: string }
+        return new Response(JSON.stringify({ ...source, ...patch }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
@@ -152,7 +153,7 @@ describe('App', () => {
 
     expect(screen.getByText('正在同步信息源…')).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: '全部文章' })).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: 'Example Feed' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Example Feed' })).toHaveAttribute('title', 'Example Feed')
     const folder = screen.getByRole('button', { name: 'Tech，1 个订阅源' })
     expect(folder).toHaveAttribute('aria-expanded', 'true')
     fireEvent.click(folder)
@@ -165,6 +166,19 @@ describe('App', () => {
     expect(screen.getByRole('img', { name: 'Cover' })).toHaveAttribute('loading', 'lazy')
     expect(document.querySelector('.entry-prose script')).toBeNull()
     expect(screen.getByRole('button', { name: '更多操作' })).toBeInTheDocument()
+  })
+
+  it('debounces article search and highlights visible matches', async () => {
+    render(<App />)
+    await screen.findByText('Reader article')
+
+    fireEvent.change(screen.getByLabelText('搜索文章'), { target: { value: 'Reader' } })
+
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.some(([url]) =>
+        String(url).includes('q=Reader'))).toBe(true)
+    })
+    expect(screen.getByText('Reader', { selector: 'mark' })).toBeInTheDocument()
   })
 
   it('creates an RSS source from the dialog', async () => {
@@ -182,7 +196,7 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存并启用' }))
 
     expect(await screen.findByText('New Feed')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('已添加 New Feed')
+    expect(screen.getByText('已添加 New Feed')).toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
@@ -270,6 +284,25 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: '刷新 Example Feed' })).toBeDisabled()
   })
 
+  it('edits a source name and locator', async () => {
+    render(<App />)
+    await screen.findByRole('button', { name: 'Example Feed' })
+    fireEvent.click(screen.getByRole('button', { name: '管理信息源' }))
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑 Example Feed' }))
+    const dialog = screen.getByRole('dialog', { name: '编辑信息源' })
+    fireEvent.change(within(dialog).getByLabelText('名称'), { target: { value: 'Renamed Feed' } })
+    fireEvent.change(within(dialog).getByLabelText('Feed 地址'), { target: { value: 'https://example.com/new.xml' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存修改' }))
+
+    expect(await screen.findByText('已更新 Renamed Feed')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Renamed Feed' })).toBeInTheDocument()
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/sources/source-1', expect.objectContaining({
+      method: 'PATCH',
+      body: '{"name":"Renamed Feed","locator":"https://example.com/new.xml"}',
+    }))
+  })
+
   it('confirms and archives a source while preserving its entries', async () => {
     render(<App />)
     await screen.findByRole('button', { name: 'Example Feed' })
@@ -287,7 +320,7 @@ describe('App', () => {
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: '删除 Example Feed' })).not.toBeInTheDocument()
     })
-    expect(screen.getByRole('status')).toHaveTextContent('已删除 Example Feed')
+    expect(await screen.findByText('已删除 Example Feed')).toBeInTheDocument()
     expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/sources/source-1', { method: 'DELETE' })
   })
 

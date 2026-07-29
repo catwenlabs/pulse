@@ -153,12 +153,27 @@ func TestEntryStoreSearchStatePatchAndTags(t *testing.T) {
 	if err := store.CommitBatch(ctx, acquisition, "worker", []ingestion.Candidate{
 		{ExternalID: "one", Title: "Go concurrency", Author: "Ada"},
 		{ExternalID: "two", Title: "Gardening", Author: "Lin"},
+		{ExternalID: "three", Title: "深入理解并发编程", Author: "王明"},
 	}, json.RawMessage(`{}`)); err != nil {
 		t.Fatalf("CommitBatch() error = %v", err)
 	}
 	results, err := store.Search(ctx, entry.Query{Limit: 10, Search: "concurrency"})
 	if err != nil || len(results) != 1 || results[0].ExternalID != "one" {
 		t.Fatalf("Search() = %+v, %v", results, err)
+	}
+	for query, externalID := range map[string]string{
+		"并发":         "three",
+		"并収编程":       "three",
+		"concurency": "one",
+	} {
+		results, err := store.Search(ctx, entry.Query{Limit: 10, Search: query})
+		if err != nil || len(results) == 0 || results[0].ExternalID != externalID {
+			t.Fatalf("Search(%q) = %+v, %v", query, results, err)
+		}
+	}
+	results, err = store.Search(ctx, entry.Query{Limit: 10, Search: "reader-source"})
+	if err != nil || len(results) != 3 {
+		t.Fatalf("Search(source name) = %+v, %v", results, err)
 	}
 	id := results[0].ID
 	displayTitle := "My Go note"

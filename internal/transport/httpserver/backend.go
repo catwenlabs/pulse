@@ -17,6 +17,7 @@ type sourceRepository interface {
 	Create(context.Context, source.Spec) (source.Source, error)
 	List(context.Context) ([]source.Source, error)
 	Get(context.Context, source.ID) (source.Source, error)
+	Update(context.Context, source.ID, source.Spec) (source.Source, error)
 	SetEnabled(context.Context, source.ID, bool) error
 	Archive(context.Context, source.ID) error
 	SetSecretRef(context.Context, source.ID, string) error
@@ -194,6 +195,25 @@ func (service *backend) SetSourceEnabled(
 		return source.Source{}, err
 	}
 	return service.sources.Get(ctx, id)
+}
+
+func (service *backend) UpdateSource(
+	ctx context.Context,
+	id source.ID,
+	name string,
+	locator string,
+) (source.Source, error) {
+	current, err := service.GetSource(ctx, id)
+	if err != nil {
+		return source.Source{}, err
+	}
+	return service.sources.Update(ctx, id, source.Spec{
+		Name:      name,
+		Kind:      current.Kind,
+		Locator:   locator,
+		Config:    current.Config,
+		SecretRef: current.SecretRef,
+	})
 }
 
 func (service *backend) ArchiveSource(ctx context.Context, id source.ID) error {
