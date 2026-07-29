@@ -1099,7 +1099,7 @@ function Reader({
   const sourceNames = Object.fromEntries(sources.map((source) => [source.id, source.name]))
   return (
     <div className="relative grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden max-md:h-auto">
-      <header className="z-[3] flex min-h-[58px] items-center justify-between gap-6 border-b bg-white/95 py-2 pl-[18px] pr-3.5 shadow-[0_1px_3px_rgba(42,48,58,.04)] max-md:static max-md:min-h-[52px] max-md:px-3">
+      <header className="z-[3] flex min-h-[58px] items-center justify-between gap-6 border-b bg-card/95 py-2 pl-[18px] pr-3.5 shadow-[0_1px_3px_rgba(42,48,58,.04)] max-md:static max-md:min-h-[52px] max-md:px-3">
         <div className="flex min-w-0 items-baseline gap-[9px] max-md:hidden" aria-hidden={mobile || undefined}>
           <h1>{title}</h1>
           <span className="flex-none text-[10px] text-muted-foreground">{loading ? '正在更新…' : `${entries.length} 篇`}</span>
@@ -1135,13 +1135,13 @@ function Reader({
               data-entry-row={item.id}
               className={cn(
                 'border-b last:border-b-0',
-                selected?.id === item.id && 'bg-background shadow-[inset_3px_0_hsl(var(--border))]',
+                selected?.id === item.id && 'bg-card shadow-[inset_3px_0_hsl(var(--border))]',
               )}
               key={item.id}
             >
               <Button unstyled
                 className={cn(
-                  'grid min-h-9 w-full cursor-pointer grid-cols-[8px_minmax(110px,15%)_minmax(220px,1fr)_54px_16px] items-center gap-1.5 border-0 bg-background px-2 text-left hover:bg-muted/60',
+                  'grid min-h-9 w-full cursor-pointer grid-cols-[8px_minmax(110px,15%)_minmax(220px,1fr)_54px_16px] items-center gap-1.5 border-0 bg-card px-2 text-left hover:bg-muted/60',
                   'max-md:min-h-12 max-md:grid-cols-[8px_minmax(0,1fr)_48px_14px] max-md:grid-rows-[auto_auto] max-md:gap-x-1.5 max-md:gap-y-0 max-md:px-2 max-md:py-0.5',
                   item.read_at && 'text-muted-foreground [&_strong]:font-normal',
                 )}
@@ -1157,7 +1157,7 @@ function Reader({
               {selected?.id === item.id && (
                 <div
                   data-entry-detail={item.id}
-                  className="min-h-[calc(100vh-100px)] border-t border-[#e8e9eb] bg-white px-[clamp(28px,8vw,120px)] pb-16 max-md:px-[18px] max-md:pb-[38px] max-md:pt-[18px]"
+                  className="min-h-[calc(100vh-100px)] border-t border-[#e8e9eb] bg-card px-[clamp(28px,8vw,120px)] pb-16 max-md:px-[18px] max-md:pb-[38px] max-md:pt-[18px]"
                   ref={(element) => {
                     if (!element || readingAreaToScroll.current !== item.id) return
                     readingAreaToScroll.current = ''
