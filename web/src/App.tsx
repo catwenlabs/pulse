@@ -221,7 +221,7 @@ export function App() {
         else closeMobileNavigation()
       }}
     >
-    <div className="grid h-dvh min-h-0 grid-cols-[264px_minmax(0,1fr)] overflow-hidden max-md:block max-md:w-full">
+    <div className="grid h-dvh min-h-0 grid-cols-[256px_minmax(0,1fr)] overflow-hidden max-md:block max-md:w-full">
       <SheetContent
         persistent={!isMobile}
         onOpenAutoFocus={(event) => {
