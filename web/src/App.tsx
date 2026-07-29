@@ -1191,17 +1191,17 @@ function Reader({
               <Button unstyled
                 className={cn(
                   'grid min-h-9 w-full cursor-pointer grid-cols-[8px_minmax(110px,15%)_minmax(220px,1fr)_54px_16px] items-center gap-1.5 border-0 bg-card px-2 text-left hover:bg-muted/60',
-                  'max-md:min-h-12 max-md:grid-cols-[8px_minmax(0,1fr)_48px_14px] max-md:grid-rows-[auto_auto] max-md:gap-x-1.5 max-md:gap-y-0 max-md:px-2 max-md:py-0.5',
+                  'max-md:min-h-11 max-md:grid-cols-[8px_minmax(0,1fr)_48px_14px] max-md:grid-rows-1 max-md:gap-x-1.5 max-md:px-2 max-md:py-0.5',
                   item.read_at && 'text-muted-foreground [&_strong]:font-normal',
                 )}
                 aria-expanded={selected?.id === item.id}
                 onClick={(event) => toggleEntry(item, event.currentTarget.closest('article')!)}
               >
-                <span className={cn('size-1.5 rounded-full bg-primary max-md:row-span-2', item.read_at && 'border border-muted-foreground bg-transparent')} aria-hidden="true" />
-                <span className="text-xs font-[550] text-[#66717d] max-md:col-start-2 max-md:row-start-1 max-md:text-[11px]">{sourceNames[item.source_id] || item.author || '未知来源'}</span>
-                <strong>{item.display_title || item.source_title || '无标题'}</strong>
-                <time dateTime={item.discovered_at}>{compactTime(item.discovered_at)}</time>
-                <ChevronDown className={cn('size-4 text-muted-foreground transition-transform max-md:col-start-4 max-md:row-span-2 max-md:self-center', selected?.id === item.id && 'rotate-180')} aria-hidden="true" />
+                <span className={cn('size-1.5 rounded-full bg-primary', item.read_at && 'border border-muted-foreground bg-transparent')} aria-hidden="true" />
+                <span className="truncate text-xs font-[550] text-[#66717d] max-md:hidden">{sourceNames[item.source_id] || item.author || '未知来源'}</span>
+                <strong className="min-w-0 truncate text-sm font-semibold max-md:col-start-2">{item.display_title || item.source_title || '无标题'}</strong>
+                <time className="text-right text-[11px] text-muted-foreground max-md:col-start-3" dateTime={item.discovered_at}>{compactTime(item.discovered_at)}</time>
+                <ChevronDown className={cn('size-4 text-muted-foreground transition-transform max-md:col-start-4', selected?.id === item.id && 'rotate-180')} aria-hidden="true" />
               </Button>
               {selected?.id === item.id && (
                 <div
