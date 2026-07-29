@@ -15,14 +15,20 @@ const source = {
   updated_at: '2026-07-25T00:00:00Z',
 }
 const scrollIntoView = vi.fn()
+const scrollTo = vi.fn()
 
 describe('App', () => {
   beforeEach(() => {
     window.history.replaceState(null, '', '/')
     scrollIntoView.mockClear()
+    scrollTo.mockClear()
     Object.defineProperty(Element.prototype, 'scrollIntoView', {
       configurable: true,
       value: scrollIntoView,
+    })
+    Object.defineProperty(Element.prototype, 'scrollTo', {
+      configurable: true,
+      value: scrollTo,
     })
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0)
@@ -146,6 +152,7 @@ describe('App', () => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
     delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+    delete (Element.prototype as { scrollTo?: unknown }).scrollTo
   })
 
   it('shows folders, subscriptions, and an expandable article stream', async () => {
@@ -331,8 +338,15 @@ describe('App', () => {
     expect(await screen.findByText('Reader article')).toBeInTheDocument()
     fireEvent.click(screen.getByText('Reader article'))
     expect(screen.getByText('Article body')).toBeInTheDocument()
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
-    expect(scrollIntoView.mock.contexts.at(-1)).toHaveAttribute('data-entry-detail', 'entry-1')
+    const detail = document.querySelector<HTMLElement>('[data-entry-detail="entry-1"]')!
+    expect(detail).toHaveClass('min-h-full')
+    expect(detail).toHaveClass('max-md:pt-0')
+    expect(detail.closest('[aria-label="文章列表"]')?.parentElement).toHaveClass('h-full')
+    expect(detail.closest('[aria-label="文章列表"]')?.parentElement).not.toHaveClass('max-md:h-auto')
+    expect(screen.getByRole('button', { name: '关闭文章' })).toBeInTheDocument()
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }))
+    expect(scrollTo.mock.contexts.at(-1)).toHaveAttribute('aria-label', '文章列表')
+    expect(scrollIntoView).not.toHaveBeenCalled()
 
     await waitFor(() => {
       const patches = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
@@ -382,14 +396,28 @@ describe('App', () => {
 
     fireEvent.click(screen.getByText('Reader article'))
     expect(screen.getByText('Article body')).toBeInTheDocument()
-    scrollIntoView.mockClear()
+    scrollTo.mockClear()
     fireEvent.keyDown(document, { key: 'Escape' })
 
     expect(screen.queryByText('Article body')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { expanded: false })).toBeInTheDocument()
-    expect(scrollIntoView).toHaveBeenCalledOnce()
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
-    expect(scrollIntoView.mock.contexts.at(-1)).toHaveAttribute('data-entry-row', 'entry-1')
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }))
+    expect(scrollTo.mock.contexts.at(-1)).toHaveAttribute('aria-label', '文章列表')
+    expect(scrollIntoView).not.toHaveBeenCalled()
+  })
+
+  it('closes the expanded entry with the visible close button', async () => {
+    render(<App />)
+    await screen.findByText('Reader article')
+
+    fireEvent.click(screen.getByText('Reader article'))
+    expect(screen.getByText('Article body')).toBeInTheDocument()
+    scrollTo.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: '关闭文章' }))
+
+    expect(screen.queryByText('Article body')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { expanded: false })).toHaveFocus()
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }))
   })
 
   it('filters the stream when a subscription is selected', async () => {

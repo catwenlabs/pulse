@@ -1136,8 +1136,24 @@ function Reader({
   const [markingAllRead, setMarkingAllRead] = useState(false)
   const [readerNotice, setReaderNotice] = useState('')
   const selectedEntryElement = useRef<HTMLElement | null>(null)
+  const entryStreamElement = useRef<HTMLElement | null>(null)
   const readingAreaToScroll = useRef('')
   const pageSize = 50
+
+  function closeSelectedEntry() {
+    const element = selectedEntryElement.current
+    setSelected(null)
+    setActionMenuOpen(false)
+    setNotesOpen(false)
+    readingAreaToScroll.current = ''
+    window.requestAnimationFrame(() => {
+      if (element) {
+        scrollWithin(entryStreamElement.current, element)
+        element.querySelector<HTMLElement>('button[aria-expanded]')?.focus()
+      }
+      selectedEntryElement.current = null
+    })
+  }
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedSearch(search.trim()), 250)
@@ -1194,15 +1210,7 @@ function Reader({
     if (!selected) return
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== 'Escape') return
-      const element = selectedEntryElement.current
-      setSelected(null)
-      setActionMenuOpen(false)
-      setNotesOpen(false)
-      readingAreaToScroll.current = ''
-      window.requestAnimationFrame(() => {
-        element?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        selectedEntryElement.current = null
-      })
+      closeSelectedEntry()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
@@ -1216,11 +1224,7 @@ function Reader({
 
   function toggleEntry(item: Entry, element: HTMLElement) {
     if (selected?.id === item.id) {
-      setSelected(null)
-      setActionMenuOpen(false)
-      setNotesOpen(false)
-      selectedEntryElement.current = null
-      readingAreaToScroll.current = ''
+      closeSelectedEntry()
       return
     }
 
@@ -1253,7 +1257,7 @@ function Reader({
   const title = sourceName || (view === 'starred' ? '收藏' : view === 'later' ? '稍后阅读' : '全部文章')
   const sourceNames = Object.fromEntries(sources.map((source) => [source.id, source.name]))
   return (
-    <div className="relative grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden max-md:h-auto">
+    <div className="relative grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
       <header className="z-[3] flex min-h-16 items-center justify-between gap-6 border-b bg-card/95 px-5 py-2 shadow-[0_1px_3px_rgba(42,48,58,.04)] max-md:static max-md:min-h-14 max-md:px-3">
         <div className="flex min-w-0 items-baseline gap-3 max-md:hidden" aria-hidden={mobile || undefined}>
           <h1>{title}</h1>
@@ -1284,7 +1288,11 @@ function Reader({
         </div>
       </header>
       {readerNotice && <div className="absolute right-4 top-[72px] z-[5] rounded-lg border border-[#dce1e5] bg-white/95 px-3 py-2 text-sm text-[#55606b] shadow-[0_8px_24px_rgba(45,51,60,.1)]" role="status">{readerNotice}</div>}
-      <section className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain border-0 bg-card shadow-none [scrollbar-gutter:stable] max-md:[-webkit-overflow-scrolling:touch] max-md:[scrollbar-gutter:auto]" aria-label="文章列表">
+      <section
+        className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain border-0 bg-card shadow-none [scrollbar-gutter:stable] max-md:[-webkit-overflow-scrolling:touch] max-md:[scrollbar-gutter:auto]"
+        aria-label="文章列表"
+        ref={entryStreamElement}
+      >
           {loading && <p className="p-8 text-center text-sm text-muted-foreground">正在加载文章…</p>}
           {error && <p className="p-8 text-center text-sm text-muted-foreground text-destructive">{error}</p>}
           {!loading && !error && entries.length === 0 && <p className="p-8 text-center text-sm text-muted-foreground">这里还没有文章。</p>}
@@ -1319,25 +1327,25 @@ function Reader({
               {selected?.id === item.id && (
                 <div
                   data-entry-detail={item.id}
-                  className="min-h-[calc(100vh-100px)] border-t border-[#e8e9eb] bg-card px-[clamp(24px,8vw,120px)] pb-16 max-md:px-5 max-md:pb-10 max-md:pt-5"
+                  className="min-h-full border-t border-[#e8e9eb] bg-card px-[clamp(24px,8vw,120px)] pb-16 max-md:px-5 max-md:pb-10 max-md:pt-0"
                   ref={(element) => {
                     if (!element || readingAreaToScroll.current !== item.id) return
                     readingAreaToScroll.current = ''
                     window.requestAnimationFrame(() => {
-                      element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                      scrollWithin(entryStreamElement.current, element)
                     })
                   }}
                 >
                   <div className="mx-auto max-w-[72ch]">
-                    <div className="mb-8 flex min-h-14 items-center justify-between border-b border-[#eeeae2] text-sm text-muted-foreground max-md:mb-6">
+                    <div className="mb-5 flex min-h-12 items-center justify-between border-b border-[#eeeae2] text-sm text-muted-foreground max-md:mb-3">
                       <span>{selected.author || sourceNames[selected.source_id] || '未知来源'}</span>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1">
                         {selected.canonical_url && (
-                          <a href={selected.canonical_url} target="_blank" rel="noreferrer">查看原文 ↗</a>
+                          <a className="mr-2" href={selected.canonical_url} target="_blank" rel="noreferrer">查看原文 ↗</a>
                         )}
                         <DropdownMenu open={actionMenuOpen} onOpenChange={setActionMenuOpen}>
                           <DropdownMenuTrigger asChild>
-                            <Button unstyled className="grid h-7 w-8 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="更多操作"><MoreHorizontal className="size-4" aria-hidden="true" /></Button>
+                            <Button unstyled className="grid size-10 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="更多操作"><MoreHorizontal className="size-4" aria-hidden="true" /></Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent>
                             <DropdownMenuItem onSelect={() => void patch(selected, { read: false })}>标记未读</DropdownMenuItem>
@@ -1352,6 +1360,14 @@ function Reader({
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
+                        <Button
+                          unstyled
+                          className="grid size-10 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                          aria-label="关闭文章"
+                          onClick={closeSelectedEntry}
+                        >
+                          <X className="size-5" aria-hidden="true" />
+                        </Button>
                       </div>
                     </div>
                     <h2>{selected.display_title || selected.source_title || '无标题'}</h2>
@@ -1403,6 +1419,14 @@ function Reader({
       </section>
     </div>
   )
+}
+
+function scrollWithin(container: HTMLElement | null, element: HTMLElement) {
+  if (!container) return
+  container.scrollTo({
+    top: container.scrollTop + element.getBoundingClientRect().top - container.getBoundingClientRect().top,
+    behavior: 'smooth',
+  })
 }
 
 function HighlightText({ text, query }: { text: string; query: string }) {
