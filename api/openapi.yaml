@@ -363,11 +363,21 @@ paths:
       responses:
         "200":
           description: One-level Source folders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Folder"
     post:
       operationId: createFolder
       responses:
         "201":
           description: Folder created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Folder"
   /folders/{folderId}:
     parameters:
       - $ref: "#/components/parameters/FolderId"
@@ -602,6 +612,22 @@ components:
           type: integer
         consecutive_failures:
           type: integer
+    Folder:
+      type: object
+      required: [id, name, source_count, source_ids]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        source_count:
+          type: integer
+        source_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
     SourcePreview:
       type: object
       required: [candidates, diagnostics]

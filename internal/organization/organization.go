@@ -3,9 +3,10 @@ package organization
 import "github.com/wenpengfei/pulse/internal/entry"
 
 type Folder struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	SourceCount int    `json:"source_count"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	SourceCount int      `json:"source_count"`
+	SourceIDs   []string `json:"source_ids"`
 }
 
 type View struct {

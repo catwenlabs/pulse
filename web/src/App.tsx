@@ -1,16 +1,50 @@
-import { FormEvent, KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
+import {
+  BookOpen,
+  Bookmark,
+  CheckCheck,
+  ChevronDown,
+  Clock3,
+  FolderClosed,
+  Inbox,
+  Menu,
+  MoreHorizontal,
+  Plus,
+  RefreshCw,
+  Rss,
+  Search,
+  Star,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
 
 import * as api from './api'
 import type { AnnotationInput, CreateSourceInput, Entry, EntryPatch, Folder, PreviewResult, Source, SourceHealth, SourceKind } from './api'
+import { Button, buttonVariants } from './components/ui/button'
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, SheetContent } from './components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu'
+import { Input } from './components/ui/input'
+import { Select } from './components/ui/select'
+import { Textarea } from './components/ui/textarea'
+import { cn } from './lib/utils'
 import './styles.css'
 
 type Notice = { tone: 'success' | 'error'; message: string }
 type View = 'sources' | 'inbox' | 'starred' | 'later' | 'annotations'
 type SaveRequest = { url: string; title: string }
 
+function navItemClass(active: boolean, className?: string) {
+  return cn(
+    'flex min-h-9 items-center gap-3 rounded-md px-3 text-sm font-medium text-muted-foreground no-underline transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+    active && 'bg-sidebar-accent text-sidebar-accent-foreground',
+    className,
+  )
+}
+
 export function App() {
   const [sources, setSources] = useState<Source[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set())
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -23,10 +57,9 @@ export function App() {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const [showBookmarklet, setShowBookmarklet] = useState(false)
   const [saveRequest, setSaveRequest] = useState<SaveRequest | null>(() => readSaveRequest())
-  const isMobile = useMediaQuery('(max-width: 760px)')
+  const isMobile = useMediaQuery('(max-width: 767px)')
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
   const mobileDrawerCloseRef = useRef<HTMLButtonElement>(null)
-  const mobileDrawerRef = useRef<HTMLElement>(null)
   const bookmarkletButtonRef = useRef<HTMLButtonElement>(null)
 
   async function load() {
@@ -39,6 +72,10 @@ export function App() {
       ])
       setSources(loaded)
       setFolders(loadedFolders)
+      setExpandedFolders((current) => new Set([
+        ...current,
+        ...loadedFolders.map((folder) => folder.id),
+      ]))
       const snapshots = await Promise.all(loaded.map(async (item) => {
         try {
           return [item.id, await api.getSourceHealth(item.id)] as const
@@ -68,17 +105,6 @@ export function App() {
     if (!saveRequest || !window.location.hash.startsWith('#save?')) return
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
   }, [saveRequest])
-
-  useEffect(() => {
-    if (!isMobile || !mobileNavigationOpen) return
-    mobileDrawerCloseRef.current?.focus()
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key !== 'Escape') return
-      closeMobileNavigation()
-    }
-    document.addEventListener('keydown', closeOnEscape)
-    return () => document.removeEventListener('keydown', closeOnEscape)
-  }, [isMobile, mobileNavigationOpen])
 
   async function handleCreate(input: CreateSourceInput) {
     const created = await api.createSource(input)
@@ -151,24 +177,9 @@ export function App() {
     }
   }
 
-  function trapMobileNavigationFocus(event: React.KeyboardEvent<HTMLElement>) {
-    if (!isMobile || !mobileNavigationOpen || event.key !== 'Tab') return
-    const focusable = Array.from(mobileDrawerRef.current?.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ) ?? [])
-    if (focusable.length === 0) return
-    const first = focusable[0]
-    const last = focusable[focusable.length - 1]
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault()
-      last.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault()
-      first.focus()
-    }
-  }
-
   const activeSourceName = sources.find((source) => source.id === selectedSourceID)?.name
+  const assignedSourceIDs = new Set(folders.flatMap((folder) => folder.source_ids))
+  const rootSources = sources.filter((source) => !assignedSourceIDs.has(source.id))
   const mobileTitle = activeView === 'sources'
     ? '信息源'
     : activeSourceName || (
@@ -202,188 +213,233 @@ export function App() {
   }
 
   return (
-    <div className={`app-shell ${mobileNavigationOpen ? 'mobile-navigation-open' : ''}`}>
+    <Dialog
+      modal={isMobile}
+      open={isMobile && mobileNavigationOpen}
+      onOpenChange={(open) => {
+        if (open) setMobileNavigationOpen(true)
+        else closeMobileNavigation()
+      }}
+    >
+    <div className="grid h-dvh min-h-0 grid-cols-[256px_minmax(0,1fr)] overflow-hidden max-md:block max-md:w-full">
+      <SheetContent
+        persistent={!isMobile}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          mobileDrawerCloseRef.current?.focus()
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          mobileMenuButtonRef.current?.focus()
+        }}
+      >
       <aside
-        className="sidebar"
+        className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r bg-sidebar px-3 py-4 text-sidebar-foreground transition-transform md:translate-x-0 max-md:w-[min(86vw,20rem)] max-md:-translate-x-full max-md:shadow-xl data-[state=open]:translate-x-0"
         id="mobile-navigation"
-        ref={mobileDrawerRef}
         role="navigation"
         aria-label="移动导航抽屉"
         aria-hidden={isMobile ? !mobileNavigationOpen : undefined}
         inert={isMobile && !mobileNavigationOpen ? true : undefined}
-        onKeyDown={trapMobileNavigationFocus}
       >
-        <div className="sidebar-brand-row">
-          <a className="brand" href="/" aria-label="Pulse 首页" onClick={() => showStream('inbox')}>
-            <span className="brand-mark" aria-hidden="true">P</span>
+        <div className="flex items-center justify-between px-1.5 pb-[18px] max-md:px-1">
+          <a className="flex items-center gap-2.5 font-serif text-[23px] font-semibold text-foreground no-underline" href="/" aria-label="Pulse 首页" onClick={() => showStream('inbox')}>
+            <span className="grid size-[34px] place-items-center rounded-[10px_10px_10px_3px] bg-primary font-sans text-lg font-bold text-white" aria-hidden="true">P</span>
             <span>Pulse</span>
           </a>
-          <div className="sidebar-header-actions">
-            <button className="sidebar-add" aria-label="添加信息源" onClick={() => {
+          <div className="flex items-center gap-1.5">
+            <Button unstyled className="grid size-[31px] cursor-pointer place-items-center rounded-[7px] border-0 bg-primary text-lg text-white hover:bg-primary-hover" aria-label="添加信息源" onClick={() => {
               closeMobileNavigation(false)
               setShowCreate(true)
             }}>
-              <span aria-hidden="true">＋</span><span className="sr-only">添加信息源</span>
-            </button>
+              <Plus className="size-4" aria-hidden="true" /><span className="sr-only">添加信息源</span>
+            </Button>
             {isMobile && (
-              <button
-                className="sidebar-dismiss"
+              <Button unstyled
+                className="hidden size-[34px] cursor-pointer place-items-center rounded-lg border-0 bg-white/50 p-0 text-2xl text-[#66635b] max-md:grid"
                 ref={mobileDrawerCloseRef}
                 aria-label="关闭导航"
                 onClick={() => closeMobileNavigation()}
               >
-                <span aria-hidden="true">×</span>
-              </button>
+                <X className="size-5" aria-hidden="true" />
+              </Button>
             )}
           </div>
         </div>
 
-        <nav className="main-nav" aria-label="主导航">
-          <a className={activeView === 'inbox' && !selectedSourceID ? 'active' : ''} href="#inbox" onClick={() => showStream('inbox')}><NavIcon name="inbox" />全部文章</a>
-          <a className={activeView === 'starred' ? 'active' : ''} href="#starred" onClick={() => showStream('starred')}><NavIcon name="star" />收藏</a>
-          <a className={activeView === 'later' ? 'active' : ''} href="#later" onClick={() => showStream('later')}><NavIcon name="clock" />稍后阅读</a>
-          <a className={activeView === 'annotations' ? 'active' : ''} href="#annotations" onClick={() => showStream('annotations')}><NavIcon name="book" />阅读笔记</a>
+        <nav className="grid gap-1 overflow-visible" aria-label="主导航">
+          <a className={navItemClass(activeView === 'inbox' && !selectedSourceID)} href="#inbox" onClick={() => showStream('inbox')}><NavIcon name="inbox" />全部文章</a>
+          <a className={navItemClass(activeView === 'starred')} href="#starred" onClick={() => showStream('starred')}><NavIcon name="star" />收藏</a>
+          <a className={navItemClass(activeView === 'later')} href="#later" onClick={() => showStream('later')}><NavIcon name="clock" />稍后阅读</a>
+          <a className={navItemClass(activeView === 'annotations')} href="#annotations" onClick={() => showStream('annotations')}><NavIcon name="book" />阅读笔记</a>
         </nav>
 
-        <section className="sidebar-section folder-section" aria-labelledby="folder-label">
-          <div className="sidebar-section-heading">
-            <p className="section-label" id="folder-label">文件夹</p>
-            <span>{folders.length}</span>
-          </div>
-          {folders.length === 0 && <p className="empty-folder">尚未创建文件夹</p>}
-          <div className="folder-tree">
-            {folders.map((folder) => (
-              <div className="folder-row" key={folder.id}>
-                <span aria-hidden="true">▾</span>
-                <strong>{folder.name}</strong>
-                <span>{folder.source_count}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="sidebar-section subscription-section" aria-labelledby="subscription-label">
-          <div className="sidebar-section-heading">
-            <p className="section-label" id="subscription-label">订阅源</p>
+        <section className="mt-[22px] flex min-h-0 flex-1 flex-col px-[7px]" aria-labelledby="source-tree-label">
+          <div className="mb-2 flex items-center justify-between text-[10px] text-[#9a978d]">
+            <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" id="source-tree-label">订阅</p>
             <span>{sources.length}</span>
           </div>
-          {loading && <p className="sidebar-state">正在同步信息源…</p>}
-          {!loading && loadError && <button className="sidebar-state error-state" onClick={() => void load()}>重试加载</button>}
-          <div className="subscription-list">
-            {sources.map((source) => (
-              <button
-                className={selectedSourceID === source.id && activeView === 'inbox' ? 'active' : ''}
+          {loading && <p className="border-0 bg-transparent px-2 py-1 text-left text-xs text-muted-foreground">正在同步信息源…</p>}
+          {!loading && loadError && <Button unstyled className="border-0 bg-transparent px-2 py-1 text-left text-xs text-destructive" onClick={() => void load()}>重试加载</Button>}
+          <div className="min-h-0 overflow-y-auto">
+            {folders.map((folder) => (
+              <div key={folder.id}>
+                <Button
+                  unstyled
+                  className="flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  aria-label={`${folder.name}，${folder.source_count} 个订阅源`}
+                  aria-expanded={expandedFolders.has(folder.id)}
+                  onClick={() => setExpandedFolders((current) => {
+                    const next = new Set(current)
+                    if (next.has(folder.id)) next.delete(folder.id)
+                    else next.add(folder.id)
+                    return next
+                  })}
+                >
+                  <ChevronDown className={cn('size-4 shrink-0 transition-transform', !expandedFolders.has(folder.id) && '-rotate-90')} aria-hidden="true" />
+                  <FolderClosed className="size-4 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate text-left">{folder.name}</span>
+                  <span className="text-xs font-normal text-muted-foreground">{folder.source_count}</span>
+                </Button>
+                {expandedFolders.has(folder.id) && (
+                  <div className="ml-4 border-l pl-2">
+                    {folder.source_ids.map((sourceID) => {
+                      const source = sources.find((candidate) => candidate.id === sourceID)
+                      if (!source) return null
+                      return (
+                        <Button
+                          unstyled
+                          className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full min-h-8 py-1 text-xs')}
+                          key={`${folder.id}-${source.id}`}
+                          onClick={() => showStream('inbox', source.id)}
+                        >
+                          <span className={cn('size-2 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
+                          <span className="truncate">{source.name}</span>
+                        </Button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+            {rootSources.map((source) => (
+              <Button unstyled
+                className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full min-h-8 py-1 text-xs')}
                 key={source.id}
                 onClick={() => showStream('inbox', source.id)}
               >
-                <span className={`subscription-dot ${source.enabled ? 'enabled' : ''}`} />
+                <span className={cn('size-2 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
                 <span>{source.name}</span>
-              </button>
+              </Button>
             ))}
           </div>
         </section>
 
-        <div className="sidebar-footer">
-          <button ref={bookmarkletButtonRef} onClick={() => {
+        <div className="mt-3 grid gap-2 border-t border-[#d8d4ca] px-[7px] pt-2.5 text-[10px] text-[#77746c]">
+          <Button unstyled className={navItemClass(false, 'w-full')} ref={bookmarkletButtonRef} onClick={() => {
             closeMobileNavigation(false)
             setShowBookmarklet(true)
           }}>
             <NavIcon name="bookmark" />安装保存书签
-          </button>
-          <button className={activeView === 'sources' ? 'active' : ''} onClick={() => {
+          </Button>
+          <Button unstyled className={navItemClass(activeView === 'sources', 'w-full')} onClick={() => {
             setActiveView('sources')
             closeMobileNavigation()
           }}>
             <NavIcon name="source" />管理信息源
-          </button>
-          <span><span className="status-dot" />本地服务已连接</span>
+          </Button>
+          <span className="flex items-center gap-2 px-3 py-1"><span className="size-2 rounded-full bg-success shadow-[0_0_0_3px_rgba(93,148,108,.13)]" />本地服务已连接</span>
         </div>
       </aside>
+      </SheetContent>
 
       <main
-        className={`main-content ${activeView === 'sources' ? 'source-main' : 'reader-main'}`}
+        className={cn(
+          'col-start-2 h-dvh min-w-0 overflow-y-auto bg-background p-0',
+          activeView !== 'sources' && 'overflow-hidden max-md:grid max-md:grid-rows-[auto_minmax(0,1fr)]',
+        )}
         inert={isMobile && mobileNavigationOpen ? true : undefined}
       >
         {isMobile && (
-          <header className="mobile-app-bar">
-            <button
-              className="mobile-menu-button"
+          <header className="max-md:z-[7] max-md:grid max-md:min-h-[calc(52px+env(safe-area-inset-top))] max-md:grid-cols-[40px_minmax(0,1fr)] max-md:items-center max-md:gap-2 max-md:border-b max-md:bg-card/95 max-md:px-3.5 max-md:pt-[env(safe-area-inset-top)] max-md:backdrop-blur-xl">
+            <Button unstyled
+              className="grid size-10 cursor-pointer content-center gap-1 rounded-lg border-0 bg-transparent px-[9px] text-foreground hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
               ref={mobileMenuButtonRef}
               aria-label="打开导航"
               aria-controls="mobile-navigation"
               aria-expanded={mobileNavigationOpen}
               onClick={() => setMobileNavigationOpen(true)}
             >
-              <span aria-hidden="true" />
-              <span aria-hidden="true" />
-              <span aria-hidden="true" />
-            </button>
+              <Menu className="size-5" aria-hidden="true" />
+            </Button>
             <h1>{mobileTitle}</h1>
           </header>
         )}
         {notice && (
-          <div className={`notice ${notice.tone}`} role="status">
+          <div className={cn(
+            'fixed right-4 top-4 z-50 flex w-[min(26rem,calc(100vw-2rem))] items-center justify-between rounded-lg border bg-background px-4 py-3 text-sm shadow-lg',
+            notice.tone === 'success' ? 'border-emerald-200 text-emerald-700' : 'border-destructive/30 text-destructive',
+          )} role="status">
             {notice.message}
-            <button aria-label="关闭提示" onClick={() => setNotice(null)}>×</button>
+            <Button unstyled aria-label="关闭提示" onClick={() => setNotice(null)}><X className="size-4" aria-hidden="true" /></Button>
           </div>
         )}
         {activeView === 'sources' ? (
           <>
-        <header className="page-header">
+        <header className="mb-[38px] flex items-end justify-between gap-6 max-md:flex-col max-md:items-start">
           <div>
-            <p className="eyebrow">LIBRARY</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">LIBRARY</p>
             <h1>信息源</h1>
-            <p className="page-description">管理 Pulse 持续关注的 RSS、API、网页与推送来源。</p>
+            <p className="mb-0 mt-3 text-sm text-muted-foreground">管理 Pulse 持续关注的 RSS、API、网页与推送来源。</p>
           </div>
-          <div className="header-actions">
-            <a className="button secondary" href="/api/v1/opml/export">导出 OPML</a>
-            <button className="button primary" onClick={() => setShowCreate(true)}>
-              <span aria-hidden="true">＋</span> 添加信息源
-            </button>
+          <div className="flex gap-2.5 max-md:w-full">
+            <a className={buttonVariants({ variant: 'secondary', className: 'max-md:flex-1' })} href="/api/v1/opml/export">导出 OPML</a>
+            <Button className="max-md:flex-1" onClick={() => setShowCreate(true)}>
+              <Plus className="size-4" aria-hidden="true" /> 添加信息源
+            </Button>
           </div>
         </header>
 
-        <section className="source-panel" aria-labelledby="source-heading">
-          <div className="panel-heading">
+        <section className="overflow-hidden rounded-[13px] border bg-card shadow-[0_10px_30px_rgba(72,66,51,.04)] max-md:mx-4 max-md:mb-6" aria-labelledby="source-heading">
+          <div className="flex items-center justify-between border-b px-[22px] py-5">
             <div>
               <h2 id="source-heading">全部信息源</h2>
               <span>{sources.length} 个来源</span>
             </div>
-            <button className="icon-button" aria-label="重新载入" onClick={() => void load()}>↻</button>
+            <Button unstyled className="grid size-9 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="重新载入" onClick={() => void load()}><RefreshCw className="size-4" aria-hidden="true" /></Button>
           </div>
 
-          {loading && <div className="state-message">正在同步信息源…</div>}
+          {loading && <div className="grid min-h-[250px] place-items-center gap-[7px] text-center text-[13px] text-[#8b887f]">正在同步信息源…</div>}
           {!loading && loadError && (
-            <div className="state-message error-state">
+            <div className="grid min-h-[250px] place-items-center gap-[7px] text-center text-[13px] text-[#8b887f] text-destructive">
               <strong>暂时无法加载</strong>
               <span>{loadError}</span>
-              <button className="text-button" onClick={() => void load()}>重试</button>
+              <Button unstyled className="cursor-pointer border-0 bg-transparent text-primary-hover underline" onClick={() => void load()}>重试</Button>
             </div>
           )}
           {!loading && !loadError && sources.length === 0 && (
-            <div className="state-message">
+            <div className="grid min-h-[250px] place-items-center gap-[7px] text-center text-[13px] text-[#8b887f]">
               <strong>还没有信息源</strong>
               <span>添加一个 RSS Feed，开始构建你的阅读中枢。</span>
             </div>
           )}
           {!loading && !loadError && sources.length > 0 && (
-            <div className="source-list">
+            <div >
               {sources.map((source) => (
-                <article className="source-row" key={source.id}>
-                  <div className="source-avatar" aria-hidden="true">{source.name.slice(0, 1).toUpperCase()}</div>
-                  <div className="source-copy">
-                    <div className="source-title-line">
+                <article className="grid min-h-[78px] grid-cols-[42px_minmax(0,1fr)_auto_minmax(0,260px)_auto] items-center gap-3.5 border-b border-[#ebe8e0] px-5 py-[13px] last:border-b-0 hover:bg-[#f8f6f0] max-md:grid-cols-[42px_minmax(0,1fr)_auto]" key={source.id}>
+                  <div className="grid size-10 place-items-center rounded-[10px] bg-[#f3ded5] font-serif text-lg font-semibold text-[#a1482d]" aria-hidden="true">{source.name.slice(0, 1).toUpperCase()}</div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
                       <h3>{source.name}</h3>
-                      <span className="kind-badge">{source.kind.toUpperCase()}</span>
+                      <span className="rounded bg-[#eee6dd] px-1.5 py-0.5 text-[8px] font-bold tracking-[.08em] text-[#8b624f]">{source.kind.toUpperCase()}</span>
                     </div>
                     <p>{source.locator}</p>
                   </div>
-                  <div className="source-health">
-                    <span className={source.enabled ? 'health active' : 'health'} />
+                  <div className="flex items-center gap-[7px] text-[11px] text-[#77746c] max-md:hidden">
+                    <span className={cn('size-2 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
                     {source.enabled ? '已启用' : '已暂停'}
                   </div>
                   {health[source.id] && (
-                    <div className="source-diagnostics" aria-label={`${source.name} 抓取诊断`}>
+                    <div className="grid min-w-[180px] gap-0.5 text-[10px] text-[#77746c] max-md:hidden" aria-label={`${source.name} 抓取诊断`}>
                       <span>状态 {health[source.id].status}</span>
                       {health[source.id].last_requested_at && <span>最近 {formatTime(health[source.id].last_requested_at!)}</span>}
                       <span>{health[source.id].candidate_count} 候选 · {health[source.id].new_count} 新增 · {health[source.id].updated_count} 更新</span>
@@ -392,29 +448,29 @@ export function App() {
                       {health[source.id].last_error && <em>{health[source.id].last_error}</em>}
                     </div>
                   )}
-                  <div className="source-actions">
-                    <button
-                      className="toggle-button"
+                  <div className="flex items-center justify-end gap-[3px]">
+                    <Button unstyled
+                      className="cursor-pointer border-0 bg-transparent text-[11px] text-primary-hover"
                       aria-label={`${source.enabled ? '暂停' : '恢复'} ${source.name}`}
                       onClick={() => void handleToggle(source)}
                     >
                       {source.enabled ? '暂停' : '恢复'}
-                    </button>
-                    <button
-                      className="refresh-button"
+                    </Button>
+                    <Button unstyled
+                      className="size-[34px] rounded-[7px] hover:bg-[#eeeae2] hover:text-primary-hover disabled:cursor-not-allowed disabled:opacity-30"
                       aria-label={`刷新 ${source.name}`}
                       disabled={!source.enabled}
                       onClick={() => void handleRun(source)}
                     >
-                      ↻
-                    </button>
-                    <button
-                      className="delete-source-button"
+                      <RefreshCw className="size-4" aria-hidden="true" />
+                    </Button>
+                    <Button unstyled
+                      className="min-h-[30px] cursor-pointer rounded-md border-0 bg-transparent px-[7px] text-[10px] text-[#9a3f2c] hover:bg-[#f3ded5]"
                       aria-label={`删除 ${source.name}`}
                       onClick={() => setSourceToDelete(source)}
                     >
                       删除
-                    </button>
+                    </Button>
                   </div>
                 </article>
               ))}
@@ -441,13 +497,6 @@ export function App() {
         )}
       </main>
 
-      {isMobile && mobileNavigationOpen && (
-        <div
-          className="mobile-drawer-backdrop"
-          aria-hidden="true"
-          onMouseDown={() => closeMobileNavigation()}
-        />
-      )}
       {showCreate && (
         <CreateSourceDialog
           onClose={() => setShowCreate(false)}
@@ -469,6 +518,7 @@ export function App() {
         />
       )}
     </div>
+    </Dialog>
   )
 }
 
@@ -566,91 +616,91 @@ function AnnotationsPage({
   }
 
   return (
-    <div className="annotations-page">
-      <header className="page-header annotation-header">
+    <div className="min-h-0 overflow-y-auto bg-[#f4f1ea] px-[clamp(24px,5vw,72px)] pb-[72px] pt-[42px] max-md:px-3.5 max-md:pb-10 max-md:pt-5">
+      <header className="mb-[38px] flex items-end justify-between gap-6 max-md:flex-col max-md:items-start mx-auto mb-7 max-md:gap-4">
         <div>
-          <p className="eyebrow">READING NOTES</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">READING NOTES</p>
           <h1>阅读笔记</h1>
-          <p className="page-description">集中保存 Apple Books、Kindle 和其他阅读器中的高亮与批注。</p>
+          <p className="mb-0 mt-3 text-sm text-muted-foreground">集中保存 Apple Books、Kindle 和其他阅读器中的高亮与批注。</p>
         </div>
-        <button className="button primary" onClick={() => setShowImport((current) => !current)}>
+        <Button onClick={() => setShowImport((current) => !current)}>
           {showImport ? '收起导入' : '导入批注'}
-        </button>
+        </Button>
       </header>
 
       {showImport && (
-        <section className="annotation-import" aria-labelledby="annotation-import-title">
+        <section className="mx-auto mb-7 grid max-w-[1040px] grid-cols-[minmax(180px,.7fr)_minmax(320px,1.3fr)] gap-8 rounded-[14px] border bg-white p-6 shadow-[0_10px_32px_rgba(51,46,36,.06)] max-md:grid-cols-1 max-md:gap-4 max-md:p-[18px]" aria-labelledby="annotation-import-title">
           <div>
-            <p className="eyebrow">NEW ANNOTATION</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">NEW ANNOTATION</p>
             <h2 id="annotation-import-title">添加一条阅读批注</h2>
             <p>第一版支持结构化手工导入；Apple Books 与 Kindle 批量格式将在取得真实导出样本后接入。</p>
           </div>
           <form onSubmit={(event) => void submit(event)}>
-            <div className="annotation-form-grid">
+            <div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
               <label>
                 <span>来源平台</span>
-                <select value={form.provider} onChange={(event) => setForm({ ...form, provider: event.target.value })}>
+                <Select value={form.provider} onChange={(event) => setForm({ ...form, provider: event.target.value })}>
                   <option value="apple-books">Apple Books</option>
                   <option value="kindle">Kindle</option>
                   <option value="other">其他</option>
-                </select>
+                </Select>
               </label>
               <label>
                 <span>书名</span>
-                <input required value={form.book_title} onChange={(event) => setForm({ ...form, book_title: event.target.value })} />
+                <Input required value={form.book_title} onChange={(event) => setForm({ ...form, book_title: event.target.value })} />
               </label>
               <label>
                 <span>作者</span>
-                <input value={form.book_author} onChange={(event) => setForm({ ...form, book_author: event.target.value })} />
+                <Input value={form.book_author} onChange={(event) => setForm({ ...form, book_author: event.target.value })} />
               </label>
               <label>
                 <span>章节</span>
-                <input value={form.chapter} onChange={(event) => setForm({ ...form, chapter: event.target.value })} />
+                <Input value={form.chapter} onChange={(event) => setForm({ ...form, chapter: event.target.value })} />
               </label>
               <label>
                 <span>位置</span>
-                <input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} />
+                <Input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} />
               </label>
               <label>
                 <span>高亮颜色</span>
-                <select value={form.highlight_color} onChange={(event) => setForm({ ...form, highlight_color: event.target.value })}>
+                <Select value={form.highlight_color} onChange={(event) => setForm({ ...form, highlight_color: event.target.value })}>
                   <option value="yellow">黄色</option>
                   <option value="green">绿色</option>
                   <option value="blue">蓝色</option>
                   <option value="pink">粉色</option>
                   <option value="">未指定</option>
-                </select>
+                </Select>
               </label>
             </div>
             <label>
               <span>高亮原文</span>
-              <textarea required value={form.highlight} onChange={(event) => setForm({ ...form, highlight: event.target.value })} />
+              <Textarea required value={form.highlight} onChange={(event) => setForm({ ...form, highlight: event.target.value })} />
             </label>
             <label>
               <span>原始批注</span>
-              <textarea value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
+              <Textarea value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
             </label>
-            {importMessage && <p className="annotation-import-message" role="status">{importMessage}</p>}
-            <button className="button primary" type="submit" disabled={importing}>
+            {importMessage && <p className="m-0 text-xs text-[#41634a]" role="status">{importMessage}</p>}
+            <Button type="submit" disabled={importing}>
               {importing ? '正在导入…' : '加入导入队列'}
-            </button>
+            </Button>
           </form>
         </section>
       )}
 
-      {loading && <div className="reader-state">正在加载阅读笔记…</div>}
-      {!loading && error && <div className="reader-state">{error}</div>}
+      {loading && <div className="p-[30px] text-center text-xs text-muted-foreground">正在加载阅读笔记…</div>}
+      {!loading && error && <div className="p-[30px] text-center text-xs text-muted-foreground">{error}</div>}
       {!loading && !error && books.length === 0 && (
-        <div className="annotation-empty">
+        <div className="mx-auto grid max-w-[1040px] justify-items-center gap-[7px] rounded-[14px] border border-dashed border-[#d5d0c5] bg-white/50 px-6 py-16 text-muted-foreground">
           <strong>还没有阅读批注</strong>
           <span>导入第一条高亮后，Pulse 会按书籍自动整理。</span>
         </div>
       )}
       {!loading && !error && books.length > 0 && (
-        <section className="annotation-books" aria-label="书籍批注">
+        <section className="mx-auto grid max-w-[1040px] gap-[18px]" aria-label="书籍批注">
           {books.map(({ detail, entries: bookEntries }) => (
-            <article className="annotation-book" key={annotationBookKey(detail)}>
-              <div className="annotation-book-heading">
+            <article className="rounded-[14px] border bg-white p-6 shadow-[0_8px_28px_rgba(51,46,36,.05)] max-md:p-[18px]" key={annotationBookKey(detail)}>
+              <div className="flex items-start justify-between gap-5 border-b border-[#ece8df] pb-[18px]">
                 <div>
                   <span>{detail.provider === 'apple-books' ? 'APPLE BOOKS' : detail.provider.toUpperCase()}</span>
                   <h2>{detail.book_title}</h2>
@@ -658,7 +708,7 @@ function AnnotationsPage({
                 </div>
                 <strong>{bookEntries.length} 条批注</strong>
               </div>
-              <div className="annotation-highlights">
+              <div className="grid gap-3 pt-[18px]">
                 {(expandedBooks.has(annotationBookKey(detail)) ? bookEntries : bookEntries.slice(0, 3)).map((item) => (
                   <blockquote key={item.id}>
                     <p>{item.summary}</p>
@@ -667,8 +717,8 @@ function AnnotationsPage({
                   </blockquote>
                 ))}
                 {bookEntries.length > 3 && (
-                  <button
-                    className="annotation-expand"
+                  <Button unstyled
+                    className="justify-self-start rounded-[7px] border border-[#ddd7cb] bg-white px-2.5 py-[7px] text-[11px] text-[#625d53] hover:border-[#c9c1b2] hover:bg-[#f8f5ef]"
                     onClick={() => setExpandedBooks((current) => {
                       const next = new Set(current)
                       const key = annotationBookKey(detail)
@@ -680,7 +730,7 @@ function AnnotationsPage({
                     {expandedBooks.has(annotationBookKey(detail))
                       ? '收起批注'
                       : `展开全部 ${bookEntries.length} 条`}
-                  </button>
+                  </Button>
                 )}
               </div>
             </article>
@@ -804,16 +854,16 @@ function SavePage({
   }
 
   return (
-    <main className="save-page">
-      <section className="save-card" aria-labelledby="save-page-title">
-        <div className="save-brand"><span className="brand-mark" aria-hidden="true">P</span>Pulse</div>
-        <p className="eyebrow">READ LATER</p>
+    <main className="grid min-h-dvh w-full place-items-center overflow-y-auto bg-[radial-gradient(circle_at_top,#fff_0,#f3f1eb_58%)] p-6 max-md:place-items-start max-md:p-3">
+      <section className="w-[min(520px,100%)] rounded-2xl border border-input bg-card p-[34px] shadow-[0_22px_70px_rgba(48,43,34,.12)] max-md:min-h-[calc(100dvh-24px)] max-md:rounded-xl max-md:px-[18px] max-md:py-6" aria-labelledby="save-page-title">
+        <div className="mb-[30px] flex items-center gap-[9px] font-serif text-xl font-semibold max-md:mb-6"><span className="grid size-[34px] place-items-center rounded-[10px_10px_10px_3px] bg-primary font-sans text-lg font-bold text-white" aria-hidden="true">P</span>Pulse</div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">READ LATER</p>
         <h1 id="save-page-title">保存到 Pulse</h1>
-        <p className="save-description">确认网页信息后，将它加入你的阅读列表。</p>
+        <p className="mb-[25px] mt-[9px] text-[13px] leading-relaxed text-muted-foreground">确认网页信息后，将它加入你的阅读列表。</p>
         <form onSubmit={(event) => void submit(event)}>
           <label>
             <span>网页地址</span>
-            <input
+            <Input
               autoFocus
               required
               type="url"
@@ -824,45 +874,44 @@ function SavePage({
           </label>
           <label>
             <span>标题</span>
-            <input required maxLength={500} value={title} onChange={(event) => setTitle(event.target.value)} />
+            <Input required maxLength={500} value={title} onChange={(event) => setTitle(event.target.value)} />
           </label>
           {manualSources.length > 0 && (
             <label>
               <span>保存到</span>
-              <select value={sourceID} onChange={(event) => setSourceID(event.target.value)}>
+              <Select value={sourceID} onChange={(event) => setSourceID(event.target.value)}>
                 {manualSources.map((source) => (
                   <option key={source.id} value={source.id}>
                     {source.name}{source.enabled ? '' : '（已暂停，将自动恢复）'}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           )}
-          {loading && <p className="save-help">正在加载 Manual Source…</p>}
-          {!loading && loadError && <p className="form-error" role="alert">{loadError}</p>}
+          {loading && <p className="m-0 text-xs text-muted-foreground">正在加载 Manual Source…</p>}
+          {!loading && loadError && <p className="m-0 text-xs" role="alert">{loadError}</p>}
           {!loading && !loadError && manualSources.length === 0 && (
-            <div className="save-empty-source">
+            <div className="grid gap-1 rounded-lg bg-[#f1ede5] p-[13px] text-xs leading-normal text-[#6d6257]">
               <strong>还没有 Manual Source</strong>
               <span>Pulse 会在你确认后创建“网页收藏”，不会创建隐藏 Source。</span>
             </div>
           )}
-          {error && <p className="form-error" role="alert">{error}</p>}
-          {success && <p className="save-success" role="status">{success}</p>}
-          <div className="dialog-actions">
-            <button className="button secondary" type="button" onClick={onClose}>关闭</button>
+          {error && <p className="m-0 text-xs" role="alert">{error}</p>}
+          {success && <p className="m-0 rounded-lg bg-[#e3efe5] px-[13px] py-[11px] text-xs text-[#345d40]" role="status">{success}</p>}
+          <div className="mt-[7px] flex justify-end gap-[9px] max-md:flex-wrap">
+            <Button variant="secondary" type="button" onClick={onClose}>关闭</Button>
             {manualSources.length > 0 ? (
-              <button className="button primary" type="submit" disabled={saving || loading}>
+              <Button type="submit" disabled={saving || loading}>
                 {saving ? '正在保存…' : '保存网页'}
-              </button>
+              </Button>
             ) : (
-              <button
-                className="button primary"
+              <Button
                 type="button"
                 disabled={saving || loading || Boolean(loadError)}
                 onClick={() => void createSourceAndSave()}
               >
                 {saving ? '正在创建…' : '创建“网页收藏”并保存'}
-              </button>
+              </Button>
             )}
           </div>
         </form>
@@ -878,7 +927,6 @@ function BookmarkletDialog({
   onClose: () => void
   returnFocusElement: HTMLElement | null
 }) {
-  const dialogRef = useRef<HTMLElement>(null)
   const saveTarget = `${window.location.origin}${window.location.pathname}#save?`
   const bookmarklet = `javascript:(()=>{const p=new URLSearchParams({url:location.href,title:document.title});window.open(${JSON.stringify(saveTarget)}+p.toString(),'_blank','popup,width=520,height=680,noopener');void 0})()`
 
@@ -886,50 +934,21 @@ function BookmarkletDialog({
     return () => returnFocusElement?.focus()
   }, [returnFocusElement])
 
-  function handleKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      onClose()
-      return
-    }
-    if (event.key !== 'Tab') return
-    const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-    ) || [])
-    if (focusable.length === 0) return
-    const first = focusable[0]
-    const last = focusable[focusable.length - 1]
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault()
-      last.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault()
-      first.focus()
-    }
-  }
-
   return (
-    <div className="dialog-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section
-        ref={dialogRef}
-        className="dialog bookmarklet-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="bookmarklet-title"
-        onKeyDown={handleKeyDown}
-      >
-        <button className="dialog-close" aria-label="关闭" onClick={onClose}>×</button>
-        <p className="eyebrow">BOOKMARKLET</p>
-        <h2 id="bookmarklet-title">安装“保存到 Pulse”</h2>
-        <p className="dialog-description">新建一个浏览器书签，把下面整段代码粘贴到书签的地址栏。</p>
-        <label className="bookmarklet-code">
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="w-[min(560px,100%)]">
+        <DialogClose className="absolute right-4 top-4 grid size-8 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="关闭"><X className="size-4" aria-hidden="true" /></DialogClose>
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">BOOKMARKLET</p>
+        <DialogTitle>安装“保存到 Pulse”</DialogTitle>
+        <DialogDescription className="mb-[25px] mt-[9px] text-[13px] leading-normal text-muted-foreground">新建一个浏览器书签，把下面整段代码粘贴到书签的地址栏。</DialogDescription>
+        <label className="grid gap-[7px] text-xs font-semibold text-[#514f48]">
           <span>Bookmarklet 代码</span>
-          <textarea autoFocus readOnly value={bookmarklet} onFocus={(event) => event.currentTarget.select()} />
+          <Textarea autoFocus readOnly value={bookmarklet} onFocus={(event) => event.currentTarget.select()} />
         </label>
-        <div className="bookmarklet-platforms">
+        <div className="mt-[18px] grid grid-cols-2 gap-3 max-md:grid-cols-1">
           <section>
             <h3>Mac Chrome</h3>
-            <ol className="bookmarklet-steps">
+            <ol className="m-0 grid gap-[7px] pl-5 text-xs leading-normal text-muted-foreground">
               <li>复制上面的完整代码。</li>
               <li>新建书签，名称填写“保存到 Pulse”。</li>
               <li>将代码粘贴到书签地址，然后在任意文章页点击它。</li>
@@ -937,7 +956,7 @@ function BookmarkletDialog({
           </section>
           <section>
             <h3>iPhone Chrome</h3>
-            <ol className="bookmarklet-steps">
+            <ol className="m-0 grid gap-[7px] pl-5 text-xs leading-normal text-muted-foreground">
               <li>先把任意网页添加到 Chrome 书签。</li>
               <li>长按刚创建的书签，选择“编辑”，名称改为“保存到 Pulse”。</li>
               <li>把 URL 替换为上面的完整代码并保存。</li>
@@ -945,11 +964,11 @@ function BookmarkletDialog({
             </ol>
           </section>
         </div>
-        <div className="dialog-actions">
-          <button className="button primary" onClick={onClose}>完成</button>
+        <div className="mt-[7px] flex justify-end gap-[9px] max-md:flex-wrap">
+          <Button onClick={onClose}>完成</Button>
         </div>
-      </section>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -984,38 +1003,31 @@ function DeleteSourceDialog({
   onConfirm: () => void
 }) {
   return (
-    <div className="dialog-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !deleting && onCancel()}>
-      <section
-        className="dialog delete-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="delete-source-title"
-        tabIndex={-1}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape' && !deleting) {
-            onCancel()
-          }
-        }}
+    <Dialog open onOpenChange={(open) => !open && !deleting && onCancel()}>
+      <DialogContent
+        className="w-[min(440px,100%)]"
+        onEscapeKeyDown={(event) => deleting && event.preventDefault()}
+        onPointerDownOutside={(event) => deleting && event.preventDefault()}
       >
-        <p className="eyebrow">ARCHIVE SOURCE</p>
-        <h2 id="delete-source-title">删除信息源？</h2>
-        <p className="dialog-description">
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">ARCHIVE SOURCE</p>
+        <DialogTitle>删除信息源？</DialogTitle>
+        <DialogDescription className="mb-[25px] mt-[9px] text-[13px] leading-normal text-muted-foreground">
           “{source.name}”将停止抓取并从订阅列表中移除。
-        </p>
-        <p className="delete-preservation">已经抓取的文章、收藏和笔记都会保留。</p>
-        <div className="dialog-actions">
-          <button className="button secondary" disabled={deleting} onClick={onCancel} autoFocus>取消删除</button>
-          <button
-            className="button danger"
+        </DialogDescription>
+        <p className="-mt-2.5 mb-6 rounded-lg bg-[#f1ede5] px-[13px] py-3 text-xs leading-relaxed text-[#6d6257]">已经抓取的文章、收藏和笔记都会保留。</p>
+        <div className="mt-[7px] flex justify-end gap-[9px] max-md:flex-wrap">
+          <Button variant="secondary" disabled={deleting} onClick={onCancel} autoFocus>取消删除</Button>
+          <Button
+            variant="destructive"
             disabled={deleting}
             aria-label={`确认删除 ${source.name}`}
             onClick={onConfirm}
           >
             {deleting ? '正在删除…' : '确认删除'}
-          </button>
+          </Button>
         </div>
-      </section>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -1132,53 +1144,69 @@ function Reader({
   const title = sourceName || (view === 'starred' ? '收藏' : view === 'later' ? '稍后阅读' : '全部文章')
   const sourceNames = Object.fromEntries(sources.map((source) => [source.id, source.name]))
   return (
-    <div className="reader-page">
-      <header className="reader-header">
-        <div className="reader-title" aria-hidden={mobile || undefined}>
+    <div className="relative grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden max-md:h-auto">
+      <header className="z-[3] flex min-h-[58px] items-center justify-between gap-6 border-b bg-card/95 py-2 pl-[18px] pr-3.5 shadow-[0_1px_3px_rgba(42,48,58,.04)] max-md:static max-md:min-h-[52px] max-md:px-3">
+        <div className="flex min-w-0 items-baseline gap-[9px] max-md:hidden" aria-hidden={mobile || undefined}>
           <h1>{title}</h1>
-          <span className="reader-count">{loading ? '正在更新…' : `${entries.length} 篇`}</span>
+          <span className="flex-none text-[10px] text-muted-foreground">{loading ? '正在更新…' : `${entries.length} 篇`}</span>
         </div>
-        <div className="reader-controls">
-          <button
-            className="mark-all-read"
+        <div className="flex w-[min(680px,68%)] items-center justify-end gap-2.5 max-md:w-full max-md:justify-stretch">
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-9 shrink-0 border-border bg-background text-foreground shadow-sm max-md:size-9 max-md:px-0"
             disabled={markingAllRead}
             aria-label={sourceName ? `将 ${sourceName} 全部标记为已读` : '将全部文章标记为已读'}
             onClick={() => void markAllRead()}
           >
-            <span aria-hidden="true">✓✓</span>
-            <span className="reader-action-label">{markingAllRead ? '正在标记…' : '全部标记为已读'}</span>
-          </button>
-          <label className="reader-search">
+            <CheckCheck className="size-4" aria-hidden="true" />
+            <span className="max-md:hidden">{markingAllRead ? '正在标记…' : '全部标记为已读'}</span>
+          </Button>
+          <label className="relative w-[min(390px,55%)] max-md:w-auto max-md:flex-1">
             <span className="sr-only">搜索文章</span>
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索文章" />
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 z-[1] size-[22px] -translate-y-1/2 text-muted-foreground" strokeWidth={2.25} aria-hidden="true" />
+            <Input
+              className="h-9 w-full border-border bg-background pl-10 pr-3 text-sm text-foreground shadow-sm focus-visible:ring-2 focus-visible:ring-ring/20"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="搜索文章"
+            />
           </label>
         </div>
       </header>
-      {readerNotice && <div className="reader-notice" role="status">{readerNotice}</div>}
-      <section className="entry-stream" aria-label="文章列表">
-          {loading && <p className="reader-state">正在加载文章…</p>}
-          {error && <p className="reader-state error-state">{error}</p>}
-          {!loading && !error && entries.length === 0 && <p className="reader-state">这里还没有文章。</p>}
+      {readerNotice && <div className="absolute right-4 top-[66px] z-[5] rounded-[7px] border border-[#dce1e5] bg-white/95 px-[11px] py-2 text-[10px] text-[#55606b] shadow-[0_8px_24px_rgba(45,51,60,.1)]" role="status">{readerNotice}</div>}
+      <section className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain border-0 bg-card shadow-none [scrollbar-gutter:stable] max-md:[-webkit-overflow-scrolling:touch] max-md:[scrollbar-gutter:auto]" aria-label="文章列表">
+          {loading && <p className="p-[30px] text-center text-xs text-muted-foreground">正在加载文章…</p>}
+          {error && <p className="p-[30px] text-center text-xs text-muted-foreground text-destructive">{error}</p>}
+          {!loading && !error && entries.length === 0 && <p className="p-[30px] text-center text-xs text-muted-foreground">这里还没有文章。</p>}
           {entries.map((item) => (
             <article
-              className={`stream-entry ${item.read_at ? 'read' : ''} ${selected?.id === item.id ? 'expanded' : ''}`}
+              data-entry-row={item.id}
+              className={cn(
+                'border-b last:border-b-0',
+                selected?.id === item.id && 'bg-card shadow-[inset_3px_0_hsl(var(--border))]',
+              )}
               key={item.id}
             >
-              <button
-                className="stream-entry-summary"
+              <Button unstyled
+                className={cn(
+                  'grid min-h-9 w-full cursor-pointer grid-cols-[8px_minmax(110px,15%)_minmax(220px,1fr)_54px_16px] items-center gap-1.5 border-0 bg-card px-2 text-left hover:bg-muted/60',
+                  'max-md:min-h-11 max-md:grid-cols-[8px_minmax(0,1fr)_48px_14px] max-md:grid-rows-1 max-md:gap-x-1.5 max-md:px-2 max-md:py-0.5',
+                  item.read_at && 'text-muted-foreground [&_strong]:font-normal',
+                )}
                 aria-expanded={selected?.id === item.id}
                 onClick={(event) => toggleEntry(item, event.currentTarget.closest('article')!)}
               >
-                <span className="unread-dot" aria-hidden="true" />
-                <span className="stream-source">{sourceNames[item.source_id] || item.author || '未知来源'}</span>
-                <strong>{item.display_title || item.source_title || '无标题'}</strong>
-                <span className="stream-summary">{htmlToText(item.summary || item.content_html || '') || '没有摘要'}</span>
-                <time dateTime={item.discovered_at}>{compactTime(item.discovered_at)}</time>
-                <span className="expand-chevron" aria-hidden="true">⌄</span>
-              </button>
+                <span className={cn('size-1.5 rounded-full bg-primary', item.read_at && 'border border-muted-foreground bg-transparent')} aria-hidden="true" />
+                <span className="truncate text-xs font-[550] text-[#66717d] max-md:hidden">{sourceNames[item.source_id] || item.author || '未知来源'}</span>
+                <strong className="min-w-0 truncate text-sm font-semibold max-md:col-start-2">{item.display_title || item.source_title || '无标题'}</strong>
+                <time className="text-right text-[11px] text-muted-foreground max-md:col-start-3" dateTime={item.discovered_at}>{compactTime(item.discovered_at)}</time>
+                <ChevronDown className={cn('size-4 text-muted-foreground transition-transform max-md:col-start-4', selected?.id === item.id && 'rotate-180')} aria-hidden="true" />
+              </Button>
               {selected?.id === item.id && (
                 <div
-                  className="stream-entry-detail"
+                  data-entry-detail={item.id}
+                  className="min-h-[calc(100vh-100px)] border-t border-[#e8e9eb] bg-card px-[clamp(28px,8vw,120px)] pb-16 max-md:px-[18px] max-md:pb-[38px] max-md:pt-[18px]"
                   ref={(element) => {
                     if (!element || readingAreaToScroll.current !== item.id) return
                     readingAreaToScroll.current = ''
@@ -1187,40 +1215,30 @@ function Reader({
                     })
                   }}
                 >
-                  <div className="entry-reading-column">
-                    <div className="entry-detail-bar">
+                  <div className="mx-auto max-w-[820px]">
+                    <div className="mb-7 flex min-h-12 items-center justify-between border-b border-[#eeeae2] text-xs text-[#8c887f] max-md:mb-[22px]">
                       <span>{selected.author || sourceNames[selected.source_id] || '未知来源'}</span>
-                      <div className="entry-detail-actions">
+                      <div className="flex items-center gap-3">
                         {selected.canonical_url && (
                           <a href={selected.canonical_url} target="_blank" rel="noreferrer">查看原文 ↗</a>
                         )}
-                        <div className="entry-action-menu">
-                          <button
-                            className="entry-more-button"
-                            aria-label="更多操作"
-                            aria-expanded={actionMenuOpen}
-                            onClick={() => setActionMenuOpen((open) => !open)}
-                          >
-                            •••
-                          </button>
-                          {actionMenuOpen && (
-                            <div className="entry-action-popover">
-                              <button aria-label="标记未读" onClick={() => void patch(selected, { read: false })}>标记未读</button>
-                              <button aria-label={selected.starred_at ? '取消收藏' : '收藏文章'} onClick={() => void patch(selected, { starred: !selected.starred_at })}>
-                                {selected.starred_at ? '取消收藏' : '收藏文章'}
-                              </button>
-                              <button aria-label={selected.later_at ? '移出稍后阅读' : '稍后阅读'} onClick={() => void patch(selected, { later: !selected.later_at })}>
-                                {selected.later_at ? '移出稍后阅读' : '稍后阅读'}
-                              </button>
-                              <button onClick={() => {
-                                setNotesOpen((open) => !open)
-                                setActionMenuOpen(false)
-                              }}>
-                                编辑标题与笔记
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                        <DropdownMenu open={actionMenuOpen} onOpenChange={setActionMenuOpen}>
+                          <DropdownMenuTrigger asChild>
+                            <Button unstyled className="grid h-7 w-8 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="更多操作"><MoreHorizontal className="size-4" aria-hidden="true" /></Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuItem onSelect={() => void patch(selected, { read: false })}>标记未读</DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => void patch(selected, { starred: !selected.starred_at })}>
+                              {selected.starred_at ? '取消收藏' : '收藏文章'}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => void patch(selected, { later: !selected.later_at })}>
+                              {selected.later_at ? '移出稍后阅读' : '稍后阅读'}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => setNotesOpen((open) => !open)}>
+                              编辑标题与笔记
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
                     <h2>{selected.display_title || selected.source_title || '无标题'}</h2>
@@ -1233,10 +1251,10 @@ function Reader({
                         ),
                       }}
                     />
-                    {notesOpen && <div className="entry-notes">
+                    {notesOpen && <div className="mt-[38px] grid max-w-[720px] gap-3 border-t pt-6">
                       <label>
                         <span>显示标题</span>
-                        <input
+                        <Input
                           value={selected.display_title}
                           onChange={(event) => setSelected({ ...selected, display_title: event.target.value })}
                           placeholder={selected.source_title}
@@ -1244,18 +1262,18 @@ function Reader({
                       </label>
                       <label>
                         <span>笔记</span>
-                        <textarea
+                        <Textarea
                           value={selected.note}
                           onChange={(event) => setSelected({ ...selected, note: event.target.value })}
                           placeholder="记录你的想法…"
                         />
                       </label>
-                      <button className="button secondary" onClick={() => void patch(selected, {
+                      <Button variant="secondary" onClick={() => void patch(selected, {
                         display_title: selected.display_title,
                         note: selected.note,
                       })}>
                         保存标题与笔记
-                      </button>
+                      </Button>
                     </div>}
                   </div>
                 </div>
@@ -1274,15 +1292,6 @@ function compactTime(value: string): string {
     return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(date)
   }
   return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(date)
-}
-
-function htmlToText(value: string): string {
-  return value
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
 }
 
 function sanitizeEntryHTML(value: string, baseURL?: string): string {
@@ -1428,21 +1437,21 @@ function CreateSourceDialog({
   }
 
   return (
-    <div className="dialog-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
-        <button className="dialog-close" aria-label="关闭" onClick={onClose}>×</button>
-        <p className="eyebrow">NEW SOURCE</p>
-        <h2 id="dialog-title">添加信息源</h2>
-        <div className="wizard-steps" aria-label="配置步骤">
-          <span className={!preview ? 'current' : 'complete'}>1 配置</span>
-          <span className={preview ? 'current' : ''}>2 预览并保存</span>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogClose className="absolute right-4 top-4 grid size-8 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="关闭"><X className="size-4" aria-hidden="true" /></DialogClose>
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">NEW SOURCE</p>
+        <DialogTitle>添加信息源</DialogTitle>
+        <div className="mt-3.5 flex gap-2 text-[10px] font-bold text-[#99958b]" aria-label="配置步骤">
+          <span className={cn('rounded-full bg-muted px-2.5 py-1 text-muted-foreground', !preview && 'bg-primary text-primary-foreground', preview && 'bg-emerald-100 text-emerald-700')}>1 配置</span>
+          <span className={cn('rounded-full bg-muted px-2.5 py-1 text-muted-foreground', preview && 'bg-primary text-primary-foreground')}>2 预览并保存</span>
         </div>
-        <p className="dialog-description">先临时抓取并检查文章身份；确认前不会写入数据库。</p>
+        <DialogDescription className="mb-[25px] mt-[9px] text-[13px] leading-normal text-muted-foreground">先临时抓取并检查文章身份；确认前不会写入数据库。</DialogDescription>
 
         <form onSubmit={(event) => void testSource(event)}>
           <label>
             <span>来源类型</span>
-            <select
+            <Select
               value={kind}
               onChange={(event) => {
                 setKind(event.target.value as SourceKind)
@@ -1452,11 +1461,11 @@ function CreateSourceDialog({
               <option value="rss">RSS / Atom / JSON Feed</option>
               <option value="json-api">JSON API</option>
               <option value="html">静态 HTML</option>
-            </select>
+            </Select>
           </label>
           <label>
             <span>名称</span>
-            <input
+            <Input
               autoFocus
               required
               value={name}
@@ -1469,7 +1478,7 @@ function CreateSourceDialog({
           </label>
           <label>
             <span>{kind === 'json-api' ? 'API 地址' : kind === 'html' ? '网页地址' : 'Feed 地址'}</span>
-            <input
+            <Input
               required
               type="url"
               value={locator}
@@ -1487,38 +1496,38 @@ function CreateSourceDialog({
             />
           </label>
           {kind === 'json-api' && (
-            <div className="mapping-fields">
+            <div className="grid gap-3.5 rounded-[9px] border border-[#e0dcd3] bg-[#f6f3ed] p-[15px]">
               <label>
                 <span>列表路径</span>
-                <input required value={itemsPath} onChange={(event) => setItemsPath(event.target.value)} placeholder="data.items" />
+                <Input required value={itemsPath} onChange={(event) => setItemsPath(event.target.value)} placeholder="data.items" />
               </label>
-              <div className="field-grid">
+              <div className="grid grid-cols-3 gap-[9px] max-md:grid-cols-1">
                 <label>
                   <span>ID 字段</span>
-                  <input required value={idField} onChange={(event) => setIDField(event.target.value)} placeholder="id" />
+                  <Input required value={idField} onChange={(event) => setIDField(event.target.value)} placeholder="id" />
                 </label>
                 <label>
                   <span>标题字段</span>
-                  <input value={titleField} onChange={(event) => setTitleField(event.target.value)} placeholder="title" />
+                  <Input value={titleField} onChange={(event) => setTitleField(event.target.value)} placeholder="title" />
                 </label>
                 <label>
                   <span>URL 字段</span>
-                  <input value={urlField} onChange={(event) => setURLField(event.target.value)} placeholder="url" />
+                  <Input value={urlField} onChange={(event) => setURLField(event.target.value)} placeholder="url" />
                 </label>
               </div>
               <label>
                 <span>分页方式</span>
-                <select value={paginationMode} onChange={(event) => setPaginationMode(event.target.value)}>
+                <Select value={paginationMode} onChange={(event) => setPaginationMode(event.target.value)}>
                   <option value="none">不分页</option>
                   <option value="page">页码参数</option>
                   <option value="next">下一页 URL</option>
                   <option value="cursor">游标</option>
-                </select>
+                </Select>
               </label>
               {(paginationMode === 'next' || paginationMode === 'cursor') && (
                 <label>
                   <span>{paginationMode === 'next' ? '下一页路径' : '游标路径'}</span>
-                  <input
+                  <Input
                     required
                     value={paginationPath}
                     onChange={(event) => setPaginationPath(event.target.value)}
@@ -1529,7 +1538,7 @@ function CreateSourceDialog({
               {(paginationMode === 'page' || paginationMode === 'cursor') && (
                 <label>
                   <span>{paginationMode === 'page' ? '页码参数' : '游标参数'}</span>
-                  <input
+                  <Input
                     value={paginationParam}
                     onChange={(event) => setPaginationParam(event.target.value)}
                     placeholder={paginationMode === 'page' ? 'page' : 'cursor'}
@@ -1539,54 +1548,54 @@ function CreateSourceDialog({
             </div>
           )}
           {kind === 'html' && (
-            <div className="mapping-fields">
+            <div className="grid gap-3.5 rounded-[9px] border border-[#e0dcd3] bg-[#f6f3ed] p-[15px]">
               <label>
                 <span>页面模式</span>
-                <select value={htmlMode} onChange={(event) => setHTMLMode(event.target.value)}>
+                <Select value={htmlMode} onChange={(event) => setHTMLMode(event.target.value)}>
                   <option value="collection">列表页面</option>
                   <option value="single">单文档</option>
-                </select>
+                </Select>
               </label>
               {htmlMode === 'collection' && (
                 <label>
                   <span>条目选择器</span>
-                  <input required value={itemSelector} onChange={(event) => setItemSelector(event.target.value)} placeholder="article.card" />
+                  <Input required value={itemSelector} onChange={(event) => setItemSelector(event.target.value)} placeholder="article.card" />
                 </label>
               )}
-              <div className="field-grid">
+              <div className="grid grid-cols-3 gap-[9px] max-md:grid-cols-1">
                 <label>
                   <span>标题选择器</span>
-                  <input required value={titleSelector} onChange={(event) => setTitleSelector(event.target.value)} placeholder="h2.title" />
+                  <Input required value={titleSelector} onChange={(event) => setTitleSelector(event.target.value)} placeholder="h2.title" />
                 </label>
                 <label>
                   <span>链接选择器</span>
-                  <input required value={linkSelector} onChange={(event) => setLinkSelector(event.target.value)} placeholder="a.permalink" />
+                  <Input required value={linkSelector} onChange={(event) => setLinkSelector(event.target.value)} placeholder="a.permalink" />
                 </label>
                 <label>
                   <span>正文选择器</span>
-                  <input value={contentSelector} onChange={(event) => setContentSelector(event.target.value)} placeholder=".content" />
+                  <Input value={contentSelector} onChange={(event) => setContentSelector(event.target.value)} placeholder=".content" />
                 </label>
               </div>
-              <div className="selector-legend">
+              <div className="flex flex-wrap gap-1.5">
                 <span>条目 <code>{htmlMode === 'collection' ? itemSelector : 'document'}</code></span>
                 <span>标题 <code>{titleSelector}</code></span>
                 <span>链接 <code>{linkSelector}@href</code></span>
               </div>
             </div>
           )}
-          {error && <p className="form-error" role="alert">{error}</p>}
+          {error && <p className="m-0 text-xs" role="alert">{error}</p>}
           {preview && (
-            <div className="preview-panel">
-              <div className="preview-summary">
+            <div className="overflow-hidden rounded-[9px] border border-input bg-[#f7f5ef]">
+              <div className="flex justify-between border-b border-[#dfdcd3] px-3 py-[11px] text-[11px] text-success">
                 <strong>连接成功</strong>
                 <span>发现 {preview.candidates.length} 条预览内容</span>
               </div>
               {kind === 'html' && (
-                <div className="visual-preview-label">
+                <div className="bg-accent px-3 py-[7px] text-[9px] font-bold tracking-[.08em] text-[#8d887e]">
                   选择器提取预览
                 </div>
               )}
-              <div className="preview-list">
+              <div className="max-h-[230px] overflow-y-auto">
                 {preview.candidates.length === 0 && <p>Feed 当前没有可预览的文章。</p>}
                 {preview.candidates.map((candidate, index) => (
                   <article key={`${candidate.identity_key}-${index}`}>
@@ -1599,42 +1608,39 @@ function CreateSourceDialog({
               </div>
             </div>
           )}
-          <div className="dialog-actions">
-            <button className="button secondary" type="button" onClick={onClose}>取消</button>
+          <div className="mt-[7px] flex justify-end gap-[9px] max-md:flex-wrap">
+            <Button variant="secondary" type="button" onClick={onClose}>取消</Button>
             {!preview && (
-              <button className="button primary" type="submit" disabled={testing}>
+              <Button type="submit" disabled={testing}>
                 {testing ? '正在测试…' : '测试并预览'}
-              </button>
+              </Button>
             )}
             {preview && (
               <>
-                <button className="button secondary" type="button" onClick={() => setPreview(null)}>
+                <Button variant="secondary" type="button" onClick={() => setPreview(null)}>
                   返回修改
-                </button>
-                <button className="button primary" type="button" disabled={submitting} onClick={() => void save()}>
+                </Button>
+                <Button type="button" disabled={submitting} onClick={() => void save()}>
                   {submitting ? '正在保存…' : '保存并启用'}
-                </button>
+                </Button>
               </>
             )}
           </div>
         </form>
-      </section>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 function NavIcon({ name }: { name: string }) {
-  const paths: Record<string, string> = {
-    inbox: 'M4 5h16v12H4z M4 13h4l2 3h4l2-3h4',
-    source: 'M5 6a13 13 0 0 1 13 13 M5 11a8 8 0 0 1 8 8 M6 18h.01',
-    star: 'm12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.8-5.4 2.8 1-6.1-4.4-4.3 6.1-.9z',
-    clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 7v5l3 2',
-    bookmark: 'M6 4h12v17l-6-4-6 4z',
-    book: 'M4 5.5A3.5 3.5 0 0 1 7.5 2H12v18H7.5A3.5 3.5 0 0 0 4 23z M20 5.5A3.5 3.5 0 0 0 16.5 2H12v18h4.5A3.5 3.5 0 0 1 20 23z',
+  const icons: Record<string, LucideIcon> = {
+    inbox: Inbox,
+    source: Rss,
+    star: Star,
+    clock: Clock3,
+    bookmark: Bookmark,
+    book: BookOpen,
   }
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24">
-      <path d={paths[name]} />
-    </svg>
-  )
+  const Icon = icons[name] ?? Inbox
+  return <Icon className="size-4 shrink-0" strokeWidth={1.8} aria-hidden="true" />
 }
