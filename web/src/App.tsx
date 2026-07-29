@@ -306,8 +306,8 @@ export function App() {
 
       <main
         className={cn(
-          'col-start-2 h-dvh min-w-0 overflow-y-auto bg-background md:p-4 lg:p-5',
-          activeView !== 'sources' && 'overflow-hidden p-0 max-md:grid max-md:grid-rows-[auto_minmax(0,1fr)]',
+          'col-start-2 h-dvh min-w-0 overflow-y-auto bg-background p-0',
+          activeView !== 'sources' && 'overflow-hidden max-md:grid max-md:grid-rows-[auto_minmax(0,1fr)]',
         )}
         inert={isMobile && mobileNavigationOpen ? true : undefined}
       >
