@@ -5,6 +5,7 @@ import {
   CheckCheck,
   ChevronDown,
   Clock3,
+  FolderClosed,
   Inbox,
   Menu,
   MoreHorizontal,
@@ -43,6 +44,7 @@ function navItemClass(active: boolean, className?: string) {
 export function App() {
   const [sources, setSources] = useState<Source[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set())
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -70,6 +72,10 @@ export function App() {
       ])
       setSources(loaded)
       setFolders(loadedFolders)
+      setExpandedFolders((current) => new Set([
+        ...current,
+        ...loadedFolders.map((folder) => folder.id),
+      ]))
       const snapshots = await Promise.all(loaded.map(async (item) => {
         try {
           return [item.id, await api.getSourceHealth(item.id)] as const
@@ -172,6 +178,8 @@ export function App() {
   }
 
   const activeSourceName = sources.find((source) => source.id === selectedSourceID)?.name
+  const assignedSourceIDs = new Set(folders.flatMap((folder) => folder.source_ids))
+  const rootSources = sources.filter((source) => !assignedSourceIDs.has(source.id))
   const mobileTitle = activeView === 'sources'
     ? '信息源'
     : activeSourceName || (
@@ -265,34 +273,57 @@ export function App() {
           <a className={navItemClass(activeView === 'annotations')} href="#annotations" onClick={() => showStream('annotations')}><NavIcon name="book" />阅读笔记</a>
         </nav>
 
-        <section className="mt-[22px] px-[7px] folder-section" aria-labelledby="folder-label">
+        <section className="mt-[22px] flex min-h-0 flex-1 flex-col px-[7px]" aria-labelledby="source-tree-label">
           <div className="mb-2 flex items-center justify-between text-[10px] text-[#9a978d]">
-            <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" id="folder-label">文件夹</p>
-            <span>{folders.length}</span>
-          </div>
-          {folders.length === 0 && <p className="px-2 py-1 text-xs text-muted-foreground">尚未创建文件夹</p>}
-          <div className="grid gap-0.5">
-            {folders.map((folder) => (
-              <div className="grid min-h-[29px] grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-[5px] px-[7px] text-[11px] text-[#68655d]" key={folder.id}>
-                <ChevronDown className="size-3.5" aria-hidden="true" />
-                <strong>{folder.name}</strong>
-                <span>{folder.source_count}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="mt-[22px] px-[7px] flex min-h-0 flex-1 flex-col" aria-labelledby="subscription-label">
-          <div className="mb-2 flex items-center justify-between text-[10px] text-[#9a978d]">
-            <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" id="subscription-label">订阅源</p>
+            <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" id="source-tree-label">订阅</p>
             <span>{sources.length}</span>
           </div>
-          {loading && <p className="border-0 bg-transparent text-left">正在同步信息源…</p>}
-          {!loading && loadError && <Button unstyled className="border-0 bg-transparent text-left text-destructive" onClick={() => void load()}>重试加载</Button>}
+          {loading && <p className="border-0 bg-transparent px-2 py-1 text-left text-xs text-muted-foreground">正在同步信息源…</p>}
+          {!loading && loadError && <Button unstyled className="border-0 bg-transparent px-2 py-1 text-left text-xs text-destructive" onClick={() => void load()}>重试加载</Button>}
           <div className="min-h-0 overflow-y-auto">
-            {sources.map((source) => (
+            {folders.map((folder) => (
+              <div key={folder.id}>
+                <Button
+                  unstyled
+                  className="flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  aria-label={`${folder.name}，${folder.source_count} 个订阅源`}
+                  aria-expanded={expandedFolders.has(folder.id)}
+                  onClick={() => setExpandedFolders((current) => {
+                    const next = new Set(current)
+                    if (next.has(folder.id)) next.delete(folder.id)
+                    else next.add(folder.id)
+                    return next
+                  })}
+                >
+                  <ChevronDown className={cn('size-4 shrink-0 transition-transform', !expandedFolders.has(folder.id) && '-rotate-90')} aria-hidden="true" />
+                  <FolderClosed className="size-4 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate text-left">{folder.name}</span>
+                  <span className="text-xs font-normal text-muted-foreground">{folder.source_count}</span>
+                </Button>
+                {expandedFolders.has(folder.id) && (
+                  <div className="ml-4 border-l pl-2">
+                    {folder.source_ids.map((sourceID) => {
+                      const source = sources.find((candidate) => candidate.id === sourceID)
+                      if (!source) return null
+                      return (
+                        <Button
+                          unstyled
+                          className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full min-h-8 py-1 text-xs')}
+                          key={`${folder.id}-${source.id}`}
+                          onClick={() => showStream('inbox', source.id)}
+                        >
+                          <span className={cn('size-2 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
+                          <span className="truncate">{source.name}</span>
+                        </Button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+            {rootSources.map((source) => (
               <Button unstyled
-                className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full')}
+                className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full min-h-8 py-1 text-xs')}
                 key={source.id}
                 onClick={() => showStream('inbox', source.id)}
               >

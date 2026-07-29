@@ -23,14 +23,15 @@ func TestOrganizationStoreFoldersAndViews(t *testing.T) {
 		t.Fatalf("AddSourceToFolder() error = %v", err)
 	}
 	folders, err := store.ListFolders(ctx)
-	if err != nil || len(folders) != 1 || folders[0].SourceCount != 1 {
+	if err != nil || len(folders) != 1 || folders[0].SourceCount != 1 ||
+		len(folders[0].SourceIDs) != 1 || folders[0].SourceIDs[0] != string(src.ID) {
 		t.Fatalf("ListFolders() = %+v, %v", folders, err)
 	}
 	if err := sourceStore.Archive(ctx, src.ID); err != nil {
 		t.Fatalf("Archive() error = %v", err)
 	}
 	folders, err = store.ListFolders(ctx)
-	if err != nil || len(folders) != 1 || folders[0].SourceCount != 0 {
+	if err != nil || len(folders) != 1 || folders[0].SourceCount != 0 || len(folders[0].SourceIDs) != 0 {
 		t.Fatalf("ListFolders() after archive = %+v, %v", folders, err)
 	}
 	if err := store.RemoveSourceFromFolder(ctx, folder.ID, src.ID); err != nil {

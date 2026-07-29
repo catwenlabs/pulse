@@ -31,6 +31,7 @@ export interface Folder {
   id: string
   name: string
   source_count: number
+  source_ids: string[]
 }
 
 export interface CreateSourceInput {

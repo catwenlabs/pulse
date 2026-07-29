@@ -29,8 +29,8 @@ func (store *OrganizationStore) CreateFolder(ctx context.Context, name string) (
 	err := store.pool.QueryRow(ctx, `
 		INSERT INTO folders (name)
 		VALUES ($1)
-		RETURNING id, name, 0
-	`, name).Scan(&folder.ID, &folder.Name, &folder.SourceCount)
+		RETURNING id, name, 0, ARRAY[]::text[]
+	`, name).Scan(&folder.ID, &folder.Name, &folder.SourceCount, &folder.SourceIDs)
 	if err != nil {
 		return organization.Folder{}, fmt.Errorf("create folder: %w", err)
 	}
@@ -39,7 +39,15 @@ func (store *OrganizationStore) CreateFolder(ctx context.Context, name string) (
 
 func (store *OrganizationStore) ListFolders(ctx context.Context) ([]organization.Folder, error) {
 	rows, err := store.pool.Query(ctx, `
-		SELECT folder.id, folder.name, count(source.id)::integer
+		SELECT
+			folder.id,
+			folder.name,
+			count(source.id)::integer,
+			COALESCE(
+				array_agg(source.id::text ORDER BY lower(source.name), source.id)
+					FILTER (WHERE source.id IS NOT NULL),
+				ARRAY[]::text[]
+			)
 		FROM folders AS folder
 		LEFT JOIN source_folders ON source_folders.folder_id = folder.id
 		LEFT JOIN sources AS source
@@ -55,7 +63,7 @@ func (store *OrganizationStore) ListFolders(ctx context.Context) ([]organization
 	var result []organization.Folder
 	for rows.Next() {
 		var folder organization.Folder
-		if err := rows.Scan(&folder.ID, &folder.Name, &folder.SourceCount); err != nil {
+		if err := rows.Scan(&folder.ID, &folder.Name, &folder.SourceCount, &folder.SourceIDs); err != nil {
 			return nil, fmt.Errorf("scan folder: %w", err)
 		}
 		result = append(result, folder)
