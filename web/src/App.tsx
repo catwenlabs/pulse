@@ -1141,7 +1141,7 @@ function Reader({
             >
               <Button unstyled
                 className={cn(
-                  'grid min-h-12 w-full cursor-pointer grid-cols-[8px_minmax(110px,15%)_minmax(220px,31%)_minmax(180px,1fr)_54px_16px] items-center gap-2 border-0 bg-background px-3 text-left hover:bg-muted/60',
+                  'grid min-h-12 w-full cursor-pointer grid-cols-[8px_minmax(110px,15%)_minmax(220px,1fr)_54px_16px] items-center gap-2 border-0 bg-background px-3 text-left hover:bg-muted/60',
                   'max-md:min-h-16 max-md:grid-cols-[8px_minmax(0,1fr)_48px_14px] max-md:grid-rows-[auto_auto] max-md:gap-x-2 max-md:gap-y-0.5 max-md:px-3 max-md:py-2',
                   item.read_at && 'text-muted-foreground [&_strong]:font-normal',
                 )}
@@ -1151,7 +1151,6 @@ function Reader({
                 <span className={cn('size-1.5 rounded-full bg-primary max-md:row-span-2', item.read_at && 'border border-muted-foreground bg-transparent')} aria-hidden="true" />
                 <span className="text-xs font-[550] text-[#66717d] max-md:col-start-2 max-md:row-start-1 max-md:text-[11px]">{sourceNames[item.source_id] || item.author || '未知来源'}</span>
                 <strong>{item.display_title || item.source_title || '无标题'}</strong>
-                <span className="text-xs text-[#88919b] max-md:hidden">{htmlToText(item.summary || item.content_html || '') || '没有摘要'}</span>
                 <time dateTime={item.discovered_at}>{compactTime(item.discovered_at)}</time>
                 <span className={cn('text-muted-foreground transition-transform max-md:col-start-4 max-md:row-span-2 max-md:self-center', selected?.id === item.id && 'rotate-180')} aria-hidden="true">⌄</span>
               </Button>
@@ -1244,15 +1243,6 @@ function compactTime(value: string): string {
     return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(date)
   }
   return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(date)
-}
-
-function htmlToText(value: string): string {
-  return value
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
 }
 
 function sanitizeEntryHTML(value: string, baseURL?: string): string {
