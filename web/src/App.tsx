@@ -8,11 +8,20 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from './components/ui/input'
 import { Select } from './components/ui/select'
 import { Textarea } from './components/ui/textarea'
+import { cn } from './lib/utils'
 import './styles.css'
 
 type Notice = { tone: 'success' | 'error'; message: string }
 type View = 'sources' | 'inbox' | 'starred' | 'later' | 'annotations'
 type SaveRequest = { url: string; title: string }
+
+function navItemClass(active: boolean, className?: string) {
+  return cn(
+    'flex min-h-9 items-center gap-3 rounded-md px-3 text-sm font-medium text-muted-foreground no-underline transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+    active && 'bg-sidebar-accent text-sidebar-accent-foreground',
+    className,
+  )
+}
 
 export function App() {
   const [sources, setSources] = useState<Source[]>([])
@@ -187,7 +196,7 @@ export function App() {
         else closeMobileNavigation()
       }}
     >
-    <div className="app-shell">
+    <div className="grid h-dvh min-h-0 grid-cols-[264px_minmax(0,1fr)] overflow-hidden max-md:block max-md:w-full">
       <SheetContent
         persistent={!isMobile}
         onOpenAutoFocus={(event) => {
@@ -200,20 +209,20 @@ export function App() {
         }}
       >
       <aside
-        className="sidebar"
+        className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r bg-sidebar px-3 py-4 text-sidebar-foreground transition-transform md:translate-x-0 max-md:w-[min(86vw,20rem)] max-md:-translate-x-full max-md:shadow-xl data-[state=open]:translate-x-0"
         id="mobile-navigation"
         role="navigation"
         aria-label="移动导航抽屉"
         aria-hidden={isMobile ? !mobileNavigationOpen : undefined}
         inert={isMobile && !mobileNavigationOpen ? true : undefined}
       >
-        <div className="sidebar-brand-row">
-          <a className="brand" href="/" aria-label="Pulse 首页" onClick={() => showStream('inbox')}>
-            <span className="brand-mark" aria-hidden="true">P</span>
+        <div className="flex items-center justify-between px-1.5 pb-[18px] max-md:px-1">
+          <a className="flex items-center gap-2.5 font-serif text-[23px] font-semibold text-foreground no-underline" href="/" aria-label="Pulse 首页" onClick={() => showStream('inbox')}>
+            <span className="grid size-[34px] place-items-center rounded-[10px_10px_10px_3px] bg-primary font-sans text-lg font-bold text-white" aria-hidden="true">P</span>
             <span>Pulse</span>
           </a>
-          <div className="sidebar-header-actions">
-            <Button unstyled className="sidebar-add" aria-label="添加信息源" onClick={() => {
+          <div className="flex items-center gap-1.5">
+            <Button unstyled className="grid size-[31px] cursor-pointer place-items-center rounded-[7px] border-0 bg-primary text-lg text-white hover:bg-primary-hover" aria-label="添加信息源" onClick={() => {
               closeMobileNavigation(false)
               setShowCreate(true)
             }}>
@@ -221,7 +230,7 @@ export function App() {
             </Button>
             {isMobile && (
               <Button unstyled
-                className="sidebar-dismiss"
+                className="hidden size-[34px] cursor-pointer place-items-center rounded-lg border-0 bg-white/50 p-0 text-2xl text-[#66635b] max-md:grid"
                 ref={mobileDrawerCloseRef}
                 aria-label="关闭导航"
                 onClick={() => closeMobileNavigation()}
@@ -232,22 +241,22 @@ export function App() {
           </div>
         </div>
 
-        <nav className="main-nav" aria-label="主导航">
-          <a className={activeView === 'inbox' && !selectedSourceID ? 'active' : ''} href="#inbox" onClick={() => showStream('inbox')}><NavIcon name="inbox" />全部文章</a>
-          <a className={activeView === 'starred' ? 'active' : ''} href="#starred" onClick={() => showStream('starred')}><NavIcon name="star" />收藏</a>
-          <a className={activeView === 'later' ? 'active' : ''} href="#later" onClick={() => showStream('later')}><NavIcon name="clock" />稍后阅读</a>
-          <a className={activeView === 'annotations' ? 'active' : ''} href="#annotations" onClick={() => showStream('annotations')}><NavIcon name="book" />阅读笔记</a>
+        <nav className="grid gap-1 overflow-visible" aria-label="主导航">
+          <a className={navItemClass(activeView === 'inbox' && !selectedSourceID)} href="#inbox" onClick={() => showStream('inbox')}><NavIcon name="inbox" />全部文章</a>
+          <a className={navItemClass(activeView === 'starred')} href="#starred" onClick={() => showStream('starred')}><NavIcon name="star" />收藏</a>
+          <a className={navItemClass(activeView === 'later')} href="#later" onClick={() => showStream('later')}><NavIcon name="clock" />稍后阅读</a>
+          <a className={navItemClass(activeView === 'annotations')} href="#annotations" onClick={() => showStream('annotations')}><NavIcon name="book" />阅读笔记</a>
         </nav>
 
-        <section className="sidebar-section folder-section" aria-labelledby="folder-label">
-          <div className="sidebar-section-heading">
-            <p className="section-label" id="folder-label">文件夹</p>
+        <section className="mt-[22px] px-[7px] folder-section" aria-labelledby="folder-label">
+          <div className="mb-2 flex items-center justify-between text-[10px] text-[#9a978d]">
+            <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" id="folder-label">文件夹</p>
             <span>{folders.length}</span>
           </div>
-          {folders.length === 0 && <p className="empty-folder">尚未创建文件夹</p>}
-          <div className="folder-tree">
+          {folders.length === 0 && <p className="px-2 py-1 text-xs text-muted-foreground">尚未创建文件夹</p>}
+          <div className="grid gap-0.5">
             {folders.map((folder) => (
-              <div className="folder-row" key={folder.id}>
+              <div className="grid min-h-[29px] grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-[5px] px-[7px] text-[11px] text-[#68655d]" key={folder.id}>
                 <span aria-hidden="true">▾</span>
                 <strong>{folder.name}</strong>
                 <span>{folder.source_count}</span>
@@ -256,53 +265,56 @@ export function App() {
           </div>
         </section>
 
-        <section className="sidebar-section subscription-section" aria-labelledby="subscription-label">
-          <div className="sidebar-section-heading">
-            <p className="section-label" id="subscription-label">订阅源</p>
+        <section className="mt-[22px] px-[7px] flex min-h-0 flex-1 flex-col" aria-labelledby="subscription-label">
+          <div className="mb-2 flex items-center justify-between text-[10px] text-[#9a978d]">
+            <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" id="subscription-label">订阅源</p>
             <span>{sources.length}</span>
           </div>
-          {loading && <p className="sidebar-state">正在同步信息源…</p>}
-          {!loading && loadError && <Button unstyled className="sidebar-state error-state" onClick={() => void load()}>重试加载</Button>}
-          <div className="subscription-list">
+          {loading && <p className="border-0 bg-transparent text-left">正在同步信息源…</p>}
+          {!loading && loadError && <Button unstyled className="border-0 bg-transparent text-left text-destructive" onClick={() => void load()}>重试加载</Button>}
+          <div className="min-h-0 overflow-y-auto">
             {sources.map((source) => (
               <Button unstyled
-                className={selectedSourceID === source.id && activeView === 'inbox' ? 'active' : ''}
+                className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full')}
                 key={source.id}
                 onClick={() => showStream('inbox', source.id)}
               >
-                <span className={`subscription-dot ${source.enabled ? 'enabled' : ''}`} />
+                <span className={cn('size-2 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
                 <span>{source.name}</span>
               </Button>
             ))}
           </div>
         </section>
 
-        <div className="sidebar-footer">
+        <div className="mt-3 grid gap-2 border-t border-[#d8d4ca] px-[7px] pt-2.5 text-[10px] text-[#77746c]">
           <Button unstyled ref={bookmarkletButtonRef} onClick={() => {
             closeMobileNavigation(false)
             setShowBookmarklet(true)
           }}>
             <NavIcon name="bookmark" />安装保存书签
           </Button>
-          <Button unstyled className={activeView === 'sources' ? 'active' : ''} onClick={() => {
+          <Button unstyled className={navItemClass(activeView === 'sources', 'w-full')} onClick={() => {
             setActiveView('sources')
             closeMobileNavigation()
           }}>
             <NavIcon name="source" />管理信息源
           </Button>
-          <span><span className="status-dot" />本地服务已连接</span>
+          <span><span className="size-[7px] rounded-full bg-[#5d946c] shadow-[0_0_0_3px_rgba(93,148,108,.13)]" />本地服务已连接</span>
         </div>
       </aside>
       </SheetContent>
 
       <main
-        className={`main-content ${activeView === 'sources' ? 'source-main' : 'reader-main'}`}
+        className={cn(
+          'col-start-2 h-dvh min-w-0 overflow-y-auto bg-background md:px-8 md:py-7',
+          activeView !== 'sources' && 'overflow-hidden p-0 max-md:grid max-md:grid-rows-[auto_minmax(0,1fr)]',
+        )}
         inert={isMobile && mobileNavigationOpen ? true : undefined}
       >
         {isMobile && (
-          <header className="mobile-app-bar">
+          <header className="max-md:z-[7] max-md:grid max-md:min-h-[calc(52px+env(safe-area-inset-top))] max-md:grid-cols-[40px_minmax(0,1fr)] max-md:items-center max-md:gap-2 max-md:border-b max-md:bg-card/95 max-md:px-3.5 max-md:pt-[env(safe-area-inset-top)] max-md:backdrop-blur-xl">
             <Button unstyled
-              className="mobile-menu-button"
+              className="grid size-10 cursor-pointer content-center gap-1 rounded-lg border-0 bg-transparent px-[9px] text-foreground hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
               ref={mobileMenuButtonRef}
               aria-label="打开导航"
               aria-controls="mobile-navigation"
@@ -317,20 +329,23 @@ export function App() {
           </header>
         )}
         {notice && (
-          <div className={`notice ${notice.tone}`} role="status">
+          <div className={cn(
+            'fixed right-4 top-4 z-50 flex w-[min(26rem,calc(100vw-2rem))] items-center justify-between rounded-lg border bg-background px-4 py-3 text-sm shadow-lg',
+            notice.tone === 'success' ? 'border-emerald-200 text-emerald-700' : 'border-destructive/30 text-destructive',
+          )} role="status">
             {notice.message}
             <Button unstyled aria-label="关闭提示" onClick={() => setNotice(null)}>×</Button>
           </div>
         )}
         {activeView === 'sources' ? (
           <>
-        <header className="page-header">
+        <header className="mb-[38px] flex items-end justify-between gap-6 max-md:flex-col max-md:items-start">
           <div>
-            <p className="eyebrow">LIBRARY</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">LIBRARY</p>
             <h1>信息源</h1>
-            <p className="page-description">管理 Pulse 持续关注的 RSS、API、网页与推送来源。</p>
+            <p className="mb-0 mt-3 text-sm text-muted-foreground">管理 Pulse 持续关注的 RSS、API、网页与推送来源。</p>
           </div>
-          <div className="header-actions">
+          <div className="flex gap-2.5 max-md:w-full">
             <a className={buttonVariants({ variant: 'secondary', className: 'max-md:flex-1' })} href="/api/v1/opml/export">导出 OPML</a>
             <Button className="max-md:flex-1" onClick={() => setShowCreate(true)}>
               <span aria-hidden="true">＋</span> 添加信息源
@@ -338,47 +353,47 @@ export function App() {
           </div>
         </header>
 
-        <section className="source-panel" aria-labelledby="source-heading">
-          <div className="panel-heading">
+        <section className="overflow-hidden rounded-[13px] border bg-card shadow-[0_10px_30px_rgba(72,66,51,.04)] max-md:mx-4 max-md:mb-6" aria-labelledby="source-heading">
+          <div className="flex items-center justify-between border-b px-[22px] py-5">
             <div>
               <h2 id="source-heading">全部信息源</h2>
               <span>{sources.length} 个来源</span>
             </div>
-            <Button unstyled className="icon-button" aria-label="重新载入" onClick={() => void load()}>↻</Button>
+            <Button unstyled className="grid size-9 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="重新载入" onClick={() => void load()}>↻</Button>
           </div>
 
-          {loading && <div className="state-message">正在同步信息源…</div>}
+          {loading && <div className="grid min-h-[250px] place-items-center gap-[7px] text-center text-[13px] text-[#8b887f]">正在同步信息源…</div>}
           {!loading && loadError && (
-            <div className="state-message error-state">
+            <div className="grid min-h-[250px] place-items-center gap-[7px] text-center text-[13px] text-[#8b887f] text-destructive">
               <strong>暂时无法加载</strong>
               <span>{loadError}</span>
-              <Button unstyled className="text-button" onClick={() => void load()}>重试</Button>
+              <Button unstyled className="cursor-pointer border-0 bg-transparent text-primary-hover underline" onClick={() => void load()}>重试</Button>
             </div>
           )}
           {!loading && !loadError && sources.length === 0 && (
-            <div className="state-message">
+            <div className="grid min-h-[250px] place-items-center gap-[7px] text-center text-[13px] text-[#8b887f]">
               <strong>还没有信息源</strong>
               <span>添加一个 RSS Feed，开始构建你的阅读中枢。</span>
             </div>
           )}
           {!loading && !loadError && sources.length > 0 && (
-            <div className="source-list">
+            <div >
               {sources.map((source) => (
-                <article className="source-row" key={source.id}>
-                  <div className="source-avatar" aria-hidden="true">{source.name.slice(0, 1).toUpperCase()}</div>
-                  <div className="source-copy">
-                    <div className="source-title-line">
+                <article className="grid min-h-[78px] grid-cols-[42px_minmax(0,1fr)_auto_minmax(0,260px)_auto] items-center gap-3.5 border-b border-[#ebe8e0] px-5 py-[13px] last:border-b-0 hover:bg-[#f8f6f0] max-md:grid-cols-[42px_minmax(0,1fr)_auto]" key={source.id}>
+                  <div className="grid size-10 place-items-center rounded-[10px] bg-[#f3ded5] font-serif text-lg font-semibold text-[#a1482d]" aria-hidden="true">{source.name.slice(0, 1).toUpperCase()}</div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
                       <h3>{source.name}</h3>
-                      <span className="kind-badge">{source.kind.toUpperCase()}</span>
+                      <span className="rounded bg-[#eee6dd] px-1.5 py-0.5 text-[8px] font-bold tracking-[.08em] text-[#8b624f]">{source.kind.toUpperCase()}</span>
                     </div>
                     <p>{source.locator}</p>
                   </div>
-                  <div className="source-health">
-                    <span className={source.enabled ? 'health active' : 'health'} />
+                  <div className="flex items-center gap-[7px] text-[11px] text-[#77746c] max-md:hidden">
+                    <span className={cn('size-2 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
                     {source.enabled ? '已启用' : '已暂停'}
                   </div>
                   {health[source.id] && (
-                    <div className="source-diagnostics" aria-label={`${source.name} 抓取诊断`}>
+                    <div className="grid min-w-[180px] gap-0.5 text-[10px] text-[#77746c] max-md:hidden" aria-label={`${source.name} 抓取诊断`}>
                       <span>状态 {health[source.id].status}</span>
                       {health[source.id].last_requested_at && <span>最近 {formatTime(health[source.id].last_requested_at!)}</span>}
                       <span>{health[source.id].candidate_count} 候选 · {health[source.id].new_count} 新增 · {health[source.id].updated_count} 更新</span>
@@ -387,16 +402,16 @@ export function App() {
                       {health[source.id].last_error && <em>{health[source.id].last_error}</em>}
                     </div>
                   )}
-                  <div className="source-actions">
+                  <div className="flex items-center justify-end gap-[3px]">
                     <Button unstyled
-                      className="toggle-button"
+                      className="cursor-pointer border-0 bg-transparent text-[11px] text-primary-hover"
                       aria-label={`${source.enabled ? '暂停' : '恢复'} ${source.name}`}
                       onClick={() => void handleToggle(source)}
                     >
                       {source.enabled ? '暂停' : '恢复'}
                     </Button>
                     <Button unstyled
-                      className="refresh-button"
+                      className="size-[34px] rounded-[7px] hover:bg-[#eeeae2] hover:text-primary-hover disabled:cursor-not-allowed disabled:opacity-30"
                       aria-label={`刷新 ${source.name}`}
                       disabled={!source.enabled}
                       onClick={() => void handleRun(source)}
@@ -404,7 +419,7 @@ export function App() {
                       ↻
                     </Button>
                     <Button unstyled
-                      className="delete-source-button"
+                      className="min-h-[30px] cursor-pointer rounded-md border-0 bg-transparent px-[7px] text-[10px] text-[#9a3f2c] hover:bg-[#f3ded5]"
                       aria-label={`删除 ${source.name}`}
                       onClick={() => setSourceToDelete(source)}
                     >
@@ -555,12 +570,12 @@ function AnnotationsPage({
   }
 
   return (
-    <div className="annotations-page">
-      <header className="page-header annotation-header">
+    <div className="min-h-0 overflow-y-auto bg-[#f4f1ea] px-[clamp(24px,5vw,72px)] pb-[72px] pt-[42px] max-md:px-3.5 max-md:pb-10 max-md:pt-5">
+      <header className="mb-[38px] flex items-end justify-between gap-6 max-md:flex-col max-md:items-start mx-auto mb-7 max-md:gap-4">
         <div>
-          <p className="eyebrow">READING NOTES</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">READING NOTES</p>
           <h1>阅读笔记</h1>
-          <p className="page-description">集中保存 Apple Books、Kindle 和其他阅读器中的高亮与批注。</p>
+          <p className="mb-0 mt-3 text-sm text-muted-foreground">集中保存 Apple Books、Kindle 和其他阅读器中的高亮与批注。</p>
         </div>
         <Button onClick={() => setShowImport((current) => !current)}>
           {showImport ? '收起导入' : '导入批注'}
@@ -568,14 +583,14 @@ function AnnotationsPage({
       </header>
 
       {showImport && (
-        <section className="annotation-import" aria-labelledby="annotation-import-title">
+        <section className="mx-auto mb-7 grid max-w-[1040px] grid-cols-[minmax(180px,.7fr)_minmax(320px,1.3fr)] gap-8 rounded-[14px] border bg-white p-6 shadow-[0_10px_32px_rgba(51,46,36,.06)] max-md:grid-cols-1 max-md:gap-4 max-md:p-[18px]" aria-labelledby="annotation-import-title">
           <div>
-            <p className="eyebrow">NEW ANNOTATION</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">NEW ANNOTATION</p>
             <h2 id="annotation-import-title">添加一条阅读批注</h2>
             <p>第一版支持结构化手工导入；Apple Books 与 Kindle 批量格式将在取得真实导出样本后接入。</p>
           </div>
           <form onSubmit={(event) => void submit(event)}>
-            <div className="annotation-form-grid">
+            <div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
               <label>
                 <span>来源平台</span>
                 <Select value={form.provider} onChange={(event) => setForm({ ...form, provider: event.target.value })}>
@@ -619,7 +634,7 @@ function AnnotationsPage({
               <span>原始批注</span>
               <Textarea value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
             </label>
-            {importMessage && <p className="annotation-import-message" role="status">{importMessage}</p>}
+            {importMessage && <p className="m-0 text-xs text-[#41634a]" role="status">{importMessage}</p>}
             <Button type="submit" disabled={importing}>
               {importing ? '正在导入…' : '加入导入队列'}
             </Button>
@@ -627,19 +642,19 @@ function AnnotationsPage({
         </section>
       )}
 
-      {loading && <div className="reader-state">正在加载阅读笔记…</div>}
-      {!loading && error && <div className="reader-state">{error}</div>}
+      {loading && <div className="p-[30px] text-center text-xs text-muted-foreground">正在加载阅读笔记…</div>}
+      {!loading && error && <div className="p-[30px] text-center text-xs text-muted-foreground">{error}</div>}
       {!loading && !error && books.length === 0 && (
-        <div className="annotation-empty">
+        <div className="mx-auto grid max-w-[1040px] justify-items-center gap-[7px] rounded-[14px] border border-dashed border-[#d5d0c5] bg-white/50 px-6 py-16 text-muted-foreground">
           <strong>还没有阅读批注</strong>
           <span>导入第一条高亮后，Pulse 会按书籍自动整理。</span>
         </div>
       )}
       {!loading && !error && books.length > 0 && (
-        <section className="annotation-books" aria-label="书籍批注">
+        <section className="mx-auto grid max-w-[1040px] gap-[18px]" aria-label="书籍批注">
           {books.map(({ detail, entries: bookEntries }) => (
-            <article className="annotation-book" key={annotationBookKey(detail)}>
-              <div className="annotation-book-heading">
+            <article className="rounded-[14px] border bg-white p-6 shadow-[0_8px_28px_rgba(51,46,36,.05)] max-md:p-[18px]" key={annotationBookKey(detail)}>
+              <div className="flex items-start justify-between gap-5 border-b border-[#ece8df] pb-[18px]">
                 <div>
                   <span>{detail.provider === 'apple-books' ? 'APPLE BOOKS' : detail.provider.toUpperCase()}</span>
                   <h2>{detail.book_title}</h2>
@@ -647,7 +662,7 @@ function AnnotationsPage({
                 </div>
                 <strong>{bookEntries.length} 条批注</strong>
               </div>
-              <div className="annotation-highlights">
+              <div className="grid gap-3 pt-[18px]">
                 {(expandedBooks.has(annotationBookKey(detail)) ? bookEntries : bookEntries.slice(0, 3)).map((item) => (
                   <blockquote key={item.id}>
                     <p>{item.summary}</p>
@@ -657,7 +672,7 @@ function AnnotationsPage({
                 ))}
                 {bookEntries.length > 3 && (
                   <Button unstyled
-                    className="annotation-expand"
+                    className="justify-self-start rounded-[7px] border border-[#ddd7cb] bg-white px-2.5 py-[7px] text-[11px] text-[#625d53] hover:border-[#c9c1b2] hover:bg-[#f8f5ef]"
                     onClick={() => setExpandedBooks((current) => {
                       const next = new Set(current)
                       const key = annotationBookKey(detail)
@@ -793,12 +808,12 @@ function SavePage({
   }
 
   return (
-    <main className="save-page">
-      <section className="save-card" aria-labelledby="save-page-title">
-        <div className="save-brand"><span className="brand-mark" aria-hidden="true">P</span>Pulse</div>
-        <p className="eyebrow">READ LATER</p>
+    <main className="grid min-h-dvh w-full place-items-center overflow-y-auto bg-[radial-gradient(circle_at_top,#fff_0,#f3f1eb_58%)] p-6 max-md:place-items-start max-md:p-3">
+      <section className="w-[min(520px,100%)] rounded-2xl border border-input bg-card p-[34px] shadow-[0_22px_70px_rgba(48,43,34,.12)] max-md:min-h-[calc(100dvh-24px)] max-md:rounded-xl max-md:px-[18px] max-md:py-6" aria-labelledby="save-page-title">
+        <div className="mb-[30px] flex items-center gap-[9px] font-serif text-xl font-semibold max-md:mb-6"><span className="grid size-[34px] place-items-center rounded-[10px_10px_10px_3px] bg-primary font-sans text-lg font-bold text-white" aria-hidden="true">P</span>Pulse</div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">READ LATER</p>
         <h1 id="save-page-title">保存到 Pulse</h1>
-        <p className="save-description">确认网页信息后，将它加入你的阅读列表。</p>
+        <p className="mb-[25px] mt-[9px] text-[13px] leading-relaxed text-muted-foreground">确认网页信息后，将它加入你的阅读列表。</p>
         <form onSubmit={(event) => void submit(event)}>
           <label>
             <span>网页地址</span>
@@ -827,17 +842,17 @@ function SavePage({
               </Select>
             </label>
           )}
-          {loading && <p className="save-help">正在加载 Manual Source…</p>}
-          {!loading && loadError && <p className="form-error" role="alert">{loadError}</p>}
+          {loading && <p className="m-0 text-xs text-muted-foreground">正在加载 Manual Source…</p>}
+          {!loading && loadError && <p className="m-0 text-xs" role="alert">{loadError}</p>}
           {!loading && !loadError && manualSources.length === 0 && (
-            <div className="save-empty-source">
+            <div className="grid gap-1 rounded-lg bg-[#f1ede5] p-[13px] text-xs leading-normal text-[#6d6257]">
               <strong>还没有 Manual Source</strong>
               <span>Pulse 会在你确认后创建“网页收藏”，不会创建隐藏 Source。</span>
             </div>
           )}
-          {error && <p className="form-error" role="alert">{error}</p>}
-          {success && <p className="save-success" role="status">{success}</p>}
-          <div className="dialog-actions">
+          {error && <p className="m-0 text-xs" role="alert">{error}</p>}
+          {success && <p className="m-0 rounded-lg bg-[#e3efe5] px-[13px] py-[11px] text-xs text-[#345d40]" role="status">{success}</p>}
+          <div className="mt-[7px] flex justify-end gap-[9px] max-md:flex-wrap">
             <Button variant="secondary" type="button" onClick={onClose}>关闭</Button>
             {manualSources.length > 0 ? (
               <Button type="submit" disabled={saving || loading}>
@@ -875,19 +890,19 @@ function BookmarkletDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="bookmarklet-dialog">
-        <DialogClose className="dialog-close" aria-label="关闭">×</DialogClose>
-        <p className="eyebrow">BOOKMARKLET</p>
+      <DialogContent className="w-[min(560px,100%)]">
+        <DialogClose className="absolute right-[17px] top-[15px] cursor-pointer border-0 bg-transparent text-2xl text-[#77736b]" aria-label="关闭">×</DialogClose>
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">BOOKMARKLET</p>
         <DialogTitle>安装“保存到 Pulse”</DialogTitle>
-        <DialogDescription className="dialog-description">新建一个浏览器书签，把下面整段代码粘贴到书签的地址栏。</DialogDescription>
-        <label className="bookmarklet-code">
+        <DialogDescription className="mb-[25px] mt-[9px] text-[13px] leading-normal text-muted-foreground">新建一个浏览器书签，把下面整段代码粘贴到书签的地址栏。</DialogDescription>
+        <label className="grid gap-[7px] text-xs font-semibold text-[#514f48]">
           <span>Bookmarklet 代码</span>
           <Textarea autoFocus readOnly value={bookmarklet} onFocus={(event) => event.currentTarget.select()} />
         </label>
-        <div className="bookmarklet-platforms">
+        <div className="mt-[18px] grid grid-cols-2 gap-3 max-md:grid-cols-1">
           <section>
             <h3>Mac Chrome</h3>
-            <ol className="bookmarklet-steps">
+            <ol className="m-0 grid gap-[7px] pl-5 text-xs leading-normal text-muted-foreground">
               <li>复制上面的完整代码。</li>
               <li>新建书签，名称填写“保存到 Pulse”。</li>
               <li>将代码粘贴到书签地址，然后在任意文章页点击它。</li>
@@ -895,7 +910,7 @@ function BookmarkletDialog({
           </section>
           <section>
             <h3>iPhone Chrome</h3>
-            <ol className="bookmarklet-steps">
+            <ol className="m-0 grid gap-[7px] pl-5 text-xs leading-normal text-muted-foreground">
               <li>先把任意网页添加到 Chrome 书签。</li>
               <li>长按刚创建的书签，选择“编辑”，名称改为“保存到 Pulse”。</li>
               <li>把 URL 替换为上面的完整代码并保存。</li>
@@ -903,7 +918,7 @@ function BookmarkletDialog({
             </ol>
           </section>
         </div>
-        <div className="dialog-actions">
+        <div className="mt-[7px] flex justify-end gap-[9px] max-md:flex-wrap">
           <Button onClick={onClose}>完成</Button>
         </div>
       </DialogContent>
@@ -944,17 +959,17 @@ function DeleteSourceDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && !deleting && onCancel()}>
       <DialogContent
-        className="delete-dialog"
+        className="w-[min(440px,100%)]"
         onEscapeKeyDown={(event) => deleting && event.preventDefault()}
         onPointerDownOutside={(event) => deleting && event.preventDefault()}
       >
-        <p className="eyebrow">ARCHIVE SOURCE</p>
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">ARCHIVE SOURCE</p>
         <DialogTitle>删除信息源？</DialogTitle>
-        <DialogDescription className="dialog-description">
+        <DialogDescription className="mb-[25px] mt-[9px] text-[13px] leading-normal text-muted-foreground">
           “{source.name}”将停止抓取并从订阅列表中移除。
         </DialogDescription>
-        <p className="delete-preservation">已经抓取的文章、收藏和笔记都会保留。</p>
-        <div className="dialog-actions">
+        <p className="-mt-2.5 mb-6 rounded-lg bg-[#f1ede5] px-[13px] py-3 text-xs leading-relaxed text-[#6d6257]">已经抓取的文章、收藏和笔记都会保留。</p>
+        <div className="mt-[7px] flex justify-end gap-[9px] max-md:flex-wrap">
           <Button variant="secondary" disabled={deleting} onClick={onCancel} autoFocus>取消删除</Button>
           <Button
             variant="destructive"
@@ -1083,26 +1098,26 @@ function Reader({
   const title = sourceName || (view === 'starred' ? '收藏' : view === 'later' ? '稍后阅读' : '全部文章')
   const sourceNames = Object.fromEntries(sources.map((source) => [source.id, source.name]))
   return (
-    <div className="reader-page">
-      <header className="reader-header">
-        <div className="reader-title" aria-hidden={mobile || undefined}>
+    <div className="relative grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden max-md:h-auto">
+      <header className="z-[3] flex min-h-[58px] items-center justify-between gap-6 border-b bg-white/95 py-2 pl-[18px] pr-3.5 shadow-[0_1px_3px_rgba(42,48,58,.04)] max-md:static max-md:min-h-[52px] max-md:px-3">
+        <div className="flex min-w-0 items-baseline gap-[9px] max-md:hidden" aria-hidden={mobile || undefined}>
           <h1>{title}</h1>
-          <span className="reader-count">{loading ? '正在更新…' : `${entries.length} 篇`}</span>
+          <span className="flex-none text-[10px] text-muted-foreground">{loading ? '正在更新…' : `${entries.length} 篇`}</span>
         </div>
-        <div className="reader-controls">
+        <div className="flex w-[min(680px,68%)] items-center justify-end gap-2.5 max-md:w-full max-md:justify-stretch">
           <Button unstyled
-            className="mark-all-read"
+            className="inline-flex h-9 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-lg border border-[#e3e6ea] bg-[#f5f7f9] px-[13px] text-[11px] font-[650] text-[#414b57] hover:border-[#d6dbe1] hover:bg-[#edf1f5] disabled:cursor-wait disabled:opacity-60 max-md:w-[38px] max-md:flex-[0_0_38px] max-md:px-0"
             disabled={markingAllRead}
             aria-label={sourceName ? `将 ${sourceName} 全部标记为已读` : '将全部文章标记为已读'}
             onClick={() => void markAllRead()}
           >
             <span aria-hidden="true">✓✓</span>
-            <span className="reader-action-label">{markingAllRead ? '正在标记…' : '全部标记为已读'}</span>
+            <span className="max-md:hidden">{markingAllRead ? '正在标记…' : '全部标记为已读'}</span>
           </Button>
-          <label className="reader-search">
+          <label className="w-[min(390px,55%)] max-md:w-auto max-md:flex-1">
             <span className="sr-only">搜索文章</span>
             <Input
-              className="reader-search-input h-8 border-0 bg-transparent px-0 focus-visible:ring-0"
+              className="w-full text-xs text-foreground h-8 border-0 bg-transparent px-0 focus-visible:ring-0"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="搜索文章"
@@ -1110,31 +1125,40 @@ function Reader({
           </label>
         </div>
       </header>
-      {readerNotice && <div className="reader-notice" role="status">{readerNotice}</div>}
-      <section className="entry-stream" aria-label="文章列表">
-          {loading && <p className="reader-state">正在加载文章…</p>}
-          {error && <p className="reader-state error-state">{error}</p>}
-          {!loading && !error && entries.length === 0 && <p className="reader-state">这里还没有文章。</p>}
+      {readerNotice && <div className="absolute right-4 top-[66px] z-[5] rounded-[7px] border border-[#dce1e5] bg-white/95 px-[11px] py-2 text-[10px] text-[#55606b] shadow-[0_8px_24px_rgba(45,51,60,.1)]" role="status">{readerNotice}</div>}
+      <section className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain border-0 bg-card shadow-none [scrollbar-gutter:stable] max-md:[-webkit-overflow-scrolling:touch] max-md:[scrollbar-gutter:auto]" aria-label="文章列表">
+          {loading && <p className="p-[30px] text-center text-xs text-muted-foreground">正在加载文章…</p>}
+          {error && <p className="p-[30px] text-center text-xs text-muted-foreground text-destructive">{error}</p>}
+          {!loading && !error && entries.length === 0 && <p className="p-[30px] text-center text-xs text-muted-foreground">这里还没有文章。</p>}
           {entries.map((item) => (
             <article
-              className={`stream-entry ${item.read_at ? 'read' : ''} ${selected?.id === item.id ? 'expanded' : ''}`}
+              data-entry-row={item.id}
+              className={cn(
+                'border-b last:border-b-0',
+                selected?.id === item.id && 'bg-background shadow-[inset_3px_0_hsl(var(--border))]',
+              )}
               key={item.id}
             >
               <Button unstyled
-                className="stream-entry-summary"
+                className={cn(
+                  'grid min-h-12 w-full cursor-pointer grid-cols-[8px_minmax(110px,15%)_minmax(220px,31%)_minmax(180px,1fr)_54px_16px] items-center gap-2 border-0 bg-background px-3 text-left hover:bg-muted/60',
+                  'max-md:min-h-16 max-md:grid-cols-[8px_minmax(0,1fr)_48px_14px] max-md:grid-rows-[auto_auto] max-md:gap-x-2 max-md:gap-y-0.5 max-md:px-3 max-md:py-2',
+                  item.read_at && 'text-muted-foreground [&_strong]:font-normal',
+                )}
                 aria-expanded={selected?.id === item.id}
                 onClick={(event) => toggleEntry(item, event.currentTarget.closest('article')!)}
               >
-                <span className="unread-dot" aria-hidden="true" />
-                <span className="stream-source">{sourceNames[item.source_id] || item.author || '未知来源'}</span>
+                <span className={cn('size-1.5 rounded-full bg-primary max-md:row-span-2', item.read_at && 'border border-muted-foreground bg-transparent')} aria-hidden="true" />
+                <span className="text-xs font-[550] text-[#66717d] max-md:col-start-2 max-md:row-start-1 max-md:text-[11px]">{sourceNames[item.source_id] || item.author || '未知来源'}</span>
                 <strong>{item.display_title || item.source_title || '无标题'}</strong>
-                <span className="stream-summary">{htmlToText(item.summary || item.content_html || '') || '没有摘要'}</span>
+                <span className="text-xs text-[#88919b] max-md:hidden">{htmlToText(item.summary || item.content_html || '') || '没有摘要'}</span>
                 <time dateTime={item.discovered_at}>{compactTime(item.discovered_at)}</time>
-                <span className="expand-chevron" aria-hidden="true">⌄</span>
+                <span className={cn('text-muted-foreground transition-transform max-md:col-start-4 max-md:row-span-2 max-md:self-center', selected?.id === item.id && 'rotate-180')} aria-hidden="true">⌄</span>
               </Button>
               {selected?.id === item.id && (
                 <div
-                  className="stream-entry-detail"
+                  data-entry-detail={item.id}
+                  className="min-h-[calc(100vh-100px)] border-t border-[#e8e9eb] bg-white px-[clamp(28px,8vw,120px)] pb-16 max-md:px-[18px] max-md:pb-[38px] max-md:pt-[18px]"
                   ref={(element) => {
                     if (!element || readingAreaToScroll.current !== item.id) return
                     readingAreaToScroll.current = ''
@@ -1143,16 +1167,16 @@ function Reader({
                     })
                   }}
                 >
-                  <div className="entry-reading-column">
-                    <div className="entry-detail-bar">
+                  <div className="mx-auto max-w-[820px]">
+                    <div className="mb-7 flex min-h-12 items-center justify-between border-b border-[#eeeae2] text-xs text-[#8c887f] max-md:mb-[22px]">
                       <span>{selected.author || sourceNames[selected.source_id] || '未知来源'}</span>
-                      <div className="entry-detail-actions">
+                      <div className="flex items-center gap-3">
                         {selected.canonical_url && (
                           <a href={selected.canonical_url} target="_blank" rel="noreferrer">查看原文 ↗</a>
                         )}
                         <DropdownMenu open={actionMenuOpen} onOpenChange={setActionMenuOpen}>
                           <DropdownMenuTrigger asChild>
-                            <Button unstyled className="entry-more-button" aria-label="更多操作">•••</Button>
+                            <Button unstyled className="h-7 w-8 cursor-pointer rounded-[5px] border-0 bg-transparent p-0 tracking-[1px] text-[#8b877e] hover:bg-[#f0ede7] hover:text-[#4f4c46]" aria-label="更多操作">•••</Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent>
                             <DropdownMenuItem onSelect={() => void patch(selected, { read: false })}>标记未读</DropdownMenuItem>
@@ -1179,7 +1203,7 @@ function Reader({
                         ),
                       }}
                     />
-                    {notesOpen && <div className="entry-notes">
+                    {notesOpen && <div className="mt-[38px] grid max-w-[720px] gap-3 border-t pt-6">
                       <label>
                         <span>显示标题</span>
                         <Input
@@ -1376,14 +1400,14 @@ function CreateSourceDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
-        <DialogClose className="dialog-close" aria-label="关闭">×</DialogClose>
-        <p className="eyebrow">NEW SOURCE</p>
+        <DialogClose className="absolute right-[17px] top-[15px] cursor-pointer border-0 bg-transparent text-2xl text-[#77736b]" aria-label="关闭">×</DialogClose>
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">NEW SOURCE</p>
         <DialogTitle>添加信息源</DialogTitle>
-        <div className="wizard-steps" aria-label="配置步骤">
-          <span className={!preview ? 'current' : 'complete'}>1 配置</span>
-          <span className={preview ? 'current' : ''}>2 预览并保存</span>
+        <div className="mt-3.5 flex gap-2 text-[10px] font-bold text-[#99958b]" aria-label="配置步骤">
+          <span className={cn('rounded-full bg-muted px-2.5 py-1 text-muted-foreground', !preview && 'bg-primary text-primary-foreground', preview && 'bg-emerald-100 text-emerald-700')}>1 配置</span>
+          <span className={cn('rounded-full bg-muted px-2.5 py-1 text-muted-foreground', preview && 'bg-primary text-primary-foreground')}>2 预览并保存</span>
         </div>
-        <DialogDescription className="dialog-description">先临时抓取并检查文章身份；确认前不会写入数据库。</DialogDescription>
+        <DialogDescription className="mb-[25px] mt-[9px] text-[13px] leading-normal text-muted-foreground">先临时抓取并检查文章身份；确认前不会写入数据库。</DialogDescription>
 
         <form onSubmit={(event) => void testSource(event)}>
           <label>
@@ -1433,12 +1457,12 @@ function CreateSourceDialog({
             />
           </label>
           {kind === 'json-api' && (
-            <div className="mapping-fields">
+            <div className="grid gap-3.5 rounded-[9px] border border-[#e0dcd3] bg-[#f6f3ed] p-[15px]">
               <label>
                 <span>列表路径</span>
                 <Input required value={itemsPath} onChange={(event) => setItemsPath(event.target.value)} placeholder="data.items" />
               </label>
-              <div className="field-grid">
+              <div className="grid grid-cols-3 gap-[9px] max-md:grid-cols-1">
                 <label>
                   <span>ID 字段</span>
                   <Input required value={idField} onChange={(event) => setIDField(event.target.value)} placeholder="id" />
@@ -1485,7 +1509,7 @@ function CreateSourceDialog({
             </div>
           )}
           {kind === 'html' && (
-            <div className="mapping-fields">
+            <div className="grid gap-3.5 rounded-[9px] border border-[#e0dcd3] bg-[#f6f3ed] p-[15px]">
               <label>
                 <span>页面模式</span>
                 <Select value={htmlMode} onChange={(event) => setHTMLMode(event.target.value)}>
@@ -1499,7 +1523,7 @@ function CreateSourceDialog({
                   <Input required value={itemSelector} onChange={(event) => setItemSelector(event.target.value)} placeholder="article.card" />
                 </label>
               )}
-              <div className="field-grid">
+              <div className="grid grid-cols-3 gap-[9px] max-md:grid-cols-1">
                 <label>
                   <span>标题选择器</span>
                   <Input required value={titleSelector} onChange={(event) => setTitleSelector(event.target.value)} placeholder="h2.title" />
@@ -1513,26 +1537,26 @@ function CreateSourceDialog({
                   <Input value={contentSelector} onChange={(event) => setContentSelector(event.target.value)} placeholder=".content" />
                 </label>
               </div>
-              <div className="selector-legend">
+              <div className="flex flex-wrap gap-1.5">
                 <span>条目 <code>{htmlMode === 'collection' ? itemSelector : 'document'}</code></span>
                 <span>标题 <code>{titleSelector}</code></span>
                 <span>链接 <code>{linkSelector}@href</code></span>
               </div>
             </div>
           )}
-          {error && <p className="form-error" role="alert">{error}</p>}
+          {error && <p className="m-0 text-xs" role="alert">{error}</p>}
           {preview && (
-            <div className="preview-panel">
-              <div className="preview-summary">
+            <div className="overflow-hidden rounded-[9px] border border-input bg-[#f7f5ef]">
+              <div className="flex justify-between border-b border-[#dfdcd3] px-3 py-[11px] text-[11px] text-success">
                 <strong>连接成功</strong>
                 <span>发现 {preview.candidates.length} 条预览内容</span>
               </div>
               {kind === 'html' && (
-                <div className="visual-preview-label">
+                <div className="bg-accent px-3 py-[7px] text-[9px] font-bold tracking-[.08em] text-[#8d887e]">
                   选择器提取预览
                 </div>
               )}
-              <div className="preview-list">
+              <div className="max-h-[230px] overflow-y-auto">
                 {preview.candidates.length === 0 && <p>Feed 当前没有可预览的文章。</p>}
                 {preview.candidates.map((candidate, index) => (
                   <article key={`${candidate.identity_key}-${index}`}>
@@ -1545,7 +1569,7 @@ function CreateSourceDialog({
               </div>
             </div>
           )}
-          <div className="dialog-actions">
+          <div className="mt-[7px] flex justify-end gap-[9px] max-md:flex-wrap">
             <Button variant="secondary" type="button" onClick={onClose}>取消</Button>
             {!preview && (
               <Button type="submit" disabled={testing}>
@@ -1579,7 +1603,7 @@ function NavIcon({ name }: { name: string }) {
     book: 'M4 5.5A3.5 3.5 0 0 1 7.5 2H12v18H7.5A3.5 3.5 0 0 0 4 23z M20 5.5A3.5 3.5 0 0 0 16.5 2H12v18h4.5A3.5 3.5 0 0 1 20 23z',
   }
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24">
+    <svg className="size-4 shrink-0 fill-none stroke-current [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:1.8]" aria-hidden="true" viewBox="0 0 24 24">
       <path d={paths[name]} />
     </svg>
   )

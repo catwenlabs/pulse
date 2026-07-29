@@ -293,7 +293,7 @@ describe('App', () => {
     fireEvent.click(screen.getByText('Reader article'))
     expect(screen.getByText('Article body')).toBeInTheDocument()
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
-    expect(scrollIntoView.mock.contexts.at(-1)).toHaveClass('stream-entry-detail')
+    expect(scrollIntoView.mock.contexts.at(-1)).toHaveAttribute('data-entry-detail', 'entry-1')
 
     await waitFor(() => {
       const patches = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
@@ -349,7 +349,7 @@ describe('App', () => {
     expect(screen.getByRole('button', { expanded: false })).toBeInTheDocument()
     expect(scrollIntoView).toHaveBeenCalledOnce()
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
-    expect(scrollIntoView.mock.contexts.at(-1)).toHaveClass('stream-entry')
+    expect(scrollIntoView.mock.contexts.at(-1)).toHaveAttribute('data-entry-row', 'entry-1')
   })
 
   it('filters the stream when a subscription is selected', async () => {

@@ -4,19 +4,19 @@ import { forwardRef, type ButtonHTMLAttributes } from 'react'
 import { cn } from '../../lib/utils'
 
 const buttonVariants = cva(
-  'inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-transparent px-4 text-[13px] font-semibold transition-[color,background-color,border-color,box-shadow,transform] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-55',
+  'inline-flex min-h-9 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-transparent px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground shadow-[0_4px_12px_rgba(176,66,34,.15)] hover:-translate-y-px hover:bg-primary-hover',
-        secondary: 'border-border bg-card text-muted-foreground hover:border-[#c6c1b5] hover:bg-accent',
-        destructive: 'bg-destructive text-white hover:bg-[#843120]',
+        default: 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90',
+        secondary: 'border-border bg-background text-foreground shadow-sm hover:bg-accent',
+        destructive: 'bg-destructive text-white shadow-sm hover:bg-destructive/90',
         ghost: 'bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
       },
       size: {
         default: 'h-10 px-4',
         icon: 'size-10 p-0',
-        sm: 'h-8 min-h-8 px-3 text-xs',
+        sm: 'h-8 min-h-8 rounded-md px-3 text-xs',
       },
     },
     defaultVariants: {
