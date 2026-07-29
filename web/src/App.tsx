@@ -1141,8 +1141,8 @@ function Reader({
             >
               <Button unstyled
                 className={cn(
-                  'grid min-h-12 w-full cursor-pointer grid-cols-[8px_minmax(110px,15%)_minmax(220px,1fr)_54px_16px] items-center gap-2 border-0 bg-background px-3 text-left hover:bg-muted/60',
-                  'max-md:min-h-16 max-md:grid-cols-[8px_minmax(0,1fr)_48px_14px] max-md:grid-rows-[auto_auto] max-md:gap-x-2 max-md:gap-y-0.5 max-md:px-3 max-md:py-2',
+                  'grid min-h-10 w-full cursor-pointer grid-cols-[8px_minmax(110px,15%)_minmax(220px,1fr)_54px_16px] items-center gap-2 border-0 bg-background px-3 text-left hover:bg-muted/60',
+                  'max-md:min-h-14 max-md:grid-cols-[8px_minmax(0,1fr)_48px_14px] max-md:grid-rows-[auto_auto] max-md:gap-x-2 max-md:gap-y-0 max-md:px-3 max-md:py-1',
                   item.read_at && 'text-muted-foreground [&_strong]:font-normal',
                 )}
                 aria-expanded={selected?.id === item.id}
