@@ -7,7 +7,7 @@
   --color-card: #fbfaf6;
   --color-card-foreground: #292821;
   --color-muted: #ebe8e0;
-  --color-muted-foreground: #79776e;
+  --color-muted-foreground: #66645c;
   --color-accent: #eeebe4;
   --color-accent-foreground: #ad4222;
   --color-primary: #cf5b35;
@@ -22,16 +22,17 @@
   --color-sidebar-foreground: #514f48;
   --color-sidebar-accent: #fbfaf6;
   --color-sidebar-accent-foreground: #ad4222;
-  --font-sans: Inter, "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: Inter, "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "SF Pro Text", "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "New York", "Songti SC", "STSong", "Noto Serif CJK SC", ui-serif, Georgia, serif;
 }
 
 @layer base {
   * { @apply box-border border-border; }
-  html { @apply bg-background text-foreground; }
-  body { @apply m-0 min-h-screen min-w-80 overflow-hidden bg-background font-sans text-foreground antialiased; }
+  html { @apply bg-background text-foreground; font-size: 16px; line-height: 1.5; }
+  body { @apply m-0 min-h-screen min-w-80 overflow-hidden bg-background font-sans text-base leading-6 text-foreground antialiased; }
   button, input, select, textarea { font: inherit; }
-  button, a { -webkit-tap-highlight-color: transparent; }
+  button, a { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  :focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
 }
 
 @layer components {
@@ -256,7 +257,7 @@
 
 /* External Entry HTML is the only intentionally selector-based content surface. */
 @layer components {
-  .entry-prose { @apply mt-[30px] break-words font-serif text-[19px] leading-[1.82] text-[#403e38] max-md:text-lg max-md:leading-[1.78]; }
+  .entry-prose { @apply mt-8 break-words font-serif text-[19px] leading-[1.75] text-[#403e38] max-md:text-lg max-md:leading-[1.72]; }
   .entry-prose > :first-child { margin-top: 0; }
   .entry-prose > :last-child { margin-bottom: 0; }
   .entry-prose p, .entry-prose ul, .entry-prose ol, .entry-prose blockquote, .entry-prose pre, .entry-prose table, .entry-prose figure { margin: 0 0 1.35em; }
@@ -272,10 +273,10 @@
   .entry-prose img { display: block; width: auto; max-width: 100%; height: auto; margin: 1.6em auto; border-radius: 8px; background: #f0eee8; box-shadow: 0 1px 0 rgba(57,51,40,.08); }
   .entry-prose figure { text-align: center; }
   .entry-prose figure img { margin-bottom: .65em; }
-  .entry-prose figcaption { color: #8a867c; font: 11px/1.55 var(--font-sans); text-align: center; }
-  .entry-prose pre { max-width: 100%; overflow-x: auto; padding: 15px 17px; border: 1px solid #dedbd2; border-radius: 8px; color: #34322d; background: #f3f1eb; font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .entry-prose figcaption { color: #737067; font: 13px/1.6 var(--font-sans); text-align: center; }
+  .entry-prose pre { max-width: 100%; overflow-x: auto; padding: 16px 18px; border: 1px solid #dedbd2; border-radius: 8px; color: #34322d; background: #f3f1eb; font: 14px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; }
   .entry-prose :not(pre) > code { padding: .12em .35em; border-radius: 4px; color: #8c3d26; background: #f0e9e3; font: .82em ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .entry-prose table { display: block; width: 100%; overflow-x: auto; border-collapse: collapse; font: 13px/1.55 var(--font-sans); }
+  .entry-prose table { display: block; width: 100%; overflow-x: auto; border-collapse: collapse; font: 14px/1.6 var(--font-sans); }
   .entry-prose th, .entry-prose td { padding: 9px 11px; border: 1px solid #ddd9cf; text-align: left; }
   .entry-prose th { background: #f2efe8; }
   .entry-prose hr { margin: 2.2em 0; border: 0; border-top: 1px solid var(--color-border); }
