@@ -1105,8 +1105,10 @@ function Reader({
           <span className="flex-none text-[10px] text-muted-foreground">{loading ? '正在更新…' : `${entries.length} 篇`}</span>
         </div>
         <div className="flex w-[min(680px,68%)] items-center justify-end gap-2.5 max-md:w-full max-md:justify-stretch">
-          <Button unstyled
-            className="inline-flex h-9 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-lg border border-[#e3e6ea] bg-[#f5f7f9] px-[13px] text-[11px] font-[650] text-[#414b57] hover:border-[#d6dbe1] hover:bg-[#edf1f5] disabled:cursor-wait disabled:opacity-60 max-md:w-[38px] max-md:flex-[0_0_38px] max-md:px-0"
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-9 shrink-0 border-border bg-background text-foreground shadow-sm max-md:size-9 max-md:px-0"
             disabled={markingAllRead}
             aria-label={sourceName ? `将 ${sourceName} 全部标记为已读` : '将全部文章标记为已读'}
             onClick={() => void markAllRead()}
@@ -1114,10 +1116,11 @@ function Reader({
             <span aria-hidden="true">✓✓</span>
             <span className="max-md:hidden">{markingAllRead ? '正在标记…' : '全部标记为已读'}</span>
           </Button>
-          <label className="w-[min(390px,55%)] max-md:w-auto max-md:flex-1">
+          <label className="relative w-[min(390px,55%)] max-md:w-auto max-md:flex-1">
             <span className="sr-only">搜索文章</span>
+            <span className="pointer-events-none absolute left-3 top-1/2 z-[1] -translate-y-1/2 text-sm text-muted-foreground" aria-hidden="true">⌕</span>
             <Input
-              className="w-full text-xs text-foreground h-8 border-0 bg-transparent px-0 focus-visible:ring-0"
+              className="h-9 w-full border-border bg-background pl-8 pr-3 text-sm text-foreground shadow-sm focus-visible:ring-2 focus-visible:ring-ring/20"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="搜索文章"
