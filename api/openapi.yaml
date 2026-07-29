@@ -67,17 +67,27 @@ paths:
         "404":
           $ref: "#/components/responses/Problem"
     patch:
-      operationId: setSourceEnabled
+      operationId: updateSource
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [enabled]
-              properties:
-                enabled:
-                  type: boolean
+              oneOf:
+                - type: object
+                  required: [enabled]
+                  additionalProperties: false
+                  properties:
+                    enabled:
+                      type: boolean
+                - type: object
+                  required: [name, locator]
+                  additionalProperties: false
+                  properties:
+                    name:
+                      type: string
+                    locator:
+                      type: string
       responses:
         "200":
           description: Updated source
@@ -229,6 +239,9 @@ paths:
             default: 0
         - name: q
           in: query
+          description: >
+            Full-text, substring, and typo-tolerant search across Entry titles,
+            authors, summaries, content, notes, annotations, and Source names.
           schema:
             type: string
         - name: state

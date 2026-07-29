@@ -41,6 +41,11 @@ export interface CreateSourceInput {
   config?: Record<string, unknown>
 }
 
+export interface UpdateSourceInput {
+  name: string
+  locator: string
+}
+
 export interface PreviewCandidate {
   external_id?: string
   url?: string
@@ -179,6 +184,14 @@ export function setSourceEnabled(sourceId: string, enabled: boolean): Promise<So
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ enabled }),
+  })
+}
+
+export function updateSource(sourceId: string, input: UpdateSourceInput): Promise<Source> {
+  return request<Source>(`/api/v1/sources/${sourceId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
   })
 }
 

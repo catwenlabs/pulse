@@ -9,6 +9,7 @@ import {
   previewSource,
   runSource,
   setSourceEnabled,
+  updateSource,
   updateEntry,
 } from './api'
 
@@ -23,6 +24,7 @@ describe('source API', () => {
       .mockResolvedValueOnce(new Response('{"id":"source-1"}', { status: 201 }))
       .mockResolvedValueOnce(new Response('{"id":"run-1","status":"pending"}', { status: 202 }))
       .mockResolvedValueOnce(new Response('{"id":"source-1","enabled":false}', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"id":"source-1","name":"Renamed"}', { status: 200 }))
       .mockResolvedValueOnce(new Response('{"candidates":[],"diagnostics":{"status":"ok"}}', { status: 200 }))
       .mockResolvedValueOnce(new Response('[]', { status: 200 }))
       .mockResolvedValueOnce(new Response('{"id":"entry-1"}', { status: 200 }))
@@ -32,6 +34,7 @@ describe('source API', () => {
     await createSource({ name: 'Feed', kind: 'rss', locator: 'https://example.com/feed' })
     await runSource('source-1')
     await setSourceEnabled('source-1', false)
+    await updateSource('source-1', { name: 'Renamed', locator: 'https://example.com/new' })
     await previewSource({ name: 'Feed', kind: 'rss', locator: 'https://example.com/feed' })
     await listEntries({ q: 'go', state: 'unread', sourceId: 'source-1', offset: 50 })
     await updateEntry('entry-1', { read: true })
@@ -47,13 +50,17 @@ describe('source API', () => {
       method: 'PATCH',
       body: '{"enabled":false}',
     }))
-    expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/sources/preview', expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/sources/source-1', expect.objectContaining({
+      method: 'PATCH',
+      body: '{"name":"Renamed","locator":"https://example.com/new"}',
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(6, '/api/v1/sources/preview', expect.objectContaining({
       method: 'POST',
     }))
-    expect(String(fetchMock.mock.calls[5][0])).toContain('q=go')
-    expect(String(fetchMock.mock.calls[5][0])).toContain('source_id=source-1')
-    expect(String(fetchMock.mock.calls[5][0])).toContain('offset=50')
-    expect(fetchMock).toHaveBeenNthCalledWith(7, '/api/v1/entries/entry-1', expect.objectContaining({
+    expect(String(fetchMock.mock.calls[6][0])).toContain('q=go')
+    expect(String(fetchMock.mock.calls[6][0])).toContain('source_id=source-1')
+    expect(String(fetchMock.mock.calls[6][0])).toContain('offset=50')
+    expect(fetchMock).toHaveBeenNthCalledWith(8, '/api/v1/entries/entry-1', expect.objectContaining({
       method: 'PATCH',
     }))
   })

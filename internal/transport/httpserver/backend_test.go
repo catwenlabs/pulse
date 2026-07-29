@@ -23,7 +23,10 @@ func (fakeSourceRepository) List(context.Context) ([]source.Source, error) {
 	return []source.Source{{ID: "listed"}}, nil
 }
 func (fakeSourceRepository) Get(_ context.Context, id source.ID) (source.Source, error) {
-	return source.Source{ID: id}, nil
+	return source.Source{ID: id, Kind: source.KindRSS, Locator: "https://example.com/old"}, nil
+}
+func (fakeSourceRepository) Update(_ context.Context, id source.ID, spec source.Spec) (source.Source, error) {
+	return source.Source{ID: id, Name: spec.Name, Kind: spec.Kind, Locator: spec.Locator}, nil
 }
 func (fakeSourceRepository) SetEnabled(_ context.Context, id source.ID, enabled bool) error {
 	return nil
@@ -141,6 +144,10 @@ func TestBackendForwardsOperations(t *testing.T) {
 	got, err := backend.GetSource(ctx, "source")
 	if err != nil || got.ID != "source" {
 		t.Fatalf("GetSource() = %+v, %v", got, err)
+	}
+	edited, err := backend.UpdateSource(ctx, "source", "Renamed", "https://example.com/new")
+	if err != nil || edited.Name != "Renamed" || edited.Locator != "https://example.com/new" {
+		t.Fatalf("UpdateSource() = %+v, %v", edited, err)
 	}
 	updated, err := backend.SetSourceEnabled(ctx, "source", false)
 	if err != nil || updated.ID != "source" || updated.Enabled {

@@ -82,6 +82,25 @@ func TestSourceStoreRejectsDuplicate(t *testing.T) {
 	}
 }
 
+func TestSourceStoreUpdate(t *testing.T) {
+	pool := testPool(t)
+	store := NewSourceStore(pool)
+	ctx := context.Background()
+	created := createTestSource(t, store, "before")
+
+	updated, err := store.Update(ctx, created.ID, source.Spec{
+		Name:    "After",
+		Kind:    created.Kind,
+		Locator: "https://example.com/after",
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if updated.Name != "After" || updated.Locator != "https://example.com/after" {
+		t.Errorf("Update() = %+v", updated)
+	}
+}
+
 func TestSourceStorePauseAndArchive(t *testing.T) {
 	pool := testPool(t)
 	store := NewSourceStore(pool)

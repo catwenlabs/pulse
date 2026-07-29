@@ -26,10 +26,11 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from './components/ui/input'
 import { Select } from './components/ui/select'
 import { Textarea } from './components/ui/textarea'
+import { Toaster } from './components/ui/sonner'
 import { cn } from './lib/utils'
+import { toast } from 'sonner'
 import './styles.css'
 
-type Notice = { tone: 'success' | 'error'; message: string }
 type View = 'sources' | 'inbox' | 'starred' | 'later' | 'annotations'
 type SaveRequest = { url: string; title: string }
 
@@ -49,8 +50,8 @@ export function App() {
   const [loadError, setLoadError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [sourceToDelete, setSourceToDelete] = useState<Source | null>(null)
+  const [sourceToEdit, setSourceToEdit] = useState<Source | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [notice, setNotice] = useState<Notice | null>(null)
   const [activeView, setActiveView] = useState<View>('inbox')
   const [selectedSourceID, setSelectedSourceID] = useState('')
   const [health, setHealth] = useState<Record<string, SourceHealth>>({})
@@ -110,18 +111,15 @@ export function App() {
     const created = await api.createSource(input)
     setSources((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)))
     setShowCreate(false)
-    setNotice({ tone: 'success', message: `已添加 ${created.name}` })
+    toast.success(`已添加 ${created.name}`, { duration: 3500 })
   }
 
   async function handleRun(source: Source) {
     try {
       await api.runSource(source.id)
-      setNotice({ tone: 'success', message: '抓取任务已进入队列' })
+      toast.success('抓取任务已进入队列', { duration: 3500 })
     } catch (error) {
-      setNotice({
-        tone: 'error',
-        message: error instanceof Error ? error.message : '无法创建抓取任务',
-      })
+      toast.error(error instanceof Error ? error.message : '无法创建抓取任务', { duration: 6000 })
     }
   }
 
@@ -129,16 +127,19 @@ export function App() {
     try {
       const updated = await api.setSourceEnabled(source.id, !source.enabled)
       setSources((current) => current.map((item) => item.id === updated.id ? updated : item))
-      setNotice({
-        tone: 'success',
-        message: updated.enabled ? `已恢复 ${updated.name}` : `已暂停 ${updated.name}`,
-      })
+      toast.success(updated.enabled ? `已恢复 ${updated.name}` : `已暂停 ${updated.name}`, { duration: 3500 })
     } catch (error) {
-      setNotice({
-        tone: 'error',
-        message: error instanceof Error ? error.message : '无法更新信息源',
-      })
+      toast.error(error instanceof Error ? error.message : '无法更新信息源', { duration: 6000 })
     }
+  }
+
+  async function handleEdit(source: Source, name: string, locator: string) {
+    const updated = await api.updateSource(source.id, { name, locator })
+    setSources((current) => current
+      .map((item) => item.id === updated.id ? updated : item)
+      .sort((a, b) => a.name.localeCompare(b.name)))
+    setSourceToEdit(null)
+    toast.success(`已更新 ${updated.name}`, { duration: 3500 })
   }
 
   async function handleArchive(source: Source) {
@@ -152,12 +153,9 @@ export function App() {
       setSelectedSourceID((current) => current === source.id ? '' : current)
       setFolders(await api.listFolders().catch(() => folders))
       setSourceToDelete(null)
-      setNotice({ tone: 'success', message: `已删除 ${source.name}` })
+      toast.success(`已删除 ${source.name}`, { duration: 3500 })
     } catch (error) {
-      setNotice({
-        tone: 'error',
-        message: error instanceof Error ? error.message : '无法删除信息源',
-      })
+      toast.error(error instanceof Error ? error.message : '无法删除信息源', { duration: 6000 })
     } finally {
       setDeleting(false)
     }
@@ -221,7 +219,8 @@ export function App() {
         else closeMobileNavigation()
       }}
     >
-    <div className="grid h-dvh min-h-0 grid-cols-[256px_minmax(0,1fr)] overflow-hidden max-md:block max-md:w-full">
+    <Toaster />
+    <div className="grid h-dvh min-h-0 grid-cols-[224px_minmax(0,1fr)] overflow-hidden max-md:block max-md:w-full">
       <SheetContent
         persistent={!isMobile}
         onOpenAutoFocus={(event) => {
@@ -234,7 +233,7 @@ export function App() {
         }}
       >
       <aside
-        className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r bg-sidebar px-3 py-5 text-sidebar-foreground transition-transform md:translate-x-0 max-md:w-[min(86vw,20rem)] max-md:-translate-x-full max-md:shadow-xl data-[state=open]:translate-x-0"
+        className="fixed inset-y-0 left-0 z-30 flex w-56 flex-col border-r bg-sidebar px-3 py-5 text-sidebar-foreground transition-transform md:translate-x-0 max-md:w-[min(86vw,20rem)] max-md:-translate-x-full max-md:shadow-xl data-[state=open]:translate-x-0"
         id="mobile-navigation"
         role="navigation"
         aria-label="移动导航抽屉"
@@ -310,10 +309,11 @@ export function App() {
                           unstyled
                           className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full py-1 text-sm')}
                           key={`${folder.id}-${source.id}`}
+                          title={source.name}
                           onClick={() => showStream('inbox', source.id)}
                         >
-                          <span className={cn('size-2 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
-                          <span className="truncate">{source.name}</span>
+                          <span className={cn('size-2 shrink-0 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
+                          <span className="min-w-0 flex-1 truncate text-left">{source.name}</span>
                         </Button>
                       )
                     })}
@@ -325,10 +325,11 @@ export function App() {
               <Button unstyled
                 className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full py-1 text-sm')}
                 key={source.id}
+                title={source.name}
                 onClick={() => showStream('inbox', source.id)}
               >
-                <span className={cn('size-2 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
-                <span>{source.name}</span>
+                <span className={cn('size-2 shrink-0 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
+                <span className="min-w-0 flex-1 truncate text-left">{source.name}</span>
               </Button>
             ))}
           </div>
@@ -356,6 +357,7 @@ export function App() {
         className={cn(
           'col-start-2 h-dvh min-w-0 overflow-y-auto bg-background p-0',
           activeView !== 'sources' && 'overflow-hidden max-md:grid max-md:grid-rows-[auto_minmax(0,1fr)]',
+          activeView === 'sources' && 'px-[clamp(24px,4vw,56px)] py-9 max-md:px-0 max-md:py-0',
         )}
         inert={isMobile && mobileNavigationOpen ? true : undefined}
       >
@@ -374,24 +376,15 @@ export function App() {
             <h1>{mobileTitle}</h1>
           </header>
         )}
-        {notice && (
-          <div className={cn(
-            'fixed right-4 top-4 z-50 flex w-[min(26rem,calc(100vw-2rem))] items-center justify-between rounded-lg border bg-background px-4 py-3 text-sm shadow-lg',
-            notice.tone === 'success' ? 'border-emerald-200 text-emerald-700' : 'border-destructive/30 text-destructive',
-          )} role="status">
-            {notice.message}
-            <Button unstyled aria-label="关闭提示" onClick={() => setNotice(null)}><X className="size-4" aria-hidden="true" /></Button>
-          </div>
-        )}
         {activeView === 'sources' ? (
           <>
-        <header className="mb-10 flex items-end justify-between gap-6 max-md:flex-col max-md:items-start">
+        <header className="mx-auto mb-8 flex w-full max-w-[1280px] items-end justify-between gap-6 max-md:mb-6 max-md:flex-col max-md:items-stretch max-md:px-4 max-md:pt-6">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">LIBRARY</p>
-            <h1>信息源</h1>
-            <p className="mb-0 mt-3 text-base leading-6 text-muted-foreground">管理 Pulse 持续关注的 RSS、API、网页与推送来源。</p>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-primary">LIBRARY</p>
+            <h1 className="m-0 font-serif text-4xl font-semibold tracking-tight text-foreground max-md:text-3xl">信息源</h1>
+            <p className="mb-0 mt-2 text-sm leading-6 text-muted-foreground">管理 Pulse 持续关注的 RSS、API、网页与推送来源。</p>
           </div>
-          <div className="flex gap-2.5 max-md:w-full">
+          <div className="flex shrink-0 gap-2.5 max-md:w-full">
             <a className={buttonVariants({ variant: 'secondary', className: 'max-md:flex-1' })} href="/api/v1/opml/export">导出 OPML</a>
             <Button className="max-md:flex-1" onClick={() => setShowCreate(true)}>
               <Plus className="size-4" aria-hidden="true" /> 添加信息源
@@ -399,13 +392,13 @@ export function App() {
           </div>
         </header>
 
-        <section className="overflow-hidden rounded-[13px] border bg-card shadow-[0_10px_30px_rgba(72,66,51,.04)] max-md:mx-4 max-md:mb-6" aria-labelledby="source-heading">
-          <div className="flex items-center justify-between border-b px-[22px] py-5">
+        <section className="mx-auto w-full max-w-[1280px] overflow-hidden rounded-xl border bg-card shadow-sm max-md:mb-6 max-md:w-[calc(100%-2rem)]" aria-labelledby="source-heading">
+          <div className="flex items-center justify-between border-b bg-muted/20 px-5 py-4">
             <div>
-              <h2 id="source-heading">全部信息源</h2>
-              <span>{sources.length} 个来源</span>
+              <h2 className="m-0 text-base font-semibold text-foreground" id="source-heading">全部信息源</h2>
+              <span className="mt-1 block text-xs text-muted-foreground">{sources.length} 个来源</span>
             </div>
-            <Button unstyled className="grid size-9 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="重新载入" onClick={() => void load()}><RefreshCw className="size-4" aria-hidden="true" /></Button>
+            <Button variant="ghost" size="icon" aria-label="重新载入" onClick={() => void load()}><RefreshCw className="size-4" aria-hidden="true" /></Button>
           </div>
 
           {loading && <div className="grid min-h-[250px] place-items-center gap-[7px] text-center text-[13px] text-[#8b887f]">正在同步信息源…</div>}
@@ -423,23 +416,23 @@ export function App() {
             </div>
           )}
           {!loading && !loadError && sources.length > 0 && (
-            <div >
+            <div>
               {sources.map((source) => (
-                <article className="grid min-h-[78px] grid-cols-[42px_minmax(0,1fr)_auto_minmax(0,260px)_auto] items-center gap-3.5 border-b border-[#ebe8e0] px-5 py-[13px] last:border-b-0 hover:bg-[#f8f6f0] max-md:grid-cols-[42px_minmax(0,1fr)_auto]" key={source.id}>
-                  <div className="grid size-10 place-items-center rounded-[10px] bg-[#f3ded5] font-serif text-lg font-semibold text-[#a1482d]" aria-hidden="true">{source.name.slice(0, 1).toUpperCase()}</div>
+                <article className="grid min-h-[88px] grid-cols-[42px_minmax(180px,1fr)_110px_minmax(180px,240px)_auto] items-center gap-4 border-b px-5 py-4 last:border-b-0 hover:bg-muted/25 max-lg:grid-cols-[42px_minmax(180px,1fr)_110px_auto] max-md:grid-cols-[40px_minmax(0,1fr)] max-md:gap-x-3 max-md:px-4" key={source.id}>
+                  <div className="grid size-10 place-items-center rounded-lg bg-primary/10 font-serif text-lg font-semibold text-primary" aria-hidden="true">{source.name.slice(0, 1).toUpperCase()}</div>
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3>{source.name}</h3>
-                      <span className="rounded bg-[#eee6dd] px-2 py-0.5 text-xs font-semibold tracking-wide text-[#8b624f]">{source.kind.toUpperCase()}</span>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <h3 className="m-0 truncate text-sm font-semibold text-foreground">{source.name}</h3>
+                      <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{source.kind}</span>
                     </div>
-                    <p>{source.locator}</p>
+                    <p className="mb-0 mt-1 truncate text-xs text-muted-foreground" title={source.locator}>{source.locator}</p>
                   </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground max-md:hidden">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground max-md:col-start-2 max-md:row-start-2">
                     <span className={cn('size-2 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
                     {source.enabled ? '已启用' : '已暂停'}
                   </div>
                   {health[source.id] && (
-                    <div className="grid min-w-[180px] gap-1 text-xs leading-5 text-muted-foreground max-md:hidden" aria-label={`${source.name} 抓取诊断`}>
+                    <div className="grid min-w-[180px] gap-0.5 text-[11px] leading-4 text-muted-foreground max-lg:hidden" aria-label={`${source.name} 抓取诊断`}>
                       <span>状态 {health[source.id].status}</span>
                       {health[source.id].last_requested_at && <span>最近 {formatTime(health[source.id].last_requested_at!)}</span>}
                       <span>{health[source.id].candidate_count} 候选 · {health[source.id].new_count} 新增 · {health[source.id].updated_count} 更新</span>
@@ -448,24 +441,28 @@ export function App() {
                       {health[source.id].last_error && <em>{health[source.id].last_error}</em>}
                     </div>
                   )}
-                  <div className="flex items-center justify-end gap-[3px]">
-                    <Button unstyled
-                      className="min-h-10 cursor-pointer rounded-md border-0 bg-transparent px-2 text-sm font-medium text-primary-hover hover:bg-accent"
+                  <div className="flex items-center justify-end gap-1 max-md:col-span-2 max-md:mt-1 max-md:justify-start">
+                    <Button variant="ghost" size="sm"
+                      aria-label={`编辑 ${source.name}`}
+                      onClick={() => setSourceToEdit(source)}
+                    >
+                      编辑
+                    </Button>
+                    <Button variant="ghost" size="sm"
                       aria-label={`${source.enabled ? '暂停' : '恢复'} ${source.name}`}
                       onClick={() => void handleToggle(source)}
                     >
                       {source.enabled ? '暂停' : '恢复'}
                     </Button>
-                    <Button unstyled
-                      className="size-10 rounded-lg hover:bg-[#eeeae2] hover:text-primary-hover disabled:cursor-not-allowed disabled:opacity-30"
+                    <Button variant="ghost" size="icon"
                       aria-label={`刷新 ${source.name}`}
                       disabled={!source.enabled}
                       onClick={() => void handleRun(source)}
                     >
                       <RefreshCw className="size-4" aria-hidden="true" />
                     </Button>
-                    <Button unstyled
-                      className="min-h-10 cursor-pointer rounded-md border-0 bg-transparent px-2 text-sm text-[#9a3f2c] hover:bg-[#f3ded5]"
+                    <Button variant="ghost" size="sm"
+                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                       aria-label={`删除 ${source.name}`}
                       onClick={() => setSourceToDelete(source)}
                     >
@@ -509,6 +506,13 @@ export function App() {
           deleting={deleting}
           onCancel={() => setSourceToDelete(null)}
           onConfirm={() => void handleArchive(sourceToDelete)}
+        />
+      )}
+      {sourceToEdit && (
+        <EditSourceDialog
+          source={sourceToEdit}
+          onClose={() => setSourceToEdit(null)}
+          onSave={(name, locator) => handleEdit(sourceToEdit, name, locator)}
         />
       )}
       {showBookmarklet && (
@@ -991,6 +995,75 @@ function useMediaQuery(query: string): boolean {
   return matches
 }
 
+function EditSourceDialog({
+  source,
+  onClose,
+  onSave,
+}: {
+  source: Source
+  onClose: () => void
+  onSave: (name: string, locator: string) => Promise<void>
+}) {
+  const [name, setName] = useState(source.name)
+  const [locator, setLocator] = useState(source.locator)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const locatorLabel = source.kind === 'rss'
+    ? 'Feed 地址'
+    : source.kind === 'json-api'
+      ? 'API 地址'
+      : source.kind === 'html'
+        ? '网页地址'
+        : '位置'
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setSaving(true)
+    setError('')
+    try {
+      await onSave(name.trim(), locator.trim())
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '更新信息源失败')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogClose className="absolute right-4 top-4 grid size-8 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="关闭">
+          <X className="size-4" aria-hidden="true" />
+        </DialogClose>
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">EDIT SOURCE</p>
+        <DialogTitle>编辑信息源</DialogTitle>
+        <DialogDescription className="mb-5 mt-2 text-sm leading-6 text-muted-foreground">
+          修改名称会立即更新文章列表中的来源显示。来源类型和高级配置保持不变。
+        </DialogDescription>
+        <form className="grid gap-4" onSubmit={(event) => void submit(event)}>
+          <label>
+            <span>名称</span>
+            <Input autoFocus required value={name} onChange={(event) => setName(event.target.value)} />
+          </label>
+          <label>
+            <span>{locatorLabel}</span>
+            <Input
+              required
+              type={source.kind === 'rss' || source.kind === 'json-api' || source.kind === 'html' ? 'url' : 'text'}
+              value={locator}
+              onChange={(event) => setLocator(event.target.value)}
+            />
+          </label>
+          {error && <p className="m-0 text-sm text-destructive" role="alert">{error}</p>}
+          <div className="mt-2 flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={onClose}>取消</Button>
+            <Button type="submit" disabled={saving}>{saving ? '保存中…' : '保存修改'}</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function DeleteSourceDialog({
   source,
   deleting,
@@ -1055,21 +1128,36 @@ function Reader({
   const [actionMenuOpen, setActionMenuOpen] = useState(false)
   const [notesOpen, setNotesOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
   const [error, setError] = useState('')
   const [markingAllRead, setMarkingAllRead] = useState(false)
   const [readerNotice, setReaderNotice] = useState('')
   const selectedEntryElement = useRef<HTMLElement | null>(null)
   const readingAreaToScroll = useRef('')
+  const pageSize = 50
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedSearch(search.trim()), 250)
+    return () => window.clearTimeout(timeout)
+  }, [search])
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError('')
     const state = view === 'inbox' ? 'inbox' : view
-    void api.listEntries({ q: search, state, sourceId: sourceID || undefined }).then((items) => {
+    void api.listEntries({
+      q: debouncedSearch,
+      state,
+      sourceId: sourceID || undefined,
+      limit: pageSize,
+    }).then((items) => {
       if (cancelled) return
       setEntries(items)
+      setHasMore(items.length === pageSize)
       setSelected((current) => items.find((item) => item.id === current?.id) ?? null)
     }).catch((cause: unknown) => {
       if (!cancelled) setError(cause instanceof Error ? cause.message : '加载文章失败')
@@ -1079,7 +1167,28 @@ function Reader({
     return () => {
       cancelled = true
     }
-  }, [search, sourceID, view])
+  }, [debouncedSearch, sourceID, view])
+
+  async function loadMore() {
+    setLoadingMore(true)
+    setError('')
+    try {
+      const state = view === 'inbox' ? 'inbox' : view
+      const items = await api.listEntries({
+        q: debouncedSearch,
+        state,
+        sourceId: sourceID || undefined,
+        limit: pageSize,
+        offset: entries.length,
+      })
+      setEntries((current) => [...current, ...items])
+      setHasMore(items.length === pageSize)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '加载更多文章失败')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   useEffect(() => {
     if (!selected) return
@@ -1198,8 +1307,12 @@ function Reader({
                 onClick={(event) => toggleEntry(item, event.currentTarget.closest('article')!)}
               >
                 <span className={cn('size-1.5 rounded-full bg-primary', item.read_at && 'border border-muted-foreground bg-transparent')} aria-hidden="true" />
-                <span className="truncate text-sm font-medium text-[#66717d] max-md:hidden">{sourceNames[item.source_id] || item.author || '未知来源'}</span>
-                <strong className="min-w-0 truncate text-base font-semibold leading-6 max-md:col-start-2">{item.display_title || item.source_title || '无标题'}</strong>
+                <span className="truncate text-sm font-medium text-[#66717d] max-md:hidden">
+                  <HighlightText text={sourceNames[item.source_id] || item.author || '未知来源'} query={debouncedSearch} />
+                </span>
+                <strong className="min-w-0 truncate text-base font-semibold leading-6 max-md:col-start-2">
+                  <HighlightText text={item.display_title || item.source_title || '无标题'} query={debouncedSearch} />
+                </strong>
                 <time className="text-right text-xs tabular-nums text-muted-foreground max-md:col-start-3" dateTime={item.discovered_at}>{compactTime(item.discovered_at)}</time>
                 <ChevronDown className={cn('size-4 text-muted-foreground transition-transform max-md:col-start-4', selected?.id === item.id && 'rotate-180')} aria-hidden="true" />
               </Button>
@@ -1280,8 +1393,29 @@ function Reader({
               )}
             </article>
           ))}
+          {!loading && !error && hasMore && (
+            <div className="flex justify-center border-t px-4 py-5">
+              <Button variant="secondary" disabled={loadingMore} onClick={() => void loadMore()}>
+                {loadingMore ? '正在加载…' : '加载更多'}
+              </Button>
+            </div>
+          )}
       </section>
     </div>
+  )
+}
+
+function HighlightText({ text, query }: { text: string; query: string }) {
+  if (!query) return text
+  const index = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase())
+  if (index < 0) return text
+  const end = index + query.length
+  return (
+    <>
+      {text.slice(0, index)}
+      <mark className="rounded-sm bg-amber-200/70 px-0.5 text-inherit">{text.slice(index, end)}</mark>
+      {text.slice(end)}
+    </>
   )
 }
 

@@ -42,21 +42,46 @@ func (store *EntryStore) Search(ctx context.Context, query entry.Query) ([]entry
 			entry.hidden_at, entry.later_at, entry.note,
 			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at'
 		FROM entries AS entry
+		JOIN sources AS source ON source.id = entry.source_id
 		LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entry.id
 		WHERE
-			($2 = '' OR to_tsvector(
-				'simple',
-				coalesce(display_title, '') || ' ' ||
-				coalesce(source_title, '') || ' ' ||
-				coalesce(author, '') || ' ' ||
-				coalesce(summary, '') || ' ' ||
-				coalesce(content_html, '') || ' ' ||
-				coalesce(note, '') || ' ' ||
-				coalesce(entry_annotation.book_title, '') || ' ' ||
-				coalesce(entry_annotation.book_author, '') || ' ' ||
-				coalesce(entry_annotation.chapter, '') || ' ' ||
-				coalesce(entry_annotation.annotation_note, '')
-			) @@ plainto_tsquery('simple', $2))
+			($2 = '' OR (
+				to_tsvector(
+					'simple',
+					coalesce(display_title, '') || ' ' ||
+					coalesce(source_title, '') || ' ' ||
+					coalesce(author, '') || ' ' ||
+					coalesce(summary, '') || ' ' ||
+					coalesce(content_html, '') || ' ' ||
+					coalesce(note, '') || ' ' ||
+					coalesce(source.name, '') || ' ' ||
+					coalesce(entry_annotation.book_title, '') || ' ' ||
+					coalesce(entry_annotation.book_author, '') || ' ' ||
+					coalesce(entry_annotation.chapter, '') || ' ' ||
+					coalesce(entry_annotation.annotation_note, '')
+				) @@ plainto_tsquery('simple', $2)
+				OR display_title ILIKE '%' || $2 || '%'
+				OR source_title ILIKE '%' || $2 || '%'
+				OR author ILIKE '%' || $2 || '%'
+				OR source.name ILIKE '%' || $2 || '%'
+				OR lower(
+					coalesce(summary, '') || ' ' ||
+					coalesce(content_html, '') || ' ' ||
+					coalesce(note, '') || ' ' ||
+					coalesce(entry_annotation.book_title, '') || ' ' ||
+					coalesce(entry_annotation.book_author, '') || ' ' ||
+					coalesce(entry_annotation.chapter, '') || ' ' ||
+					coalesce(entry_annotation.annotation_note, '')
+				) LIKE '%' || lower($2) || '%'
+				OR word_similarity(lower($2), lower(coalesce(display_title, ''))) >= 0.45
+				OR word_similarity(lower($2), lower(coalesce(source_title, ''))) >= 0.45
+				OR word_similarity(lower($2), lower(coalesce(author, ''))) >= 0.45
+				OR word_similarity(lower($2), lower(coalesce(source.name, ''))) >= 0.45
+				OR pulse_fuzzy_contains(coalesce(display_title, ''), $2)
+				OR pulse_fuzzy_contains(coalesce(source_title, ''), $2)
+				OR pulse_fuzzy_contains(coalesce(author, ''), $2)
+				OR pulse_fuzzy_contains(coalesce(source.name, ''), $2)
+			))
 			AND (
 				$3 = ''
 				OR ($3 = 'inbox' AND hidden_at IS NULL)

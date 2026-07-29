@@ -23,6 +23,7 @@ type fakeBackend struct {
 	createSource    func(context.Context, source.Spec) (source.Source, error)
 	listSources     func(context.Context) ([]source.Source, error)
 	getSource       func(context.Context, source.ID) (source.Source, error)
+	updateSource    func(context.Context, source.ID, string, string) (source.Source, error)
 	setEnabled      func(context.Context, source.ID, bool) (source.Source, error)
 	archiveSource   func(context.Context, source.ID) error
 	setSecret       func(context.Context, source.ID, string) error
@@ -56,6 +57,10 @@ func (fake fakeBackend) GetSource(ctx context.Context, id source.ID) (source.Sou
 
 func (fake fakeBackend) SetSourceEnabled(ctx context.Context, id source.ID, enabled bool) (source.Source, error) {
 	return fake.setEnabled(ctx, id, enabled)
+}
+
+func (fake fakeBackend) UpdateSource(ctx context.Context, id source.ID, name, locator string) (source.Source, error) {
+	return fake.updateSource(ctx, id, name, locator)
 }
 
 func (fake fakeBackend) ArchiveSource(ctx context.Context, id source.ID) error {
@@ -484,6 +489,26 @@ func TestSetSourceEnabled(t *testing.T) {
 		httptest.NewRequest(http.MethodPatch, "/api/v1/sources/source-42", bytes.NewBufferString(`{"enabled":false}`)),
 	)
 	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"enabled":false`)) {
+		t.Errorf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestUpdateSourceMetadata(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.updateSource = func(_ context.Context, id source.ID, name, locator string) (source.Source, error) {
+		if id != "source-42" || name != "Renamed" || locator != "https://example.com/new" {
+			t.Errorf("UpdateSource(%q, %q, %q)", id, name, locator)
+		}
+		return source.Source{ID: id, Name: name, Locator: locator}, nil
+	}
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodPatch, "/api/v1/sources/source-42", bytes.NewBufferString(
+			`{"name":"Renamed","locator":"https://example.com/new"}`,
+		)),
+	)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"name":"Renamed"`)) {
 		t.Errorf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
