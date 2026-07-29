@@ -18,9 +18,9 @@ export function DialogContent({
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-sm data-[state=closed]:animate-out data-[state=open]:animate-in">
         <DialogPrimitive.Content
           className={cn(
-            'relative max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-lg border bg-background p-6 text-foreground shadow-lg outline-none',
-            '[&_form]:grid [&_form]:gap-4 [&_label]:grid [&_label]:gap-2 [&_label]:text-sm [&_label]:font-medium',
-            '[&_[role=alert]]:text-destructive [&_h2]:text-xl [&_h2]:font-semibold',
+            'relative max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-xl border bg-background p-7 text-base leading-6 text-foreground shadow-lg outline-none max-md:p-5',
+            '[&_form]:grid [&_form]:gap-5 [&_label]:grid [&_label]:gap-2 [&_label]:text-sm [&_label]:font-semibold',
+            '[&_[role=alert]]:text-destructive [&_h2]:text-2xl [&_h2]:font-semibold [&_h2]:leading-tight',
             className,
           )}
           {...props}

@@ -35,7 +35,7 @@ type SaveRequest = { url: string; title: string }
 
 function navItemClass(active: boolean, className?: string) {
   return cn(
-    'flex min-h-9 items-center gap-3 rounded-md px-3 text-sm font-medium text-muted-foreground no-underline transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+    'flex min-h-10 items-center gap-3 rounded-lg px-3 text-sm font-medium leading-5 text-muted-foreground no-underline transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
     active && 'bg-sidebar-accent text-sidebar-accent-foreground',
     className,
   )
@@ -234,20 +234,20 @@ export function App() {
         }}
       >
       <aside
-        className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r bg-sidebar px-3 py-4 text-sidebar-foreground transition-transform md:translate-x-0 max-md:w-[min(86vw,20rem)] max-md:-translate-x-full max-md:shadow-xl data-[state=open]:translate-x-0"
+        className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r bg-sidebar px-3 py-5 text-sidebar-foreground transition-transform md:translate-x-0 max-md:w-[min(86vw,20rem)] max-md:-translate-x-full max-md:shadow-xl data-[state=open]:translate-x-0"
         id="mobile-navigation"
         role="navigation"
         aria-label="移动导航抽屉"
         aria-hidden={isMobile ? !mobileNavigationOpen : undefined}
         inert={isMobile && !mobileNavigationOpen ? true : undefined}
       >
-        <div className="flex items-center justify-between px-1.5 pb-[18px] max-md:px-1">
-          <a className="flex items-center gap-2.5 font-serif text-[23px] font-semibold text-foreground no-underline" href="/" aria-label="Pulse 首页" onClick={() => showStream('inbox')}>
-            <span className="grid size-[34px] place-items-center rounded-[10px_10px_10px_3px] bg-primary font-sans text-lg font-bold text-white" aria-hidden="true">P</span>
+        <div className="flex items-center justify-between px-1.5 pb-5 max-md:px-1">
+          <a className="flex items-center gap-3 font-serif text-2xl font-semibold leading-none text-foreground no-underline" href="/" aria-label="Pulse 首页" onClick={() => showStream('inbox')}>
+            <span className="grid size-10 place-items-center rounded-[12px_12px_12px_4px] bg-primary font-sans text-lg font-bold text-white" aria-hidden="true">P</span>
             <span>Pulse</span>
           </a>
           <div className="flex items-center gap-1.5">
-            <Button unstyled className="grid size-[31px] cursor-pointer place-items-center rounded-[7px] border-0 bg-primary text-lg text-white hover:bg-primary-hover" aria-label="添加信息源" onClick={() => {
+            <Button unstyled className="grid size-10 cursor-pointer place-items-center rounded-lg border-0 bg-primary text-lg text-white hover:bg-primary-hover" aria-label="添加信息源" onClick={() => {
               closeMobileNavigation(false)
               setShowCreate(true)
             }}>
@@ -255,7 +255,7 @@ export function App() {
             </Button>
             {isMobile && (
               <Button unstyled
-                className="hidden size-[34px] cursor-pointer place-items-center rounded-lg border-0 bg-white/50 p-0 text-2xl text-[#66635b] max-md:grid"
+                className="hidden size-10 cursor-pointer place-items-center rounded-lg border-0 bg-white/50 p-0 text-2xl text-[#66635b] max-md:grid"
                 ref={mobileDrawerCloseRef}
                 aria-label="关闭导航"
                 onClick={() => closeMobileNavigation()}
@@ -273,9 +273,9 @@ export function App() {
           <a className={navItemClass(activeView === 'annotations')} href="#annotations" onClick={() => showStream('annotations')}><NavIcon name="book" />阅读笔记</a>
         </nav>
 
-        <section className="mt-[22px] flex min-h-0 flex-1 flex-col px-[7px]" aria-labelledby="source-tree-label">
-          <div className="mb-2 flex items-center justify-between text-[10px] text-[#9a978d]">
-            <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" id="source-tree-label">订阅</p>
+        <section className="mt-6 flex min-h-0 flex-1 flex-col px-2" aria-labelledby="source-tree-label">
+          <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+            <p className="m-0 text-xs font-semibold uppercase tracking-wider text-muted-foreground" id="source-tree-label">订阅</p>
             <span>{sources.length}</span>
           </div>
           {loading && <p className="border-0 bg-transparent px-2 py-1 text-left text-xs text-muted-foreground">正在同步信息源…</p>}
@@ -308,7 +308,7 @@ export function App() {
                       return (
                         <Button
                           unstyled
-                          className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full min-h-8 py-1 text-xs')}
+                          className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full py-1 text-sm')}
                           key={`${folder.id}-${source.id}`}
                           onClick={() => showStream('inbox', source.id)}
                         >
@@ -323,7 +323,7 @@ export function App() {
             ))}
             {rootSources.map((source) => (
               <Button unstyled
-                className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full min-h-8 py-1 text-xs')}
+                className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full py-1 text-sm')}
                 key={source.id}
                 onClick={() => showStream('inbox', source.id)}
               >
@@ -334,7 +334,7 @@ export function App() {
           </div>
         </section>
 
-        <div className="mt-3 grid gap-2 border-t border-[#d8d4ca] px-[7px] pt-2.5 text-[10px] text-[#77746c]">
+        <div className="mt-4 grid gap-2 border-t border-[#d8d4ca] px-2 pt-3 text-xs leading-5 text-muted-foreground">
           <Button unstyled className={navItemClass(false, 'w-full')} ref={bookmarkletButtonRef} onClick={() => {
             closeMobileNavigation(false)
             setShowBookmarklet(true)
@@ -385,11 +385,11 @@ export function App() {
         )}
         {activeView === 'sources' ? (
           <>
-        <header className="mb-[38px] flex items-end justify-between gap-6 max-md:flex-col max-md:items-start">
+        <header className="mb-10 flex items-end justify-between gap-6 max-md:flex-col max-md:items-start">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">LIBRARY</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">LIBRARY</p>
             <h1>信息源</h1>
-            <p className="mb-0 mt-3 text-sm text-muted-foreground">管理 Pulse 持续关注的 RSS、API、网页与推送来源。</p>
+            <p className="mb-0 mt-3 text-base leading-6 text-muted-foreground">管理 Pulse 持续关注的 RSS、API、网页与推送来源。</p>
           </div>
           <div className="flex gap-2.5 max-md:w-full">
             <a className={buttonVariants({ variant: 'secondary', className: 'max-md:flex-1' })} href="/api/v1/opml/export">导出 OPML</a>
@@ -430,16 +430,16 @@ export function App() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <h3>{source.name}</h3>
-                      <span className="rounded bg-[#eee6dd] px-1.5 py-0.5 text-[8px] font-bold tracking-[.08em] text-[#8b624f]">{source.kind.toUpperCase()}</span>
+                      <span className="rounded bg-[#eee6dd] px-2 py-0.5 text-xs font-semibold tracking-wide text-[#8b624f]">{source.kind.toUpperCase()}</span>
                     </div>
                     <p>{source.locator}</p>
                   </div>
-                  <div className="flex items-center gap-[7px] text-[11px] text-[#77746c] max-md:hidden">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground max-md:hidden">
                     <span className={cn('size-2 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
                     {source.enabled ? '已启用' : '已暂停'}
                   </div>
                   {health[source.id] && (
-                    <div className="grid min-w-[180px] gap-0.5 text-[10px] text-[#77746c] max-md:hidden" aria-label={`${source.name} 抓取诊断`}>
+                    <div className="grid min-w-[180px] gap-1 text-xs leading-5 text-muted-foreground max-md:hidden" aria-label={`${source.name} 抓取诊断`}>
                       <span>状态 {health[source.id].status}</span>
                       {health[source.id].last_requested_at && <span>最近 {formatTime(health[source.id].last_requested_at!)}</span>}
                       <span>{health[source.id].candidate_count} 候选 · {health[source.id].new_count} 新增 · {health[source.id].updated_count} 更新</span>
@@ -450,14 +450,14 @@ export function App() {
                   )}
                   <div className="flex items-center justify-end gap-[3px]">
                     <Button unstyled
-                      className="cursor-pointer border-0 bg-transparent text-[11px] text-primary-hover"
+                      className="min-h-10 cursor-pointer rounded-md border-0 bg-transparent px-2 text-sm font-medium text-primary-hover hover:bg-accent"
                       aria-label={`${source.enabled ? '暂停' : '恢复'} ${source.name}`}
                       onClick={() => void handleToggle(source)}
                     >
                       {source.enabled ? '暂停' : '恢复'}
                     </Button>
                     <Button unstyled
-                      className="size-[34px] rounded-[7px] hover:bg-[#eeeae2] hover:text-primary-hover disabled:cursor-not-allowed disabled:opacity-30"
+                      className="size-10 rounded-lg hover:bg-[#eeeae2] hover:text-primary-hover disabled:cursor-not-allowed disabled:opacity-30"
                       aria-label={`刷新 ${source.name}`}
                       disabled={!source.enabled}
                       onClick={() => void handleRun(source)}
@@ -465,7 +465,7 @@ export function App() {
                       <RefreshCw className="size-4" aria-hidden="true" />
                     </Button>
                     <Button unstyled
-                      className="min-h-[30px] cursor-pointer rounded-md border-0 bg-transparent px-[7px] text-[10px] text-[#9a3f2c] hover:bg-[#f3ded5]"
+                      className="min-h-10 cursor-pointer rounded-md border-0 bg-transparent px-2 text-sm text-[#9a3f2c] hover:bg-[#f3ded5]"
                       aria-label={`删除 ${source.name}`}
                       onClick={() => setSourceToDelete(source)}
                     >
@@ -616,12 +616,12 @@ function AnnotationsPage({
   }
 
   return (
-    <div className="min-h-0 overflow-y-auto bg-[#f4f1ea] px-[clamp(24px,5vw,72px)] pb-[72px] pt-[42px] max-md:px-3.5 max-md:pb-10 max-md:pt-5">
-      <header className="mb-[38px] flex items-end justify-between gap-6 max-md:flex-col max-md:items-start mx-auto mb-7 max-md:gap-4">
+    <div className="min-h-0 overflow-y-auto bg-[#f4f1ea] px-[clamp(24px,5vw,72px)] pb-18 pt-10 max-md:px-4 max-md:pb-10 max-md:pt-6">
+      <header className="mx-auto mb-8 flex items-end justify-between gap-6 max-md:flex-col max-md:items-start max-md:gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">READING NOTES</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">READING NOTES</p>
           <h1>阅读笔记</h1>
-          <p className="mb-0 mt-3 text-sm text-muted-foreground">集中保存 Apple Books、Kindle 和其他阅读器中的高亮与批注。</p>
+          <p className="mb-0 mt-3 text-base leading-6 text-muted-foreground">集中保存 Apple Books、Kindle 和其他阅读器中的高亮与批注。</p>
         </div>
         <Button onClick={() => setShowImport((current) => !current)}>
           {showImport ? '收起导入' : '导入批注'}
@@ -629,9 +629,9 @@ function AnnotationsPage({
       </header>
 
       {showImport && (
-        <section className="mx-auto mb-7 grid max-w-[1040px] grid-cols-[minmax(180px,.7fr)_minmax(320px,1.3fr)] gap-8 rounded-[14px] border bg-white p-6 shadow-[0_10px_32px_rgba(51,46,36,.06)] max-md:grid-cols-1 max-md:gap-4 max-md:p-[18px]" aria-labelledby="annotation-import-title">
+        <section className="mx-auto mb-8 grid max-w-[1040px] grid-cols-[minmax(180px,.7fr)_minmax(320px,1.3fr)] gap-8 rounded-2xl border bg-white p-8 shadow-[0_10px_32px_rgba(51,46,36,.06)] max-md:grid-cols-1 max-md:gap-6 max-md:p-5" aria-labelledby="annotation-import-title">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">NEW ANNOTATION</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">NEW ANNOTATION</p>
             <h2 id="annotation-import-title">添加一条阅读批注</h2>
             <p>第一版支持结构化手工导入；Apple Books 与 Kindle 批量格式将在取得真实导出样本后接入。</p>
           </div>
@@ -699,7 +699,7 @@ function AnnotationsPage({
       {!loading && !error && books.length > 0 && (
         <section className="mx-auto grid max-w-[1040px] gap-[18px]" aria-label="书籍批注">
           {books.map(({ detail, entries: bookEntries }) => (
-            <article className="rounded-[14px] border bg-white p-6 shadow-[0_8px_28px_rgba(51,46,36,.05)] max-md:p-[18px]" key={annotationBookKey(detail)}>
+            <article className="rounded-2xl border bg-white p-7 shadow-[0_8px_28px_rgba(51,46,36,.05)] max-md:p-5" key={annotationBookKey(detail)}>
               <div className="flex items-start justify-between gap-5 border-b border-[#ece8df] pb-[18px]">
                 <div>
                   <span>{detail.provider === 'apple-books' ? 'APPLE BOOKS' : detail.provider.toUpperCase()}</span>
@@ -855,11 +855,11 @@ function SavePage({
 
   return (
     <main className="grid min-h-dvh w-full place-items-center overflow-y-auto bg-[radial-gradient(circle_at_top,#fff_0,#f3f1eb_58%)] p-6 max-md:place-items-start max-md:p-3">
-      <section className="w-[min(520px,100%)] rounded-2xl border border-input bg-card p-[34px] shadow-[0_22px_70px_rgba(48,43,34,.12)] max-md:min-h-[calc(100dvh-24px)] max-md:rounded-xl max-md:px-[18px] max-md:py-6" aria-labelledby="save-page-title">
-        <div className="mb-[30px] flex items-center gap-[9px] font-serif text-xl font-semibold max-md:mb-6"><span className="grid size-[34px] place-items-center rounded-[10px_10px_10px_3px] bg-primary font-sans text-lg font-bold text-white" aria-hidden="true">P</span>Pulse</div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">READ LATER</p>
+      <section className="w-[min(520px,100%)] rounded-2xl border border-input bg-card p-9 shadow-[0_22px_70px_rgba(48,43,34,.12)] max-md:min-h-[calc(100dvh-24px)] max-md:rounded-xl max-md:p-5" aria-labelledby="save-page-title">
+        <div className="mb-8 flex items-center gap-3 font-serif text-2xl font-semibold max-md:mb-6"><span className="grid size-10 place-items-center rounded-[12px_12px_12px_4px] bg-primary font-sans text-lg font-bold text-white" aria-hidden="true">P</span>Pulse</div>
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">READ LATER</p>
         <h1 id="save-page-title">保存到 Pulse</h1>
-        <p className="mb-[25px] mt-[9px] text-[13px] leading-relaxed text-muted-foreground">确认网页信息后，将它加入你的阅读列表。</p>
+        <p className="mb-6 mt-2 text-base leading-6 text-muted-foreground">确认网页信息后，将它加入你的阅读列表。</p>
         <form onSubmit={(event) => void submit(event)}>
           <label>
             <span>网页地址</span>
@@ -1145,10 +1145,10 @@ function Reader({
   const sourceNames = Object.fromEntries(sources.map((source) => [source.id, source.name]))
   return (
     <div className="relative grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden max-md:h-auto">
-      <header className="z-[3] flex min-h-[58px] items-center justify-between gap-6 border-b bg-card/95 py-2 pl-[18px] pr-3.5 shadow-[0_1px_3px_rgba(42,48,58,.04)] max-md:static max-md:min-h-[52px] max-md:px-3">
-        <div className="flex min-w-0 items-baseline gap-[9px] max-md:hidden" aria-hidden={mobile || undefined}>
+      <header className="z-[3] flex min-h-16 items-center justify-between gap-6 border-b bg-card/95 px-5 py-2 shadow-[0_1px_3px_rgba(42,48,58,.04)] max-md:static max-md:min-h-14 max-md:px-3">
+        <div className="flex min-w-0 items-baseline gap-3 max-md:hidden" aria-hidden={mobile || undefined}>
           <h1>{title}</h1>
-          <span className="flex-none text-[10px] text-muted-foreground">{loading ? '正在更新…' : `${entries.length} 篇`}</span>
+          <span className="flex-none text-xs text-muted-foreground">{loading ? '正在更新…' : `${entries.length} 篇`}</span>
         </div>
         <div className="flex w-[min(680px,68%)] items-center justify-end gap-2.5 max-md:w-full max-md:justify-stretch">
           <Button
@@ -1174,11 +1174,11 @@ function Reader({
           </label>
         </div>
       </header>
-      {readerNotice && <div className="absolute right-4 top-[66px] z-[5] rounded-[7px] border border-[#dce1e5] bg-white/95 px-[11px] py-2 text-[10px] text-[#55606b] shadow-[0_8px_24px_rgba(45,51,60,.1)]" role="status">{readerNotice}</div>}
+      {readerNotice && <div className="absolute right-4 top-[72px] z-[5] rounded-lg border border-[#dce1e5] bg-white/95 px-3 py-2 text-sm text-[#55606b] shadow-[0_8px_24px_rgba(45,51,60,.1)]" role="status">{readerNotice}</div>}
       <section className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain border-0 bg-card shadow-none [scrollbar-gutter:stable] max-md:[-webkit-overflow-scrolling:touch] max-md:[scrollbar-gutter:auto]" aria-label="文章列表">
-          {loading && <p className="p-[30px] text-center text-xs text-muted-foreground">正在加载文章…</p>}
-          {error && <p className="p-[30px] text-center text-xs text-muted-foreground text-destructive">{error}</p>}
-          {!loading && !error && entries.length === 0 && <p className="p-[30px] text-center text-xs text-muted-foreground">这里还没有文章。</p>}
+          {loading && <p className="p-8 text-center text-sm text-muted-foreground">正在加载文章…</p>}
+          {error && <p className="p-8 text-center text-sm text-muted-foreground text-destructive">{error}</p>}
+          {!loading && !error && entries.length === 0 && <p className="p-8 text-center text-sm text-muted-foreground">这里还没有文章。</p>}
           {entries.map((item) => (
             <article
               data-entry-row={item.id}
@@ -1198,15 +1198,15 @@ function Reader({
                 onClick={(event) => toggleEntry(item, event.currentTarget.closest('article')!)}
               >
                 <span className={cn('size-1.5 rounded-full bg-primary', item.read_at && 'border border-muted-foreground bg-transparent')} aria-hidden="true" />
-                <span className="truncate text-xs font-[550] text-[#66717d] max-md:hidden">{sourceNames[item.source_id] || item.author || '未知来源'}</span>
-                <strong className="min-w-0 truncate text-sm font-semibold max-md:col-start-2">{item.display_title || item.source_title || '无标题'}</strong>
-                <time className="text-right text-[11px] text-muted-foreground max-md:col-start-3" dateTime={item.discovered_at}>{compactTime(item.discovered_at)}</time>
+                <span className="truncate text-sm font-medium text-[#66717d] max-md:hidden">{sourceNames[item.source_id] || item.author || '未知来源'}</span>
+                <strong className="min-w-0 truncate text-base font-semibold leading-6 max-md:col-start-2">{item.display_title || item.source_title || '无标题'}</strong>
+                <time className="text-right text-xs tabular-nums text-muted-foreground max-md:col-start-3" dateTime={item.discovered_at}>{compactTime(item.discovered_at)}</time>
                 <ChevronDown className={cn('size-4 text-muted-foreground transition-transform max-md:col-start-4', selected?.id === item.id && 'rotate-180')} aria-hidden="true" />
               </Button>
               {selected?.id === item.id && (
                 <div
                   data-entry-detail={item.id}
-                  className="min-h-[calc(100vh-100px)] border-t border-[#e8e9eb] bg-card px-[clamp(28px,8vw,120px)] pb-16 max-md:px-[18px] max-md:pb-[38px] max-md:pt-[18px]"
+                  className="min-h-[calc(100vh-100px)] border-t border-[#e8e9eb] bg-card px-[clamp(24px,8vw,120px)] pb-16 max-md:px-5 max-md:pb-10 max-md:pt-5"
                   ref={(element) => {
                     if (!element || readingAreaToScroll.current !== item.id) return
                     readingAreaToScroll.current = ''
@@ -1215,8 +1215,8 @@ function Reader({
                     })
                   }}
                 >
-                  <div className="mx-auto max-w-[820px]">
-                    <div className="mb-7 flex min-h-12 items-center justify-between border-b border-[#eeeae2] text-xs text-[#8c887f] max-md:mb-[22px]">
+                  <div className="mx-auto max-w-[72ch]">
+                    <div className="mb-8 flex min-h-14 items-center justify-between border-b border-[#eeeae2] text-sm text-muted-foreground max-md:mb-6">
                       <span>{selected.author || sourceNames[selected.source_id] || '未知来源'}</span>
                       <div className="flex items-center gap-3">
                         {selected.canonical_url && (
@@ -1251,7 +1251,7 @@ function Reader({
                         ),
                       }}
                     />
-                    {notesOpen && <div className="mt-[38px] grid max-w-[720px] gap-3 border-t pt-6">
+                    {notesOpen && <div className="mt-10 grid max-w-[68ch] gap-4 border-t pt-6">
                       <label>
                         <span>显示标题</span>
                         <Input
