@@ -302,16 +302,15 @@ describe('App', () => {
       expect(JSON.parse(String(patches[0][1]?.body))).toEqual({ read: true })
     })
 
-    expect(screen.queryByRole('button', { name: '收藏文章' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '稍后阅读' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '更多操作' }))
-    expect(screen.getByRole('button', { name: '收藏文章' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '稍后阅读' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '收藏文章' }))
-    expect(await screen.findByRole('button', { name: '取消收藏' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '稍后阅读' }))
-    expect(await screen.findByRole('button', { name: '移出稍后阅读' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '编辑标题与笔记' }))
+    expect(screen.queryByRole('menuitem', { name: '收藏文章' })).not.toBeInTheDocument()
+    fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }), { button: 0 })
+    expect(screen.getByRole('menuitem', { name: '收藏文章' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: '稍后阅读' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: '收藏文章' }))
+    fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }), { button: 0 })
+    fireEvent.click(await screen.findByRole('menuitem', { name: '稍后阅读' }))
+    fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }), { button: 0 })
+    fireEvent.click(await screen.findByRole('menuitem', { name: '编辑标题与笔记' }))
     fireEvent.change(screen.getByLabelText('显示标题'), { target: { value: 'My title' } })
     fireEvent.change(screen.getByLabelText('笔记'), { target: { value: 'Remember this' } })
     fireEvent.click(screen.getByRole('button', { name: '保存标题与笔记' }))
@@ -322,14 +321,14 @@ describe('App', () => {
       expect(patches).toHaveLength(4)
     })
 
-    fireEvent.click(screen.getByRole('button', { name: '更多操作' }))
-    fireEvent.click(screen.getByRole('button', { name: '编辑标题与笔记' }))
+    fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }), { button: 0 })
+    fireEvent.click(screen.getByRole('menuitem', { name: '编辑标题与笔记' }))
     expect(screen.queryByLabelText('笔记')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { expanded: true }))
     expect(screen.queryByText('Article body')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { expanded: false }))
-    fireEvent.click(screen.getByRole('button', { name: '更多操作' }))
-    fireEvent.click(screen.getByRole('button', { name: '更多操作' }))
+    fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }), { button: 0 })
+    fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => {
       const patches = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
         String(url).endsWith('/api/v1/entries/entry-1') && init?.method === 'PATCH')
@@ -367,7 +366,7 @@ describe('App', () => {
 
   it('uses an accessible off-canvas navigation drawer on mobile', async () => {
     vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
-      matches: query === '(max-width: 760px)',
+      matches: query === '(max-width: 767px)',
       media: query,
       onchange: null,
       addEventListener: vi.fn(),
@@ -377,16 +376,16 @@ describe('App', () => {
     render(<App />)
     await screen.findByText('Reader article')
 
-    const drawer = document.getElementById('mobile-navigation')
-    expect(drawer).not.toBeNull()
     const menuButton = screen.getByRole('button', { name: '打开导航' })
-    expect(drawer!).toHaveAttribute('aria-hidden', 'true')
+    expect(document.getElementById('mobile-navigation')).toBeNull()
     expect(menuButton).toHaveAttribute('aria-expanded', 'false')
 
     fireEvent.click(menuButton)
+    const drawer = document.getElementById('mobile-navigation')
+    expect(drawer).not.toBeNull()
     expect(drawer!).toHaveAttribute('aria-hidden', 'false')
     expect(menuButton).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByRole('main')).toHaveAttribute('inert')
+    expect(document.querySelector('main')).toHaveAttribute('inert')
     const closeButton = screen.getByRole('button', { name: '关闭导航' })
     expect(closeButton).toHaveFocus()
     screen.getByRole('link', { name: 'Pulse 首页' }).focus()
@@ -396,14 +395,14 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: 'Pulse 首页' })).toHaveFocus()
 
     fireEvent.keyDown(document, { key: 'Escape' })
-    expect(drawer!).toHaveAttribute('aria-hidden', 'true')
-    expect(menuButton).toHaveFocus()
+    expect(document.getElementById('mobile-navigation')).toBeNull()
+    await waitFor(() => expect(menuButton).toHaveFocus())
     expect(screen.getByRole('heading', { level: 1, name: '全部文章' })).toBeInTheDocument()
 
     fireEvent.click(menuButton)
     fireEvent.click(screen.getByRole('button', { name: 'Example Feed' }))
-    expect(drawer!).toHaveAttribute('aria-hidden', 'true')
-    expect(menuButton).toHaveFocus()
+    expect(document.getElementById('mobile-navigation')).toBeNull()
+    await waitFor(() => expect(menuButton).toHaveFocus())
     expect(await screen.findByRole('heading', { name: 'Example Feed' })).toBeInTheDocument()
   })
 
@@ -443,7 +442,7 @@ describe('App', () => {
 
   it('returns focus to the navigation menu after closing the bookmarklet dialog on mobile', async () => {
     vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
-      matches: query === '(max-width: 760px)',
+      matches: query === '(max-width: 767px)',
       media: query,
       onchange: null,
       addEventListener: vi.fn(),
