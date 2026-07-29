@@ -304,7 +304,7 @@ export function App() {
         </section>
 
         <div className="mt-3 grid gap-2 border-t border-[#d8d4ca] px-[7px] pt-2.5 text-[10px] text-[#77746c]">
-          <Button unstyled ref={bookmarkletButtonRef} onClick={() => {
+          <Button unstyled className={navItemClass(false, 'w-full')} ref={bookmarkletButtonRef} onClick={() => {
             closeMobileNavigation(false)
             setShowBookmarklet(true)
           }}>
@@ -316,7 +316,7 @@ export function App() {
           }}>
             <NavIcon name="source" />管理信息源
           </Button>
-          <span><span className="size-[7px] rounded-full bg-[#5d946c] shadow-[0_0_0_3px_rgba(93,148,108,.13)]" />本地服务已连接</span>
+          <span className="flex items-center gap-2 px-3 py-1"><span className="size-2 rounded-full bg-success shadow-[0_0_0_3px_rgba(93,148,108,.13)]" />本地服务已连接</span>
         </div>
       </aside>
       </SheetContent>
