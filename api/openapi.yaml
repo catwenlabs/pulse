@@ -384,6 +384,16 @@ paths:
                   $ref: "#/components/schemas/Folder"
     post:
       operationId: createFolder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
       responses:
         "201":
           description: Folder created

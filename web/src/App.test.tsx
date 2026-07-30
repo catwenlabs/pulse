@@ -19,6 +19,12 @@ const scrollTo = vi.fn()
 
 describe('App', () => {
   beforeEach(() => {
+    let folderState = [{
+      id: 'folder-1',
+      name: 'Tech',
+      source_count: 1,
+      source_ids: ['source-1'],
+    }]
     window.history.replaceState(null, '', '/')
     scrollIntoView.mockClear()
     scrollTo.mockClear()
@@ -36,6 +42,12 @@ describe('App', () => {
     })
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      if (url.endsWith('/healthz')) {
+        return new Response(JSON.stringify({ status: 'ok' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
       if (url.includes('/api/v1/sources/') && url.endsWith('/entries') && init?.method === 'POST') {
         return new Response(JSON.stringify({ id: 'manual-job', status: 'pending' }), {
           status: 202,
@@ -114,13 +126,32 @@ describe('App', () => {
           headers: { 'Content-Type': 'application/json' },
         })
       }
+      if (url.endsWith('/api/v1/folders') && init?.method === 'POST') {
+        const created = {
+          id: 'folder-2',
+          name: JSON.parse(String(init.body)).name,
+          source_count: 0,
+          source_ids: [],
+        }
+        folderState = [...folderState, created]
+        return new Response(JSON.stringify(created), {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url.includes('/api/v1/folders/') && url.includes('/sources/')) {
+        const [, folderID, sourceID] = url.match(/folders\/([^/]+)\/sources\/([^/]+)/) ?? []
+        folderState = folderState.map((folder) => {
+          if (folder.id !== folderID) return folder
+          const sourceIDs = init?.method === 'PUT'
+            ? [...new Set([...folder.source_ids, sourceID])]
+            : folder.source_ids.filter((id) => id !== sourceID)
+          return { ...folder, source_ids: sourceIDs, source_count: sourceIDs.length }
+        })
+        return new Response(null, { status: 204 })
+      }
       if (url.endsWith('/api/v1/folders')) {
-        return new Response(JSON.stringify([{
-          id: 'folder-1',
-          name: 'Tech',
-          source_count: 1,
-          source_ids: ['source-1'],
-        }]), {
+        return new Response(JSON.stringify(folderState), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
@@ -175,6 +206,35 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: '更多操作' })).toBeInTheDocument()
   })
 
+  it('organizes a source into existing and newly created folders', async () => {
+    render(<App />)
+    await screen.findByRole('button', { name: 'Example Feed' })
+
+    fireEvent.click(screen.getByRole('button', { name: '管理信息源' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理 Example Feed 到文件夹' }))
+
+    const tech = screen.getByRole('checkbox', { name: /Tech/ })
+    expect(tech).toBeChecked()
+    fireEvent.click(tech)
+    fireEvent.change(screen.getByLabelText('新建并加入文件夹（可选）'), {
+      target: { value: 'Reading' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    expect(await screen.findByText('已整理 Example Feed')).toBeInTheDocument()
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/folders', expect.objectContaining({
+      method: 'POST',
+    }))
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/folders/folder-2/sources/source-1', {
+      method: 'PUT',
+    })
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/folders/folder-1/sources/source-1', {
+      method: 'DELETE',
+    })
+    expect(screen.getByRole('button', { name: 'Reading，1 个订阅源' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Tech，0 个订阅源' })).toBeInTheDocument()
+  })
+
   it('debounces article search and highlights visible matches', async () => {
     render(<App />)
     await screen.findByText('Reader article')
@@ -197,6 +257,7 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText('Feed 地址'), {
       target: { value: 'https://new.example/feed' },
     })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Tech/ }))
     fireEvent.click(screen.getByRole('button', { name: '测试并预览' }))
     expect(await screen.findByText('Preview article')).toBeInTheDocument()
     expect(screen.getByText('external:article-1')).toBeInTheDocument()
@@ -205,6 +266,35 @@ describe('App', () => {
     expect(await screen.findByText('New Feed')).toBeInTheDocument()
     expect(screen.getByText('已添加 New Feed')).toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/folders/folder-1/sources/source-2', {
+      method: 'PUT',
+    })
+  })
+
+  it('keeps a newly assigned source in its folder when folder refresh fails', async () => {
+    render(<App />)
+    await screen.findByRole('button', { name: 'Example Feed' })
+    const baseFetch = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/api/v1/folders') && (!init?.method || init.method === 'GET')) {
+        throw new Error('refresh failed')
+      }
+      return baseFetch(input, init)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '添加信息源' }))
+    fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'New Feed' } })
+    fireEvent.change(screen.getByLabelText('Feed 地址'), {
+      target: { value: 'https://new.example/feed' },
+    })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Tech/ }))
+    fireEvent.click(screen.getByRole('button', { name: '测试并预览' }))
+    await screen.findByText('Preview article')
+    fireEvent.click(screen.getByRole('button', { name: '保存并启用' }))
+
+    expect(await screen.findByText('已添加 New Feed')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Tech，2 个订阅源' })).toBeInTheDocument()
   })
 
   it('previews a JSON API mapping with cursor pagination', async () => {
@@ -458,8 +548,8 @@ describe('App', () => {
     expect(closeButton).toHaveFocus()
     screen.getByRole('link', { name: 'Pulse 首页' }).focus()
     fireEvent.keyDown(screen.getByRole('link', { name: 'Pulse 首页' }), { key: 'Tab', shiftKey: true })
-    expect(screen.getByRole('button', { name: '管理信息源' })).toHaveFocus()
-    fireEvent.keyDown(screen.getByRole('button', { name: '管理信息源' }), { key: 'Tab' })
+    expect(screen.getByRole('button', { name: '更多导航' })).toHaveFocus()
+    fireEvent.keyDown(screen.getByRole('button', { name: '更多导航' }), { key: 'Tab' })
     expect(screen.getByRole('link', { name: 'Pulse 首页' })).toHaveFocus()
 
     fireEvent.keyDown(document, { key: 'Escape' })
@@ -522,12 +612,45 @@ describe('App', () => {
 
     const menuButton = screen.getByRole('button', { name: '打开导航' })
     fireEvent.click(menuButton)
-    fireEvent.click(screen.getByRole('button', { name: '安装保存书签' }))
+    fireEvent.pointerDown(screen.getByRole('button', { name: '更多导航' }), { button: 0 })
+    fireEvent.click(screen.getByRole('menuitem', { name: '安装保存书签' }))
     const dialog = screen.getByRole('dialog', { name: '安装“保存到 Pulse”' })
     fireEvent.keyDown(dialog, { key: 'Escape' })
 
     expect(dialog).not.toBeInTheDocument()
     expect(menuButton).toHaveFocus()
+  })
+
+  it('navigates from the compact mobile menu and dismisses only the menu on Escape', async () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(max-width: 767px)',
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })))
+
+    render(<App />)
+    await screen.findByText('Reader article')
+    const menuButton = screen.getByRole('button', { name: '打开导航' })
+    fireEvent.click(menuButton)
+    const more = screen.getByRole('button', { name: '更多导航' })
+
+    fireEvent.pointerDown(more, { button: 0 })
+    expect(screen.getByRole('menuitem', { name: '收藏' })).toBeInTheDocument()
+    expect(await screen.findByRole('status')).toHaveTextContent('本地服务已连接')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('menuitem', { name: '收藏' })).not.toBeInTheDocument()
+    expect(document.getElementById('mobile-navigation')).not.toBeNull()
+
+    fireEvent.keyDown(more, { key: 'ArrowDown' })
+    fireEvent.click(await screen.findByRole('menuitem', { name: '收藏' }))
+    expect(document.getElementById('mobile-navigation')).toBeNull()
+    await waitFor(() => expect(menuButton).toHaveFocus())
+    expect(await screen.findByRole('heading', { name: '收藏' })).toBeInTheDocument()
+    fireEvent.click(menuButton)
+    fireEvent.pointerDown(screen.getByRole('button', { name: '更多导航' }), { button: 0 })
+    expect(screen.getByRole('menuitem', { name: '收藏' })).toHaveAttribute('aria-current', 'page')
   })
 
   it('groups reading annotations by book and imports a new highlight', async () => {
