@@ -51,10 +51,12 @@ export function App() {
   const [showCreate, setShowCreate] = useState(false)
   const [sourceToDelete, setSourceToDelete] = useState<Source | null>(null)
   const [sourceToEdit, setSourceToEdit] = useState<Source | null>(null)
+  const [sourceToOrganize, setSourceToOrganize] = useState<Source | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [activeView, setActiveView] = useState<View>('inbox')
   const [selectedSourceID, setSelectedSourceID] = useState('')
   const [health, setHealth] = useState<Record<string, SourceHealth>>({})
+  const [serviceConnected, setServiceConnected] = useState<boolean | null>(null)
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const [showBookmarklet, setShowBookmarklet] = useState(false)
   const [saveRequest, setSaveRequest] = useState<SaveRequest | null>(() => readSaveRequest())
@@ -97,6 +99,29 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    let active = true
+    let activeController: AbortController | null = null
+    let nextCheckID: number | undefined
+    const updateServiceHealth = async () => {
+      const controller = new AbortController()
+      activeController = controller
+      const timeoutID = window.setTimeout(() => controller.abort(), 8_000)
+      const connected = await api.checkServiceHealth(controller.signal)
+      window.clearTimeout(timeoutID)
+      if (!active) return
+      activeController = null
+      setServiceConnected(connected)
+      nextCheckID = window.setTimeout(() => void updateServiceHealth(), 30_000)
+    }
+    void updateServiceHealth()
+    return () => {
+      active = false
+      activeController?.abort()
+      if (nextCheckID !== undefined) window.clearTimeout(nextCheckID)
+    }
+  }, [])
+
+  useEffect(() => {
     const update = () => setSaveRequest(readSaveRequest())
     window.addEventListener('hashchange', update)
     return () => window.removeEventListener('hashchange', update)
@@ -107,11 +132,33 @@ export function App() {
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
   }, [saveRequest])
 
-  async function handleCreate(input: CreateSourceInput) {
+  async function handleCreate(input: CreateSourceInput, selectedFolderIDs: Set<string>) {
     const created = await api.createSource(input)
     setSources((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)))
+    const folderIDs = [...selectedFolderIDs]
+    const results = await Promise.allSettled(
+      folderIDs.map((folderID) => api.addSourceToFolder(folderID, created.id)),
+    )
+    const assignedFolderIDs = new Set(folderIDs.filter((_, index) => results[index].status === 'fulfilled'))
+    if (selectedFolderIDs.size > 0) {
+      setFolders((current) => current.map((folder) => {
+        if (!assignedFolderIDs.has(folder.id) || folder.source_ids.includes(created.id)) return folder
+        return {
+          ...folder,
+          source_count: folder.source_count + 1,
+          source_ids: [...folder.source_ids, created.id],
+        }
+      }))
+      const refreshed = await api.listFolders().catch(() => null)
+      if (refreshed) setFolders(refreshed)
+      setExpandedFolders((current) => new Set([...current, ...selectedFolderIDs]))
+    }
     setShowCreate(false)
-    toast.success(`已添加 ${created.name}`, { duration: 3500 })
+    if (results.some((result) => result.status === 'rejected')) {
+      toast.warning(`已添加 ${created.name}，但部分文件夹归类失败`, { duration: 6000 })
+    } else {
+      toast.success(`已添加 ${created.name}`, { duration: 3500 })
+    }
   }
 
   async function handleRun(source: Source) {
@@ -158,6 +205,41 @@ export function App() {
       toast.error(error instanceof Error ? error.message : '无法删除信息源', { duration: 6000 })
     } finally {
       setDeleting(false)
+    }
+  }
+
+  async function handleOrganize(source: Source, selectedFolderIDs: Set<string>, newFolderName: string) {
+    const currentFolderIDs = new Set(
+      folders.filter((folder) => folder.source_ids.includes(source.id)).map((folder) => folder.id),
+    )
+    try {
+      if (newFolderName.trim()) {
+        const createdFolder = await api.createFolder(newFolderName.trim())
+        selectedFolderIDs.add(createdFolder.id)
+      }
+      // Additions happen before removals so a failed request does not unexpectedly
+      // leave the Source without any of its requested Folder memberships.
+      await Promise.all([...selectedFolderIDs]
+        .filter((folderID) => !currentFolderIDs.has(folderID))
+        .map((folderID) => api.addSourceToFolder(folderID, source.id)))
+      await Promise.all([...currentFolderIDs]
+        .filter((folderID) => !selectedFolderIDs.has(folderID))
+        .map((folderID) => api.removeSourceFromFolder(folderID, source.id)))
+      const refreshed = await api.listFolders()
+      setFolders(refreshed)
+      setExpandedFolders((current) => new Set([
+        ...current,
+        ...selectedFolderIDs,
+      ]))
+      setSourceToOrganize((current) => current?.id === source.id ? null : current)
+      toast.success(`已整理 ${source.name}`, { duration: 3500 })
+    } catch (cause) {
+      // These APIs are individually atomic. Reconcile after a partial failure and
+      // close the stale form so retrying cannot create the same Folder twice.
+      const refreshed = await api.listFolders().catch(() => null)
+      if (refreshed) setFolders(refreshed)
+      setSourceToOrganize((current) => current?.id === source.id ? null : current)
+      toast.error(cause instanceof Error ? cause.message : '无法整理信息源', { duration: 6000 })
     }
   }
 
@@ -220,7 +302,7 @@ export function App() {
       }}
     >
     <Toaster />
-    <div className="grid h-dvh min-h-0 grid-cols-[224px_minmax(0,1fr)] overflow-hidden max-md:block max-md:w-full">
+    <div className="grid h-dvh min-h-0 grid-cols-[288px_minmax(0,1fr)] overflow-hidden max-md:block max-md:w-full">
       <SheetContent
         persistent={!isMobile}
         onOpenAutoFocus={(event) => {
@@ -233,58 +315,65 @@ export function App() {
         }}
       >
       <aside
-        className="fixed inset-y-0 left-0 z-30 flex w-56 flex-col border-r bg-sidebar px-3 py-5 text-sidebar-foreground transition-transform md:translate-x-0 max-md:w-[min(86vw,20rem)] max-md:-translate-x-full max-md:shadow-xl data-[state=open]:translate-x-0"
+        className="fixed inset-y-0 left-0 z-30 flex w-56 flex-col border-r bg-sidebar px-3 pb-0 pt-[max(0.25rem,env(safe-area-inset-top))] text-sidebar-foreground transition-transform md:grid md:w-72 md:grid-cols-[72px_216px] md:grid-rows-[auto_minmax(0,1fr)_auto] md:p-0 md:translate-x-0 max-md:w-[min(86vw,20rem)] max-md:-translate-x-full max-md:shadow-xl data-[state=open]:translate-x-0"
         id="mobile-navigation"
         role="navigation"
         aria-label="移动导航抽屉"
         aria-hidden={isMobile ? !mobileNavigationOpen : undefined}
         inert={isMobile && !mobileNavigationOpen ? true : undefined}
       >
-        <div className="flex items-center justify-between px-1.5 pb-5 max-md:px-1">
-          <a className="flex items-center gap-3 font-serif text-2xl font-semibold leading-none text-foreground no-underline" href="/" aria-label="Pulse 首页" onClick={() => showStream('inbox')}>
-            <span className="grid size-10 place-items-center rounded-[12px_12px_12px_4px] bg-primary font-sans text-lg font-bold text-white" aria-hidden="true">P</span>
-            <span>Pulse</span>
+        <div className="flex items-center justify-between px-1.5 pb-1 md:col-start-1 md:row-start-1 md:flex-col md:gap-3 md:px-2 md:pb-2 md:pt-4 max-md:px-1">
+          <a className="flex min-h-11 items-center gap-2 font-serif text-xl font-semibold leading-none text-foreground no-underline md:min-h-0 md:gap-3 md:text-2xl" href="/" aria-label="Pulse 首页" onClick={() => showStream('inbox')}>
+            <span className="grid size-8 shrink-0 place-items-center rounded-[9px_9px_9px_3px] bg-primary font-sans text-sm font-bold text-white md:size-10 md:rounded-[12px_12px_12px_4px] md:text-lg" aria-hidden="true">P</span>
+            <span className="md:hidden">Pulse</span>
           </a>
           <div className="flex items-center gap-1.5">
-            <Button unstyled className="grid size-10 cursor-pointer place-items-center rounded-lg border-0 bg-primary text-lg text-white hover:bg-primary-hover" aria-label="添加信息源" onClick={() => {
+            <Button unstyled className="group grid size-11 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-white md:size-10 md:bg-primary md:hover:bg-primary-hover" aria-label="添加信息源" onClick={() => {
               closeMobileNavigation(false)
               setShowCreate(true)
             }}>
-              <Plus className="size-4" aria-hidden="true" /><span className="sr-only">添加信息源</span>
+              <span className="grid size-7 place-items-center rounded-md bg-primary transition-colors group-hover:bg-primary-hover md:contents">
+                <Plus className="size-3.5 md:size-4" aria-hidden="true" />
+              </span>
+              <span className="sr-only">添加信息源</span>
             </Button>
             {isMobile && (
               <Button unstyled
-                className="hidden size-10 cursor-pointer place-items-center rounded-lg border-0 bg-white/50 p-0 text-2xl text-[#66635b] max-md:grid"
+                className="group hidden size-11 cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-[#66635b] max-md:grid"
                 ref={mobileDrawerCloseRef}
                 aria-label="关闭导航"
                 onClick={() => closeMobileNavigation()}
               >
-                <X className="size-5" aria-hidden="true" />
+                <span className="grid size-7 place-items-center rounded-md bg-white/50 transition-colors group-hover:bg-white/80">
+                  <X className="size-3.5" aria-hidden="true" />
+                </span>
               </Button>
             )}
           </div>
         </div>
 
-        <nav className="grid gap-1 overflow-visible" aria-label="主导航">
-          <a className={navItemClass(activeView === 'inbox' && !selectedSourceID)} href="#inbox" onClick={() => showStream('inbox')}><NavIcon name="inbox" />全部文章</a>
-          <a className={navItemClass(activeView === 'starred')} href="#starred" onClick={() => showStream('starred')}><NavIcon name="star" />收藏</a>
-          <a className={navItemClass(activeView === 'later')} href="#later" onClick={() => showStream('later')}><NavIcon name="clock" />稍后阅读</a>
-          <a className={navItemClass(activeView === 'annotations')} href="#annotations" onClick={() => showStream('annotations')}><NavIcon name="book" />阅读笔记</a>
-        </nav>
-
-        <section className="mt-6 flex min-h-0 flex-1 flex-col px-2" aria-labelledby="source-tree-label">
-          <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-            <p className="m-0 text-xs font-semibold uppercase tracking-wider text-muted-foreground" id="source-tree-label">订阅</p>
+        <section className="mt-6 flex min-h-0 flex-1 flex-col overflow-hidden px-2 max-md:order-2 max-md:mt-0 md:col-start-2 md:row-span-3 md:row-start-1 md:mt-0 md:border-l md:bg-[#f2f0e9] md:px-3 md:py-5" aria-labelledby="source-tree-label">
+          <div className="mb-3 flex items-center justify-between px-1 text-xs text-muted-foreground">
+            <p className="m-0 text-sm font-semibold text-foreground md:text-base" id="source-tree-label">订阅源</p>
             <span>{sources.length}</span>
+          </div>
+          <div className="mb-3 border-b border-border/70 pb-3">
+            <a
+              className={navItemClass(activeView === 'inbox' && !selectedSourceID, 'min-h-10 max-md:min-h-11')}
+              href="#inbox"
+              onClick={() => showStream('inbox')}
+            >
+              <NavIcon name="inbox" />全部文章
+            </a>
           </div>
           {loading && <p className="border-0 bg-transparent px-2 py-1 text-left text-xs text-muted-foreground">正在同步信息源…</p>}
           {!loading && loadError && <Button unstyled className="border-0 bg-transparent px-2 py-1 text-left text-xs text-destructive" onClick={() => void load()}>重试加载</Button>}
-          <div className="min-h-0 overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {folders.map((folder) => (
               <div key={folder.id}>
                 <Button
                   unstyled
-                  className="flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  className="flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground max-md:min-h-11"
                   aria-label={`${folder.name}，${folder.source_count} 个订阅源`}
                   aria-expanded={expandedFolders.has(folder.id)}
                   onClick={() => setExpandedFolders((current) => {
@@ -307,7 +396,7 @@ export function App() {
                       return (
                         <Button
                           unstyled
-                          className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full py-1 text-sm')}
+                          className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full py-1 text-sm max-md:min-h-11')}
                           key={`${folder.id}-${source.id}`}
                           title={source.name}
                           onClick={() => showStream('inbox', source.id)}
@@ -323,7 +412,7 @@ export function App() {
             ))}
             {rootSources.map((source) => (
               <Button unstyled
-                className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full py-1 text-sm')}
+                className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full py-1 text-sm max-md:min-h-11')}
                 key={source.id}
                 title={source.name}
                 onClick={() => showStream('inbox', source.id)}
@@ -335,21 +424,80 @@ export function App() {
           </div>
         </section>
 
-        <div className="mt-4 grid gap-2 border-t border-[#d8d4ca] px-2 pt-3 text-xs leading-5 text-muted-foreground">
-          <Button unstyled className={navItemClass(false, 'w-full')} ref={bookmarkletButtonRef} onClick={() => {
-            closeMobileNavigation(false)
-            setShowBookmarklet(true)
-          }}>
-            <NavIcon name="bookmark" />安装保存书签
-          </Button>
-          <Button unstyled className={navItemClass(activeView === 'sources', 'w-full')} onClick={() => {
-            setActiveView('sources')
-            closeMobileNavigation()
-          }}>
-            <NavIcon name="source" />管理信息源
-          </Button>
-          <span className="flex items-center gap-2 px-3 py-1"><span className="size-2 rounded-full bg-success shadow-[0_0_0_3px_rgba(93,148,108,.13)]" />本地服务已连接</span>
-        </div>
+        {isMobile ? (
+          <div className="order-3 border-t border-[#d8d4ca] px-2 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-xs text-muted-foreground">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button unstyled className={navItemClass(activeView !== 'inbox', 'min-h-11 w-full justify-between gap-3 border border-border/80 bg-card px-2.5 shadow-sm hover:border-primary/25')} aria-label="更多导航">
+                  <span className="flex items-center gap-2.5">
+                    <span className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary">
+                      <MoreHorizontal className="size-4" aria-hidden="true" />
+                    </span>
+                    <span>更多</span>
+                  </span>
+                  <ChevronDown className="size-3.5 text-muted-foreground/70" aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="start" className="w-[min(17rem,calc(86vw-2rem))]">
+                <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'starred' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'starred' ? 'page' : undefined} onSelect={() => showStream('starred')}><NavIcon name="star" />收藏</DropdownMenuItem>
+                <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'later' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'later' ? 'page' : undefined} onSelect={() => showStream('later')}><NavIcon name="clock" />稍后阅读</DropdownMenuItem>
+                <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'annotations' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'annotations' ? 'page' : undefined} onSelect={() => showStream('annotations')}><NavIcon name="book" />阅读笔记</DropdownMenuItem>
+                <DropdownMenuItem className="min-h-11 gap-3" onSelect={() => {
+                  closeMobileNavigation(false)
+                  setShowBookmarklet(true)
+                }}><NavIcon name="bookmark" />安装保存书签</DropdownMenuItem>
+                <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'sources' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'sources' ? 'page' : undefined} onSelect={() => {
+                  setActiveView('sources')
+                  closeMobileNavigation()
+                }}><NavIcon name="source" />管理信息源</DropdownMenuItem>
+                <div className="mt-1 flex min-h-11 items-center gap-3 border-t px-3 pt-1 text-xs text-muted-foreground" role="status">
+                  <span
+                    className={cn(
+                      'size-2 shrink-0 rounded-full',
+                      serviceConnected === null && 'animate-pulse bg-muted-foreground/40',
+                      serviceConnected === true && 'bg-success shadow-[0_0_0_3px_rgba(93,148,108,.13)]',
+                      serviceConnected === false && 'bg-destructive shadow-[0_0_0_3px_hsl(var(--destructive)/.12)]',
+                    )}
+                    aria-hidden="true"
+                  />
+                  {serviceConnected === null ? '正在检查本地服务…' : serviceConnected ? '本地服务已连接' : '本地服务不可用'}
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        ) : (
+          <>
+            <nav className="grid min-h-0 content-start gap-1 overflow-y-auto px-2 py-3 md:col-start-1 md:row-start-2" aria-label="主导航">
+              <a className={navItemClass(activeView === 'starred', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} href="#starred" onClick={() => showStream('starred')}><NavIcon name="star" />收藏</a>
+              <a className={navItemClass(activeView === 'later', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} href="#later" onClick={() => showStream('later')}><NavIcon name="clock" />稍后阅读</a>
+              <a className={navItemClass(activeView === 'annotations', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} href="#annotations" onClick={() => showStream('annotations')}><NavIcon name="book" />阅读笔记</a>
+            </nav>
+            <div className="m-0 grid gap-2 border-t border-[#d8d4ca] px-2 pb-4 pt-2 text-xs leading-5 text-muted-foreground md:col-start-1 md:row-start-3">
+              <Button unstyled className={navItemClass(false, 'min-h-[54px] w-full flex-col justify-center gap-1 px-1 text-center text-[10px] leading-none')} ref={bookmarkletButtonRef} aria-label="安装保存书签" onClick={() => setShowBookmarklet(true)}>
+                <NavIcon name="bookmark" />书签
+              </Button>
+              <Button unstyled className={navItemClass(activeView === 'sources', 'min-h-[54px] w-full flex-col justify-center gap-1 px-1 text-center text-[10px] leading-none')} aria-label="管理信息源" onClick={() => setActiveView('sources')}>
+                <NavIcon name="source" />管理
+              </Button>
+              <span
+                className="flex min-h-11 items-center justify-center px-0 py-1"
+                title={serviceConnected === null ? '正在检查本地服务' : serviceConnected ? '本地服务已连接' : '本地服务不可用'}
+                role="status"
+              >
+                <span
+                  className={cn(
+                    'size-2 rounded-full',
+                    serviceConnected === null && 'animate-pulse bg-muted-foreground/40',
+                    serviceConnected === true && 'bg-success shadow-[0_0_0_3px_rgba(93,148,108,.13)]',
+                      serviceConnected === false && 'bg-destructive shadow-[0_0_0_3px_hsl(var(--destructive)/.12)]',
+                  )}
+                  aria-hidden="true"
+                />
+                <span className="sr-only">{serviceConnected === null ? '正在检查本地服务' : serviceConnected ? '本地服务已连接' : '本地服务不可用'}</span>
+              </span>
+            </div>
+          </>
+        )}
       </aside>
       </SheetContent>
 
@@ -449,6 +597,12 @@ export function App() {
                       编辑
                     </Button>
                     <Button variant="ghost" size="sm"
+                      aria-label={`整理 ${source.name} 到文件夹`}
+                      onClick={() => setSourceToOrganize(source)}
+                    >
+                      整理
+                    </Button>
+                    <Button variant="ghost" size="sm"
                       aria-label={`${source.enabled ? '暂停' : '恢复'} ${source.name}`}
                       onClick={() => void handleToggle(source)}
                     >
@@ -496,6 +650,7 @@ export function App() {
 
       {showCreate && (
         <CreateSourceDialog
+          folders={folders}
           onClose={() => setShowCreate(false)}
           onCreate={handleCreate}
         />
@@ -513,6 +668,14 @@ export function App() {
           source={sourceToEdit}
           onClose={() => setSourceToEdit(null)}
           onSave={(name, locator) => handleEdit(sourceToEdit, name, locator)}
+        />
+      )}
+      {sourceToOrganize && (
+        <OrganizeSourceDialog
+          source={sourceToOrganize}
+          folders={folders}
+          onClose={() => setSourceToOrganize(null)}
+          onSave={(selectedFolderIDs, newFolderName) => handleOrganize(sourceToOrganize, selectedFolderIDs, newFolderName)}
         />
       )}
       {showBookmarklet && (
@@ -1064,6 +1227,127 @@ function EditSourceDialog({
   )
 }
 
+function FolderPicker({
+  folders,
+  selectedFolderIDs,
+  onChange,
+  disabled = false,
+  legend,
+}: {
+  folders: Folder[]
+  selectedFolderIDs: Set<string>
+  onChange: (folderIDs: Set<string>) => void
+  disabled?: boolean
+  legend: string
+}) {
+  return (
+    <fieldset className="grid gap-2 border-0 p-0">
+      <legend className="mb-2 text-sm font-semibold">{legend}</legend>
+      {folders.map((folder) => {
+        const selected = selectedFolderIDs.has(folder.id)
+        return (
+          <label
+            className={cn(
+              'min-h-11 cursor-pointer grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center !gap-3 rounded-lg border bg-card px-3 !font-normal transition-colors hover:bg-muted/40',
+              selected && 'border-primary/50 bg-primary/5',
+              disabled && 'cursor-not-allowed opacity-50',
+            )}
+            key={folder.id}
+          >
+            <input
+              className="size-4 accent-primary"
+              type="checkbox"
+              checked={selected}
+              disabled={disabled}
+              onChange={(event) => {
+                const next = new Set(selectedFolderIDs)
+                if (event.target.checked) next.add(folder.id)
+                else next.delete(folder.id)
+                onChange(next)
+              }}
+            />
+            <FolderClosed className={cn('size-4 text-muted-foreground', selected && 'text-primary')} aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate">{folder.name}</span>
+            <span className="text-xs text-muted-foreground">{folder.source_count}</span>
+          </label>
+        )
+      })}
+    </fieldset>
+  )
+}
+
+function OrganizeSourceDialog({
+  source,
+  folders,
+  onClose,
+  onSave,
+}: {
+  source: Source
+  folders: Folder[]
+  onClose: () => void
+  onSave: (selectedFolderIDs: Set<string>, newFolderName: string) => Promise<void>
+}) {
+  const [selectedFolderIDs, setSelectedFolderIDs] = useState<Set<string>>(() => new Set(
+    folders.filter((folder) => folder.source_ids.includes(source.id)).map((folder) => folder.id),
+  ))
+  const [newFolderName, setNewFolderName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setSaving(true)
+    setError('')
+    try {
+      await onSave(new Set(selectedFolderIDs), newFolderName)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '无法整理信息源')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
+      <DialogContent>
+        <DialogTitle>整理到文件夹</DialogTitle>
+        <DialogDescription className="mb-5 mt-2 text-sm leading-6 text-muted-foreground">
+          “{source.name}”可以同时出现在多个文件夹中。
+        </DialogDescription>
+        <form onSubmit={(event) => void submit(event)}>
+          {folders.length === 0 ? (
+            <div>
+              <p className="mb-2 text-sm font-semibold">已有文件夹</p>
+              <p className="m-0 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">还没有文件夹，请在下方创建一个。</p>
+            </div>
+          ) : (
+            <FolderPicker
+              folders={folders}
+              selectedFolderIDs={selectedFolderIDs}
+              onChange={setSelectedFolderIDs}
+              disabled={saving}
+              legend="已有文件夹"
+            />
+          )}
+          <label>
+            <span>新建并加入文件夹（可选）</span>
+            <Input
+              value={newFolderName}
+              onChange={(event) => setNewFolderName(event.target.value)}
+              placeholder="例如：技术"
+            />
+          </label>
+          <p className="m-0 text-xs text-muted-foreground">不选择任何文件夹会把该信息源移到根目录。</p>
+          {error && <p className="m-0" role="alert">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild><Button type="button" variant="secondary" disabled={saving}>取消</Button></DialogClose>
+            <Button type="submit" disabled={saving}>{saving ? '正在保存…' : '保存'}</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function DeleteSourceDialog({
   source,
   deleting,
@@ -1505,11 +1789,13 @@ function safeContentURL(value: string | null, baseURL?: string): string {
 }
 
 function CreateSourceDialog({
+  folders,
   onClose,
   onCreate,
 }: {
+  folders: Folder[]
   onClose: () => void
-  onCreate: (input: CreateSourceInput) => Promise<void>
+  onCreate: (input: CreateSourceInput, selectedFolderIDs: Set<string>) => Promise<void>
 }) {
   const [name, setName] = useState('')
   const [locator, setLocator] = useState('')
@@ -1530,6 +1816,7 @@ function CreateSourceDialog({
   const [testing, setTesting] = useState(false)
   const [error, setError] = useState('')
   const [preview, setPreview] = useState<PreviewResult | null>(null)
+  const [selectedFolderIDs, setSelectedFolderIDs] = useState<Set<string>>(() => new Set())
 
   function input(): CreateSourceInput {
     const base: CreateSourceInput = { name: name.trim(), kind, locator: locator.trim() }
@@ -1587,7 +1874,7 @@ function CreateSourceDialog({
     setSubmitting(true)
     setError('')
     try {
-      await onCreate(input())
+      await onCreate(input(), new Set(selectedFolderIDs))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '保存信息源失败')
       setSubmitting(false)
@@ -1740,6 +2027,15 @@ function CreateSourceDialog({
                 <span>链接 <code>{linkSelector}@href</code></span>
               </div>
             </div>
+          )}
+          {folders.length > 0 && (
+            <FolderPicker
+              folders={folders}
+              selectedFolderIDs={selectedFolderIDs}
+              onChange={setSelectedFolderIDs}
+              disabled={submitting || testing}
+              legend="添加到文件夹（可选）"
+            />
           )}
           {error && <p className="m-0 text-xs" role="alert">{error}</p>}
           {preview && (

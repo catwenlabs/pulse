@@ -167,6 +167,22 @@ export function listFolders(): Promise<Folder[]> {
   return requestList<Folder>('/api/v1/folders')
 }
 
+export function createFolder(name: string): Promise<Folder> {
+  return request<Folder>('/api/v1/folders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}
+
+export function addSourceToFolder(folderId: string, sourceId: string): Promise<void> {
+  return request<void>(`/api/v1/folders/${folderId}/sources/${sourceId}`, { method: 'PUT' })
+}
+
+export function removeSourceFromFolder(folderId: string, sourceId: string): Promise<void> {
+  return request<void>(`/api/v1/folders/${folderId}/sources/${sourceId}`, { method: 'DELETE' })
+}
+
 export function createSource(input: CreateSourceInput): Promise<Source> {
   return request<Source>('/api/v1/sources', {
     method: 'POST',
@@ -201,6 +217,15 @@ export function archiveSource(sourceId: string): Promise<void> {
 
 export function getSourceHealth(sourceId: string): Promise<SourceHealth> {
   return request<SourceHealth>(`/api/v1/sources/${sourceId}/health`)
+}
+
+export async function checkServiceHealth(signal?: AbortSignal): Promise<boolean> {
+  try {
+    const response = await fetch('/healthz', { signal })
+    return response.ok
+  } catch {
+    return false
+  }
 }
 
 export function previewSource(input: CreateSourceInput): Promise<PreviewResult> {
