@@ -351,6 +351,37 @@ func TestPreviewSource(t *testing.T) {
 	}
 }
 
+func TestPreviewSourceMapsFetchError(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.previewSource = func(context.Context, source.Spec) (preview.Result, error) {
+		return preview.Result{}, errors.Join(ingestion.ErrFetch, errors.New("dial: connection refused"))
+	}
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(response, httptest.NewRequest(http.MethodPost,
+		"/api/v1/sources/preview", bytes.NewBufferString(
+			`{"name":"X","kind":"rss","locator":"https://example.com/feed"}`)))
+	if response.Code != http.StatusBadGateway ||
+		!bytes.Contains(response.Body.Bytes(), []byte("source_fetch_failed")) ||
+		!bytes.Contains(response.Body.Bytes(), []byte("connection refused")) {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestPreviewSourceMapsParseError(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.previewSource = func(context.Context, source.Spec) (preview.Result, error) {
+		return preview.Result{}, errors.Join(ingestion.ErrParse, errors.New("invalid XML"))
+	}
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(response, httptest.NewRequest(http.MethodPost,
+		"/api/v1/sources/preview", bytes.NewBufferString(
+			`{"name":"X","kind":"rss","locator":"https://example.com/feed"}`)))
+	if response.Code != http.StatusUnprocessableEntity ||
+		!bytes.Contains(response.Body.Bytes(), []byte("source_parse_failed")) {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
 func TestCreateSourceReturnsValidationProblem(t *testing.T) {
 	backend := completeFakeBackend()
 	backend.createSource = func(context.Context, source.Spec) (source.Source, error) {

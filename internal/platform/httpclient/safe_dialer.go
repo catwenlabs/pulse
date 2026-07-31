@@ -113,7 +113,7 @@ func New() *http.Client {
 	transport.DialContext = (SafeDialer{}).DialContext
 
 	return &http.Client{
-		Transport: transport,
+		Transport: userAgentTransport{base: transport},
 		Timeout:   time.Minute,
 		CheckRedirect: func(request *http.Request, via []*http.Request) error {
 			if request.URL.Scheme != "http" && request.URL.Scheme != "https" {

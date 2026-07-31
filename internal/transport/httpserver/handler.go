@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"path"
@@ -1223,7 +1224,12 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "into")
 	case errors.Is(err, story.ErrRecomputeUnavailable):
 		writeProblem(w, http.StatusServiceUnavailable, "recompute_unavailable", err.Error(), "")
+	case errors.Is(err, ingestion.ErrFetch):
+		writeProblem(w, http.StatusBadGateway, "source_fetch_failed", err.Error(), "")
+	case errors.Is(err, ingestion.ErrParse):
+		writeProblem(w, http.StatusUnprocessableEntity, "source_parse_failed", err.Error(), "")
 	default:
+		slog.Error("unhandled domain error", "error", err)
 		writeProblem(w, http.StatusInternalServerError, "internal_error", "internal server error", "")
 	}
 }
