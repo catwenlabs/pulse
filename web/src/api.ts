@@ -350,8 +350,8 @@ export function splitStory(storyId: string, entryId: string): Promise<Story> {
   })
 }
 
-export function recomputeStories(): Promise<{ processed: number }> {
-  return request<{ processed: number }>('/api/v1/stories/recompute', {
+export function reclusterStories(): Promise<{ processed: number }> {
+  return request<{ processed: number }>('/api/v1/stories/recluster', {
     method: 'POST',
   })
 }

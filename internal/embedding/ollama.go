@@ -30,7 +30,7 @@ func NewOllama(baseURL, model string, client *http.Client) (*Ollama, error) {
 		return nil, fmt.Errorf("embedding model is required")
 	}
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		client = &http.Client{Timeout: 120 * time.Second}
 	}
 	return &Ollama{
 		baseURL: strings.TrimRight(parsed.String(), "/"),

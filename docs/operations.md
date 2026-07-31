@@ -2,7 +2,7 @@
 
 > 返回 [README](../README.md)。
 
-仓库根目录的 `compose.yaml` 从 `Dockerfile` 构建 Pulse，适合单机 Linux 服务器和局域网部署。仅拉取预构建镜像的快速上手见 [README · Quick Start](../README.md#quick-start)。
+仓库根目录的 `compose.yaml` 拉取 GHCR 上的预构建镜像，适合单机 Linux 服务器和局域网部署。快速上手见 [README · Quick Start](../README.md#quick-start)。
 
 ## 首次部署
 
@@ -13,8 +13,7 @@ cd pulse
 # 只在首次部署时生成，并在仓库之外持久保存。
 export PULSE_MASTER_KEY="$(openssl rand -base64 32)"
 
-docker compose pull postgres
-docker compose up --build -d
+docker compose up -d
 curl --retry 20 --retry-delay 2 --retry-connrefused \
   --fail --show-error http://localhost:8080/healthz
 ```
@@ -26,7 +25,7 @@ curl --retry 20 --retry-delay 2 --retry-connrefused \
 ```sh
 make backup
 git pull --ff-only
-docker compose build --pull pulse
+docker compose pull pulse
 docker compose up -d --remove-orphans
 curl --retry 20 --retry-delay 2 --retry-connrefused \
   --fail --show-error http://localhost:8080/healthz
@@ -101,16 +100,18 @@ make export-entry ID=ENTRY_UUID
 
 ### Story 语义聚合（可选）
 
-Story 聚合在未启用 embedding 时仍使用 URL、标题和正文指纹。启用本地 Ollama：
+Story 聚合把同一新闻的多个来源条目合并成一条 Story。**未启用 embedding 时，跨源合并极少发生**——此时聚类只命中近乎一致的标题（72 小时内）、相同 URL 或相同正文指纹；不同来源对同一新闻的措辞差异通常匹配不上。想要真正的跨源去重，请启用本地 Ollama：
 
 ```sh
-ollama pull qwen3-embedding
+ollama pull qwen3-embedding          # 约 4.7 GB，首次调用有冷启动加载耗时
 export PULSE_EMBEDDING_PROVIDER=ollama
 export PULSE_EMBEDDING_BASE_URL=http://127.0.0.1:11434
 export PULSE_EMBEDDING_MODEL=qwen3-embedding
 ```
 
-Pulse 在 Ollama 不可用时自动使用传统文本算法；Entry 摄取和 Checkpoint 不受影响。容器内的 `127.0.0.1` 指向 Pulse 容器本身，Compose 部署时应把 `PULSE_EMBEDDING_BASE_URL` 设置为可从 Pulse 容器访问的 Ollama 服务地址。
+启用后，worker 角色每 30 秒运行一次聚类（用标题 + 正文前 500 字生成向量做相似度匹配）。开启 embedding **之前**已入库、从未生成过向量的旧条目也会被 worker 逐步回填并重新聚类；想立刻跑完可调用 `POST /api/v1/stories/recluster`（同步、逐条生成向量，量大耗时；应用日志会打印每轮 `Story recluster pass` 进度）。
+
+Pulse 在 Ollama 不可用时自动回退到传统文本算法，Entry 摄取与 Checkpoint 不受影响。容器内的 `127.0.0.1` 指向 Pulse 容器本身，Compose 部署时应把 `PULSE_EMBEDDING_BASE_URL` 设置为可从 Pulse 容器访问的 Ollama 服务地址（macOS Docker Desktop 下可用 `http://host.docker.internal:11434`）。
 
 ### 安全注意事项
 

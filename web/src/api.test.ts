@@ -10,7 +10,7 @@ import {
   getStory,
   mergeStory,
   previewSource,
-  recomputeStories,
+  reclusterStories,
   runSource,
   setSourceEnabled,
   splitStory,
@@ -167,17 +167,17 @@ describe('source API', () => {
     })
   })
 
-  it('recomputes story aggregation on demand', async () => {
+  it('reclusters story aggregation on demand', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(
       '{"processed":7}',
       { status: 200 },
     ))
     vi.stubGlobal('fetch', fetchMock)
 
-    const result = await recomputeStories()
+    const result = await reclusterStories()
 
     expect(result.processed).toBe(7)
-    expect(fetchMock).toHaveBeenCalledWith('/api/v1/stories/recompute', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/stories/recluster', {
       method: 'POST',
     })
   })

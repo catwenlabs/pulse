@@ -1413,6 +1413,7 @@ function Reader({
   const [actionMenuOpen, setActionMenuOpen] = useState(false)
   const [notesOpen, setNotesOpen] = useState(false)
   const [mergePickerOpen, setMergePickerOpen] = useState(false)
+  const [activeEntryId, setActiveEntryId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -1428,14 +1429,20 @@ function Reader({
 
   function closeSelectedEntry() {
     const element = selectedEntryElement.current
+    const trigger = element?.querySelector<HTMLElement>('button[aria-expanded]') ?? null
+    // Move focus to the row trigger before the panel unmounts. Otherwise the
+    // focused close button is removed from the DOM and the browser jump-scrolls,
+    // unlike pressing Escape where the button was never focused.
+    trigger?.focus({ preventScroll: true })
     setSelected(null)
     setActionMenuOpen(false)
     setNotesOpen(false)
+    setMergePickerOpen(false)
+    setActiveEntryId(null)
     readingAreaToScroll.current = ''
     window.requestAnimationFrame(() => {
       if (element) {
         scrollWithin(entryStreamElement.current, element)
-        element.querySelector<HTMLElement>('button[aria-expanded]')?.focus()
       }
       selectedEntryElement.current = null
     })
@@ -1599,6 +1606,8 @@ function Reader({
     setSelected(item)
     setActionMenuOpen(false)
     setNotesOpen(false)
+    setMergePickerOpen(false)
+    setActiveEntryId(item.id)
     if (!item.read_at) {
       void patch(item, { read: true })
     }
@@ -1630,6 +1639,15 @@ function Reader({
 
   const title = sourceName || (view === 'starred' ? '收藏' : view === 'later' ? '稍后阅读' : '全部文章')
   const sourceNames = Object.fromEntries(sources.map((source) => [source.id, source.name]))
+  const currentStory = selected ? storiesByEntry[selected.id] : undefined
+  const mergeTargets = currentStory
+    ? entries
+        .map((candidate) => storiesByEntry[candidate.id])
+        .filter((story): story is Story => Boolean(story) && story.id !== currentStory.id)
+    : []
+  const activeEntry = selected
+    ? (storiesByEntry[selected.id]?.entries ?? []).find((entry) => entry.id === activeEntryId) ?? selected
+    : null
   return (
     <div className="relative grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
       <header className="z-[3] flex min-h-16 items-center justify-between gap-6 border-b bg-card/95 px-5 py-2 shadow-[0_1px_3px_rgba(42,48,58,.04)] max-md:static max-md:min-h-14 max-md:px-3">
@@ -1716,12 +1734,24 @@ function Reader({
                   }}
                 >
                   <div className="mx-auto max-w-[72ch]">
+                    <h2 className="mb-4 mt-1 text-xl font-bold leading-snug">
+                      {activeEntry!.canonical_url ? (
+                        <a
+                          className="text-foreground underline-offset-4 hover:underline"
+                          href={activeEntry!.canonical_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="查看原文"
+                        >
+                          {activeEntry!.display_title || activeEntry!.source_title || '无标题'}
+                        </a>
+                      ) : (
+                        activeEntry!.display_title || activeEntry!.source_title || '无标题'
+                      )}
+                    </h2>
                     <div className="mb-5 flex min-h-12 items-center justify-between border-b border-[#eeeae2] text-sm text-muted-foreground max-md:mb-3">
-                      <span>{selected.author || sourceNames[selected.source_id] || '未知来源'}</span>
+                      <span>{activeEntry!.author || sourceNames[activeEntry!.source_id] || '未知来源'}</span>
                       <div className="flex items-center gap-1">
-                        {selected.canonical_url && (
-                          <a className="mr-2" href={selected.canonical_url} target="_blank" rel="noreferrer">查看原文 ↗</a>
-                        )}
                         <DropdownMenu open={actionMenuOpen} onOpenChange={setActionMenuOpen}>
                           <DropdownMenuTrigger asChild>
                             <Button unstyled className="grid size-10 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="更多操作"><MoreHorizontal className="size-4" aria-hidden="true" /></Button>
@@ -1737,6 +1767,9 @@ function Reader({
                             <DropdownMenuItem onSelect={() => setNotesOpen((open) => !open)}>
                               编辑标题与笔记
                             </DropdownMenuItem>
+                            {mergeTargets.length > 0 && (
+                              <DropdownMenuItem onSelect={() => setMergePickerOpen(true)}>合并到其他 Story</DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                         <Button
@@ -1749,75 +1782,80 @@ function Reader({
                         </Button>
                       </div>
                     </div>
-                    <h2>{selected.display_title || selected.source_title || '无标题'}</h2>
                     {(storiesByEntry[item.id]?.entries?.length ?? 0) > 1 && (
                       <div className="mb-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                        <span>相关来源：</span>
-                        {storiesByEntry[item.id].entries!.map((sourceEntry) => (
-                          <span className="inline-flex items-center gap-1" key={sourceEntry.id}>
-                            <a
-                              className="text-primary hover:underline"
-                              href={sourceEntry.canonical_url || undefined}
-                              rel="noreferrer"
-                              target={sourceEntry.canonical_url ? '_blank' : undefined}
-                            >
-                              {sourceNames[sourceEntry.source_id] || sourceEntry.author || sourceEntry.source_title || '未知来源'}
-                            </a>
-                            {sourceEntry.id !== selected.id && (
+                        <span>同一则新闻 · {storiesByEntry[item.id].entries!.length} 个来源：</span>
+                        {storiesByEntry[item.id].entries!.map((sourceEntry) => {
+                          const sourceName = sourceNames[sourceEntry.source_id] || sourceEntry.author || sourceEntry.source_title || '未知来源'
+                          const isActive = sourceEntry.id === activeEntry?.id
+                          return (
+                            <span className="inline-flex items-center gap-1" key={sourceEntry.id}>
                               <Button
                                 unstyled
-                                className="text-xs text-muted-foreground hover:text-foreground"
-                                aria-label={`拆分 ${sourceEntry.source_title || '来源'}`}
-                                onClick={() => splitEntryFromStory(sourceEntry.id)}
+                                className={cn(
+                                  'cursor-pointer',
+                                  isActive ? 'font-semibold text-foreground underline' : 'text-primary hover:underline',
+                                )}
+                                aria-pressed={isActive}
+                                aria-label={`切换到来源 ${sourceName}`}
+                                onClick={() => setActiveEntryId(sourceEntry.id)}
                               >
-                                拆分
+                                {sourceName}
                               </Button>
-                            )}
-                          </span>
-                        ))}
+                              {sourceEntry.canonical_url && (
+                                <a
+                                  className="text-muted-foreground hover:text-foreground"
+                                  href={sourceEntry.canonical_url}
+                                  rel="noreferrer"
+                                  target="_blank"
+                                  aria-label={`在新标签打开 ${sourceName} 原文`}
+                                >
+                                  ↗
+                                </a>
+                              )}
+                              {sourceEntry.id !== selected.id && (
+                                <Button
+                                  unstyled
+                                  className="text-xs text-muted-foreground hover:text-foreground"
+                                  aria-label={`分开 ${sourceEntry.source_title || '来源'}`}
+                                  onClick={() => splitEntryFromStory(sourceEntry.id)}
+                                >
+                                  分开
+                                </Button>
+                              )}
+                            </span>
+                          )
+                        })}
                       </div>
                     )}
-                    {(() => {
-                      const current = storiesByEntry[selected.id]
-                      if (!current) return null
-                      const targets = entries
-                        .map((candidate) => storiesByEntry[candidate.id])
-                        .filter((story): story is Story => Boolean(story) && story.id !== current.id)
-                      if (targets.length === 0) return null
-                      return (
-                        <div className="mb-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    {mergePickerOpen && mergeTargets.length > 0 && (
+                      <div className="mb-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                        {mergeTargets.map((target) => (
                           <Button
+                            key={target.id}
                             unstyled
-                            className="text-primary hover:underline"
-                            aria-expanded={mergePickerOpen}
-                            aria-label="合并到其他 Story"
-                            onClick={() => setMergePickerOpen((open) => !open)}
+                            className="rounded border border-border px-2 py-0.5 text-xs hover:bg-accent"
+                            onClick={() => mergeStoryInto(target.id)}
                           >
-                            合并到其他 Story
+                            合并到：{target.representative.display_title || target.representative.source_title || '无标题'}
                           </Button>
-                          {mergePickerOpen && (
-                            <div className="flex flex-wrap gap-2">
-                              {targets.map((target) => (
-                                <Button
-                                  key={target.id}
-                                  unstyled
-                                  className="rounded border border-border px-2 py-0.5 text-xs hover:bg-accent"
-                                  onClick={() => mergeStoryInto(target.id)}
-                                >
-                                  合并到：{target.representative.display_title || target.representative.source_title || '无标题'}
-                                </Button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })()}
+                        ))}
+                        <Button
+                          unstyled
+                          className="text-xs text-muted-foreground hover:text-foreground"
+                          aria-label="取消合并"
+                          onClick={() => setMergePickerOpen(false)}
+                        >
+                          取消
+                        </Button>
+                      </div>
+                    )}
                     <div
                       className="entry-prose"
                       dangerouslySetInnerHTML={{
                         __html: sanitizeEntryHTML(
-                          selected.content_html || selected.summary || '',
-                          selected.canonical_url,
+                          activeEntry!.content_html || activeEntry!.summary || '',
+                          activeEntry!.canonical_url,
                         ),
                       }}
                     />

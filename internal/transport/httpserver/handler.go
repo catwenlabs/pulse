@@ -62,7 +62,7 @@ type Backend interface {
 	MarkStoriesRead(context.Context, string) (int64, error)
 	MergeStories(context.Context, story.ID, story.ID) (story.Story, error)
 	SplitStory(context.Context, story.ID, entry.ID) (story.Story, error)
-	Recompute(context.Context) (int, error)
+	Recluster(context.Context) (int, error)
 	ImportOPML(context.Context, []opml.Subscription) (opml.ImportResult, error)
 	ExportOPML(context.Context) ([]opml.Subscription, error)
 	PreviewSource(context.Context, source.Spec) (preview.Result, error)
@@ -122,7 +122,7 @@ func newHandler(backend Backend, web fs.FS) http.Handler {
 	mux.HandleFunc("PATCH /api/v1/stories/{id}", updateStory(backend))
 	mux.HandleFunc("POST /api/v1/stories/{id}/merge", mergeStory(backend))
 	mux.HandleFunc("POST /api/v1/stories/{id}/split", splitStory(backend))
-	mux.HandleFunc("POST /api/v1/stories/recompute", recomputeStories(backend))
+	mux.HandleFunc("POST /api/v1/stories/recluster", reclusterStories(backend))
 	mux.HandleFunc("POST /api/v1/opml/import", importOPML(backend))
 	mux.HandleFunc("GET /api/v1/opml/export", exportOPML(backend))
 	mux.HandleFunc("GET /api/v1/folders", listFolders(backend))
@@ -259,9 +259,9 @@ func splitStory(backend Backend) http.HandlerFunc {
 	}
 }
 
-func recomputeStories(backend Backend) http.HandlerFunc {
+func reclusterStories(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
-		processed, err := backend.Recompute(request.Context())
+		processed, err := backend.Recluster(request.Context())
 		if err != nil {
 			writeDomainError(w, err)
 			return
@@ -1222,8 +1222,8 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusNotFound, "entry_not_found", err.Error(), "")
 	case errors.Is(err, story.ErrSelfMerge):
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "into")
-	case errors.Is(err, story.ErrRecomputeUnavailable):
-		writeProblem(w, http.StatusServiceUnavailable, "recompute_unavailable", err.Error(), "")
+	case errors.Is(err, story.ErrReclusterUnavailable):
+		writeProblem(w, http.StatusServiceUnavailable, "recluster_unavailable", err.Error(), "")
 	case errors.Is(err, ingestion.ErrFetch):
 		writeProblem(w, http.StatusBadGateway, "source_fetch_failed", err.Error(), "")
 	case errors.Is(err, ingestion.ErrParse):

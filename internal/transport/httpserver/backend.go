@@ -3,6 +3,7 @@ package httpserver
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/ingestion"
@@ -48,9 +49,9 @@ type storyRepository interface {
 	Split(context.Context, story.ID, entry.ID) (story.ID, error)
 }
 
-// storyRecomputer runs an on-demand Story aggregation pass. It is optional: when
-// nil (no aggregation processor wired in), Recompute returns ErrRecomputeUnavailable.
-type storyRecomputer interface {
+// storyReclusterer runs an on-demand Story aggregation pass. It is optional: when
+// nil (no aggregation processor wired in), Recluster returns ErrReclusterUnavailable.
+type storyReclusterer interface {
 	RunOnce(context.Context, int) (int, error)
 }
 
@@ -94,7 +95,7 @@ type backend struct {
 	organization organizationRepository
 	rules        ruleRepository
 	stories      storyRepository
-	recomputer   storyRecomputer
+	reclusterer   storyReclusterer
 }
 
 func NewBackend(
@@ -105,7 +106,7 @@ func NewBackend(
 	previewer sourcePreviewer,
 	organizationStore organizationRepository,
 	storyStore storyRepository,
-	recomputer storyRecomputer,
+	reclusterer storyReclusterer,
 	ruleStores ...ruleRepository,
 ) Backend {
 	service := &backend{
@@ -116,7 +117,7 @@ func NewBackend(
 		previewer:    previewer,
 		organization: organizationStore,
 		stories:      storyStore,
-		recomputer:   recomputer,
+		reclusterer:   reclusterer,
 	}
 	if len(ruleStores) > 0 {
 		service.rules = ruleStores[0]
@@ -167,22 +168,24 @@ func (service *backend) SplitStory(
 	return service.stories.Get(ctx, newID)
 }
 
-// Recompute drains pending Story aggregation on demand, re-evaluating single-Entry
+// Recluster drains pending Story aggregation on demand, re-evaluating single-Entry
 // Stories (and embedding backfill) instead of waiting for the background tick. It is
 // bounded so a large backlog cannot keep an HTTP request open indefinitely.
-func (service *backend) Recompute(ctx context.Context) (int, error) {
-	if service.recomputer == nil {
-		return 0, story.ErrRecomputeUnavailable
+func (service *backend) Recluster(ctx context.Context) (int, error) {
+	if service.reclusterer == nil {
+		return 0, story.ErrReclusterUnavailable
 	}
 	const batchSize = 50
 	const maxPasses = 200
 	total := 0
 	for pass := 0; pass < maxPasses; pass++ {
-		processed, err := service.recomputer.RunOnce(ctx, batchSize)
+		processed, err := service.reclusterer.RunOnce(ctx, batchSize)
 		if err != nil {
+			slog.Error("Story recluster pass failed", "pass", pass+1, "processed_total", total, "error", err)
 			return total, err
 		}
 		total += processed
+		slog.Info("Story recluster pass", "pass", pass+1, "processed_this_pass", processed, "processed_total", total)
 		if processed < batchSize {
 			break
 		}
