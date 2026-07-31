@@ -1548,17 +1548,19 @@ function Reader({
   }
 
   async function splitEntryFromStory(entryId: string) {
-    const story = selected ? storiesByEntry[selected.id] : undefined
+    if (!selected) return
+    const selectedId = selected.id
+    const story = storiesByEntry[selectedId]
     if (!story?.entries) return
     try {
       await api.splitStory(story.id, entryId)
       setStoriesByEntry((current) => {
-        const existing = current[selected.id]
+        const existing = current[selectedId]
         if (!existing?.entries) return current
         const remaining = existing.entries.filter((candidate) => candidate.id !== entryId)
         return {
           ...current,
-          [selected.id]: {
+          [selectedId]: {
             ...existing,
             entries: remaining,
             entry_count: remaining.length,
@@ -1572,12 +1574,14 @@ function Reader({
   }
 
   async function mergeStoryInto(targetStoryId: string) {
-    const story = selected ? storiesByEntry[selected.id] : undefined
+    if (!selected) return
+    const selectedId = selected.id
+    const story = storiesByEntry[selectedId]
     if (!story || story.id === targetStoryId) return
     try {
       await api.mergeStory(story.id, targetStoryId)
       setMergePickerOpen(false)
-      setEntries((current) => current.filter((candidate) => candidate.id !== selected.id))
+      setEntries((current) => current.filter((candidate) => candidate.id !== selectedId))
       closeSelectedEntry()
     } catch (cause) {
       setReaderNotice(cause instanceof Error ? cause.message : '合并 Story 失败')
