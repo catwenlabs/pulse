@@ -11,3 +11,4 @@ web/vite.config.js
 web/vite.config.d.ts
 *.tsbuildinfo
 .DS_Store
+.agents/
