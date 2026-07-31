@@ -30,55 +30,19 @@ Pulse 是面向单用户、本机或局域网部署的信息阅读中枢。它�
 
 - **Ingest anything** — RSS/Atom/JSON Feed、JSON API、Static HTML、Webhook、手工条目、本地文件、阅读批注，统一为 Entry。
 - **Read on your terms** — 收件箱、Folder、标签、持久化 View；已读、收藏、隐藏、稍后读、笔记；PostgreSQL 全文与模糊搜索；OPML / 脱敏配置 / Markdown 导出。
+- **Cluster across sources** — 同一新闻的多个来源自动聚合成一条 Story；跨源合并需启用 Ollama embedding（默认关闭），配置见[部署与运维](docs/operations.md#story-语义聚合可选)。
 
 ## Quick Start
 
-镜像已发布到 GHCR，可直接拉取运行，**无需 clone 源码**。只需 Docker 与 Docker Compose。
-
-将下面的内容保存为 `docker-compose.yml`：
-
-```yaml
-services:
-  postgres:
-    image: pgvector/pgvector:pg17
-    environment:
-      POSTGRES_DB: pulse
-      POSTGRES_USER: pulse
-      POSTGRES_PASSWORD: pulse
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pulse -d pulse"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    volumes:
-      - pulse-pg:/var/lib/postgresql/data
-
-  pulse:
-    image: ghcr.io/catwenlabs/pulse:main   # 预构建镜像，直接拉取，无需构建源码
-    environment:
-      PULSE_DATABASE_URL: postgres://pulse:pulse@postgres:5432/pulse?sslmode=disable
-      PULSE_HTTP_ADDR: :8080
-      PULSE_ROLES: web,scheduler,worker,effect-worker
-      PULSE_MASTER_KEY: ${PULSE_MASTER_KEY}
-    ports:
-      - "127.0.0.1:8080:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-volumes:
-  pulse-pg:
-```
-
-启动：
-
 ```sh
+git clone https://github.com/catwenlabs/pulse.git
+cd pulse
 export PULSE_MASTER_KEY="$(openssl rand -base64 32)"   # 首次生成，妥善保存
 docker compose up -d
 curl --fail http://localhost:8080/healthz
 ```
 
-打开 [http://localhost:8080](http://localhost:8080)，健康检查位于 [`/healthz`](http://localhost:8080/healthz)。镜像标签：浮动的 `main`，以及与提交对应的不可变 `sha-<commit>`；生产环境建议使用 SHA 标签或镜像 digest。
+打开 [http://localhost:8080](http://localhost:8080)，健康检查位于 [`/healthz`](http://localhost:8080/healthz)。部署定义见仓库中的 [`compose.yaml`](compose.yaml)；镜像标签与生产建议见[部署与运维](docs/operations.md)。
 
 > [!IMPORTANT]
 > `PULSE_MASTER_KEY` 用于加密来源凭据，请保存在服务器的私密环境文件或 Secret 管理器中——**丢失后无法解密已保存的认证信息**。未配置时仍可使用无凭据来源，但 Pulse 会拒绝保存 Token、Cookie、密码或认证 Header。
@@ -136,12 +100,12 @@ make dev
 
 ## Deployment & Operations
 
-从源码部署、升级、备份恢复、导出与完整配置详见[部署与运维](docs/operations.md)。升级示例：
+部署、升级、备份恢复、导出与完整配置详见[部署与运维](docs/operations.md)。升级示例：
 
 ```sh
 make backup
 git pull --ff-only
-docker compose build --pull pulse
+docker compose pull pulse
 docker compose up -d --remove-orphans
 ```
 
