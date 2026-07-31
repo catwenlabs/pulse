@@ -17,6 +17,7 @@ import (
 	"github.com/wenpengfei/pulse/internal/preview"
 	"github.com/wenpengfei/pulse/internal/rule"
 	"github.com/wenpengfei/pulse/internal/source"
+	"github.com/wenpengfei/pulse/internal/story"
 )
 
 type fakeBackend struct {
@@ -37,6 +38,12 @@ type fakeBackend struct {
 	markEntriesRead func(context.Context, source.ID) (int64, error)
 	addEntryTag     func(context.Context, entry.ID, string) (entry.Tag, error)
 	removeEntryTag  func(context.Context, entry.ID, string) error
+	listStories     func(context.Context, story.Query) ([]story.Story, error)
+	getStory        func(context.Context, story.ID) (story.Story, error)
+	updateStory     func(context.Context, story.ID, story.Patch) (story.Story, error)
+	markStoriesRead func(context.Context, string) (int64, error)
+	mergeStories    func(context.Context, story.ID, story.ID) (story.Story, error)
+	splitStory      func(context.Context, story.ID, entry.ID) (story.Story, error)
 	importOPML      func(context.Context, []opml.Subscription) (opml.ImportResult, error)
 	exportOPML      func(context.Context) ([]opml.Subscription, error)
 	previewSource   func(context.Context, source.Spec) (preview.Result, error)
@@ -132,6 +139,42 @@ func (fake fakeBackend) AddEntryTag(ctx context.Context, id entry.ID, name strin
 
 func (fake fakeBackend) RemoveEntryTag(ctx context.Context, id entry.ID, tagID string) error {
 	return fake.removeEntryTag(ctx, id, tagID)
+}
+
+func (fake fakeBackend) ListStories(ctx context.Context, query story.Query) ([]story.Story, error) {
+	return fake.listStories(ctx, query)
+}
+
+func (fake fakeBackend) GetStory(ctx context.Context, id story.ID) (story.Story, error) {
+	return fake.getStory(ctx, id)
+}
+
+func (fake fakeBackend) UpdateStory(
+	ctx context.Context,
+	id story.ID,
+	patch story.Patch,
+) (story.Story, error) {
+	return fake.updateStory(ctx, id, patch)
+}
+
+func (fake fakeBackend) MarkStoriesRead(ctx context.Context, sourceID string) (int64, error) {
+	return fake.markStoriesRead(ctx, sourceID)
+}
+
+func (fake fakeBackend) MergeStories(
+	ctx context.Context,
+	from story.ID,
+	into story.ID,
+) (story.Story, error) {
+	return fake.mergeStories(ctx, from, into)
+}
+
+func (fake fakeBackend) SplitStory(
+	ctx context.Context,
+	storyID story.ID,
+	entryID entry.ID,
+) (story.Story, error) {
+	return fake.splitStory(ctx, storyID, entryID)
 }
 
 func (fake fakeBackend) ImportOPML(
@@ -370,6 +413,114 @@ func TestListSourcesAndEntries(t *testing.T) {
 		if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(test.want)) {
 			t.Errorf("%s status = %d, body = %s", test.path, response.Code, response.Body.String())
 		}
+	}
+}
+
+func TestListAndGetStories(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.listStories = func(_ context.Context, query story.Query) ([]story.Story, error) {
+		if query.Limit != 25 || query.Offset != 50 || query.SourceID != "source-1" {
+			t.Errorf("query = %+v", query)
+		}
+		return []story.Story{{
+			ID:             "story-1",
+			Representative: entry.Entry{ID: "entry-1", SourceTitle: "聚合新闻"},
+			EntryCount:     2,
+			SourceCount:    2,
+		}}, nil
+	}
+	backend.getStory = func(_ context.Context, id story.ID) (story.Story, error) {
+		return story.Story{
+			ID:         id,
+			Entries:    []entry.Entry{{ID: "entry-1"}, {ID: "entry-2"}},
+			EntryCount: 2,
+		}, nil
+	}
+
+	listResponse := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(listResponse, httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/stories?limit=25&offset=50&source_id=source-1",
+		nil,
+	))
+	if listResponse.Code != http.StatusOK ||
+		!strings.Contains(listResponse.Body.String(), `"source_count":2`) {
+		t.Fatalf("list status = %d, body = %s", listResponse.Code, listResponse.Body.String())
+	}
+
+	getResponse := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(getResponse, httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/stories/story-1",
+		nil,
+	))
+	if getResponse.Code != http.StatusOK ||
+		!strings.Contains(getResponse.Body.String(), `"entry-2"`) {
+		t.Fatalf("get status = %d, body = %s", getResponse.Code, getResponse.Body.String())
+	}
+}
+
+func TestMergeStories(t *testing.T) {
+	backend := completeFakeBackend()
+	var capturedFrom, capturedInto story.ID
+	backend.mergeStories = func(_ context.Context, from, into story.ID) (story.Story, error) {
+		capturedFrom, capturedInto = from, into
+		return story.Story{ID: into, Representative: entry.Entry{ID: "entry-1"}, EntryCount: 2, SourceCount: 2}, nil
+	}
+
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(response, httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/stories/story-1/merge",
+		bytes.NewBufferString(`{"into":"story-2"}`),
+	))
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `"source_count":2`) {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if capturedFrom != "story-1" || capturedInto != "story-2" {
+		t.Errorf("captured from = %q, into = %q", capturedFrom, capturedInto)
+	}
+}
+
+func TestSplitStory(t *testing.T) {
+	backend := completeFakeBackend()
+	var capturedStory story.ID
+	var capturedEntry entry.ID
+	backend.splitStory = func(_ context.Context, storyID story.ID, entryID entry.ID) (story.Story, error) {
+		capturedStory, capturedEntry = storyID, entryID
+		return story.Story{ID: "story-2", Representative: entry.Entry{ID: "entry-2"}, EntryCount: 1, SourceCount: 1}, nil
+	}
+
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(response, httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/stories/story-1/split",
+		bytes.NewBufferString(`{"entry_id":"entry-2"}`),
+	))
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `"entry-2"`) {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if capturedStory != "story-1" || capturedEntry != "entry-2" {
+		t.Errorf("captured story = %q, entry = %q", capturedStory, capturedEntry)
+	}
+}
+
+func TestMergeStoriesRejectsSelfMerge(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.mergeStories = func(_ context.Context, from, into story.ID) (story.Story, error) {
+		return story.Story{}, story.ErrSelfMerge
+	}
+
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(response, httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/stories/story-1/merge",
+		bytes.NewBufferString(`{"into":"story-1"}`),
+	))
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
 
@@ -863,6 +1014,24 @@ func completeFakeBackend() fakeBackend {
 		},
 		removeEntryTag: func(context.Context, entry.ID, string) error {
 			return errors.New("unexpected RemoveEntryTag")
+		},
+		listStories: func(context.Context, story.Query) ([]story.Story, error) {
+			return nil, nil
+		},
+		getStory: func(context.Context, story.ID) (story.Story, error) {
+			return story.Story{}, entry.ErrNotFound
+		},
+		updateStory: func(context.Context, story.ID, story.Patch) (story.Story, error) {
+			return story.Story{}, errors.New("unexpected UpdateStory")
+		},
+		markStoriesRead: func(context.Context, string) (int64, error) {
+			return 0, errors.New("unexpected MarkStoriesRead")
+		},
+		mergeStories: func(context.Context, story.ID, story.ID) (story.Story, error) {
+			return story.Story{}, errors.New("unexpected MergeStories")
+		},
+		splitStory: func(context.Context, story.ID, entry.ID) (story.Story, error) {
+			return story.Story{}, errors.New("unexpected SplitStory")
 		},
 		importOPML: func(context.Context, []opml.Subscription) (opml.ImportResult, error) {
 			return opml.ImportResult{}, errors.New("unexpected ImportOPML")

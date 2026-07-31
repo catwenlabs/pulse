@@ -54,6 +54,61 @@ describe('App', () => {
           headers: { 'Content-Type': 'application/json' },
         })
       }
+      if (url.includes('/api/v1/stories')) {
+        const representative = {
+          id: 'entry-1',
+          source_id: 'source-1',
+          identity_key: 'external:entry-1',
+          source_title: 'Reader article',
+          display_title: '',
+          author: 'Ada',
+          summary: 'A useful summary',
+          content_html: '<h2>Section title</h2><p>Article body</p><img src="https://images.example/cover.jpg" alt="Cover"><script>alert("unsafe")</script>',
+          discovered_at: '2026-07-25T00:00:00Z',
+          note: '',
+        }
+        if (init?.method === 'PATCH' && /\/stories\/[^?]+$/.test(url)) {
+          const patch = JSON.parse(String(init.body)) as {
+            read?: boolean
+            starred?: boolean
+            later?: boolean
+          }
+          return new Response(JSON.stringify({
+            id: 'story-1',
+            representative: {
+              ...representative,
+              read_at: patch.read === false ? undefined : '2026-07-25T01:00:00Z',
+              starred_at: patch.starred ? '2026-07-25T01:00:00Z' : undefined,
+              later_at: patch.later ? '2026-07-25T01:00:00Z' : undefined,
+            },
+            entries: [representative],
+            entry_count: 1,
+            source_count: 1,
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        }
+        if (init?.method === 'PATCH') {
+          return new Response(JSON.stringify({ updated_count: 1 }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
+        return new Response(JSON.stringify(
+          /\/stories\/[^?]+$/.test(url)
+            ? {
+                id: 'story-1',
+                representative,
+                entries: [representative],
+                entry_count: 1,
+                source_count: 1,
+              }
+            : [{
+                id: 'story-1',
+                representative,
+                entry_count: 1,
+                source_count: 1,
+              }],
+        ), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
       if (url.includes('/api/v1/entries')) {
         if (init?.method === 'PATCH' && !url.includes('/entries/')) {
           return new Response(JSON.stringify({ updated_count: 1 }), {
@@ -440,7 +495,7 @@ describe('App', () => {
 
     await waitFor(() => {
       const patches = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
-        String(url).endsWith('/api/v1/entries/entry-1') && init?.method === 'PATCH')
+        String(url).endsWith('/api/v1/stories/story-1') && init?.method === 'PATCH')
       expect(patches).toHaveLength(1)
       expect(JSON.parse(String(patches[0][1]?.body))).toEqual({ read: true })
     })
@@ -459,9 +514,12 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存标题与笔记' }))
 
     await waitFor(() => {
-      const patches = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
+      const entryPatches = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
         String(url).endsWith('/api/v1/entries/entry-1') && init?.method === 'PATCH')
-      expect(patches).toHaveLength(4)
+      const storyPatches = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
+        String(url).endsWith('/api/v1/stories/story-1') && init?.method === 'PATCH')
+      expect(entryPatches).toHaveLength(1)
+      expect(storyPatches).toHaveLength(3)
     })
 
     fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }), { button: 0 })
@@ -474,9 +532,71 @@ describe('App', () => {
     fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }), { button: 0 })
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => {
-      const patches = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
+      const entryPatches = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
         String(url).endsWith('/api/v1/entries/entry-1') && init?.method === 'PATCH')
-      expect(patches).toHaveLength(4)
+      const storyPatches = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
+        String(url).endsWith('/api/v1/stories/story-1') && init?.method === 'PATCH')
+      expect(entryPatches).toHaveLength(1)
+      expect(storyPatches).toHaveLength(3)
+    })
+  })
+
+  it('splits a member entry out of a story and merges the story into another', async () => {
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    })
+    const first = {
+      id: 'entry-1', source_id: 'source-1', identity_key: 'x:1', source_title: 'First story',
+      display_title: '', author: 'Ada', summary: '', content_html: '<p>body one</p>',
+      discovered_at: '2026-07-25T00:00:00Z', read_at: '2026-07-25T00:00:00Z', note: '',
+    }
+    const alt = {
+      id: 'entry-2', source_id: 'source-2', identity_key: 'x:2', source_title: 'Alt source',
+      display_title: '', author: 'Bo', summary: '', content_html: '<p>body two</p>',
+      discovered_at: '2026-07-25T00:00:00Z', note: '',
+    }
+    const second = {
+      id: 'entry-3', source_id: 'source-3', identity_key: 'x:3', source_title: 'Second story',
+      display_title: '', author: 'Cy', summary: '', content_html: '<p>body three</p>',
+      discovered_at: '2026-07-25T00:00:00Z', read_at: '2026-07-25T00:00:00Z', note: '',
+    }
+    const folder = { id: 'folder-1', name: 'Tech', source_count: 1, source_ids: ['source-1'] }
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/healthz')) return json({ status: 'ok' })
+      if (url.endsWith('/api/v1/folders')) return json([folder])
+      if (url.endsWith('/api/v1/sources')) return json([source])
+      if (url.includes('/stories/story-1/merge')) return json({ id: 'story-2', representative: second, entries: [second], entry_count: 1, source_count: 1 })
+      if (url.includes('/stories/story-1/split')) return json({ id: 'story-3', representative: alt, entries: [alt], entry_count: 1, source_count: 1 })
+      if (/\/api\/v1\/stories\/story-1$/.test(url)) return json({ id: 'story-1', representative: first, entries: [first, alt], entry_count: 2, source_count: 2 })
+      if (url.includes('/api/v1/stories')) return json([
+        { id: 'story-1', representative: first, entry_count: 2, source_count: 2 },
+        { id: 'story-2', representative: second, entry_count: 1, source_count: 1 },
+      ])
+      return json([])
+    }))
+
+    render(<App />)
+    await screen.findByRole('button', { name: 'Example Feed' })
+    await screen.findByText('First story')
+
+    fireEvent.click(screen.getByText('First story'))
+    fireEvent.click(await screen.findByRole('button', { name: '拆分 Alt source' }))
+    await waitFor(() => {
+      const splitCalls = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
+        String(url).includes('/stories/story-1/split') && init?.method === 'POST')
+      expect(splitCalls).toHaveLength(1)
+      expect(JSON.parse(String(splitCalls[0][1]?.body))).toEqual({ entry_id: 'entry-2' })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '合并到其他 Story' }))
+    fireEvent.click(screen.getByRole('button', { name: '合并到：Second story' }))
+    await waitFor(() => {
+      const mergeCalls = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
+        String(url).includes('/stories/story-1/merge') && init?.method === 'POST')
+      expect(mergeCalls).toHaveLength(1)
+      expect(JSON.parse(String(mergeCalls[0][1]?.body))).toEqual({ into: 'story-2' })
     })
   })
 
@@ -869,7 +989,7 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '将全部文章标记为已读' }))
     await waitFor(() => {
-      expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/entries', expect.objectContaining({
+      expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/stories', expect.objectContaining({
         method: 'PATCH',
         body: JSON.stringify({ read: true }),
       }))
@@ -879,7 +999,7 @@ describe('App', () => {
     await screen.findByRole('heading', { name: 'Example Feed' })
     fireEvent.click(screen.getByRole('button', { name: '将 Example Feed 全部标记为已读' }))
     await waitFor(() => {
-      expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/entries?source_id=source-1', expect.objectContaining({
+      expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/stories?source_id=source-1', expect.objectContaining({
         method: 'PATCH',
         body: JSON.stringify({ read: true }),
       }))

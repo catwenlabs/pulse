@@ -11,6 +11,7 @@ import (
 	"github.com/wenpengfei/pulse/internal/preview"
 	"github.com/wenpengfei/pulse/internal/rule"
 	"github.com/wenpengfei/pulse/internal/source"
+	"github.com/wenpengfei/pulse/internal/story"
 )
 
 type sourceRepository interface {
@@ -36,6 +37,15 @@ type entryRepository interface {
 	MarkRead(context.Context, source.ID) (int64, error)
 	AddTag(context.Context, entry.ID, string) (entry.Tag, error)
 	RemoveTag(context.Context, entry.ID, string) error
+}
+
+type storyRepository interface {
+	Search(context.Context, story.Query) ([]story.Story, error)
+	Get(context.Context, story.ID) (story.Story, error)
+	Update(context.Context, story.ID, story.Patch) (story.Story, error)
+	MarkRead(context.Context, string) (int64, error)
+	MergeManual(context.Context, story.ID, story.ID) error
+	Split(context.Context, story.ID, entry.ID) (story.ID, error)
 }
 
 type opmlRepository interface {
@@ -77,6 +87,7 @@ type backend struct {
 	previewer    sourcePreviewer
 	organization organizationRepository
 	rules        ruleRepository
+	stories      storyRepository
 }
 
 func NewBackend(
@@ -86,6 +97,7 @@ func NewBackend(
 	opmlRepository opmlRepository,
 	previewer sourcePreviewer,
 	organizationStore organizationRepository,
+	storyStore storyRepository,
 	ruleStores ...ruleRepository,
 ) Backend {
 	service := &backend{
@@ -95,11 +107,55 @@ func NewBackend(
 		opml:         opmlRepository,
 		previewer:    previewer,
 		organization: organizationStore,
+		stories:      storyStore,
 	}
 	if len(ruleStores) > 0 {
 		service.rules = ruleStores[0]
 	}
 	return service
+}
+
+func (service *backend) ListStories(ctx context.Context, query story.Query) ([]story.Story, error) {
+	return service.stories.Search(ctx, query)
+}
+
+func (service *backend) GetStory(ctx context.Context, id story.ID) (story.Story, error) {
+	return service.stories.Get(ctx, id)
+}
+
+func (service *backend) UpdateStory(
+	ctx context.Context,
+	id story.ID,
+	patch story.Patch,
+) (story.Story, error) {
+	return service.stories.Update(ctx, id, patch)
+}
+
+func (service *backend) MarkStoriesRead(ctx context.Context, sourceID string) (int64, error) {
+	return service.stories.MarkRead(ctx, sourceID)
+}
+
+func (service *backend) MergeStories(
+	ctx context.Context,
+	from story.ID,
+	into story.ID,
+) (story.Story, error) {
+	if err := service.stories.MergeManual(ctx, from, into); err != nil {
+		return story.Story{}, err
+	}
+	return service.stories.Get(ctx, into)
+}
+
+func (service *backend) SplitStory(
+	ctx context.Context,
+	storyID story.ID,
+	entryID entry.ID,
+) (story.Story, error) {
+	newID, err := service.stories.Split(ctx, storyID, entryID)
+	if err != nil {
+		return story.Story{}, err
+	}
+	return service.stories.Get(ctx, newID)
 }
 
 func (service *backend) CreateRule(ctx context.Context, definition rule.Rule) (rule.Rule, error) {

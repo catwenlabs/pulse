@@ -26,6 +26,7 @@ import (
 	"github.com/wenpengfei/pulse/internal/preview"
 	"github.com/wenpengfei/pulse/internal/rule"
 	"github.com/wenpengfei/pulse/internal/source"
+	"github.com/wenpengfei/pulse/internal/story"
 )
 
 type Backend interface {
@@ -54,6 +55,12 @@ type Backend interface {
 	MarkEntriesRead(context.Context, source.ID) (int64, error)
 	AddEntryTag(context.Context, entry.ID, string) (entry.Tag, error)
 	RemoveEntryTag(context.Context, entry.ID, string) error
+	ListStories(context.Context, story.Query) ([]story.Story, error)
+	GetStory(context.Context, story.ID) (story.Story, error)
+	UpdateStory(context.Context, story.ID, story.Patch) (story.Story, error)
+	MarkStoriesRead(context.Context, string) (int64, error)
+	MergeStories(context.Context, story.ID, story.ID) (story.Story, error)
+	SplitStory(context.Context, story.ID, entry.ID) (story.Story, error)
 	ImportOPML(context.Context, []opml.Subscription) (opml.ImportResult, error)
 	ExportOPML(context.Context) ([]opml.Subscription, error)
 	PreviewSource(context.Context, source.Spec) (preview.Result, error)
@@ -107,6 +114,12 @@ func newHandler(backend Backend, web fs.FS) http.Handler {
 	mux.HandleFunc("POST /api/v1/entries/{id}/tags", addEntryTag(backend))
 	mux.HandleFunc("DELETE /api/v1/entries/{id}/tags/{tagID}", removeEntryTag(backend))
 	mux.HandleFunc("GET /api/v1/entries/{id}/export.md", exportEntryMarkdown(backend))
+	mux.HandleFunc("GET /api/v1/stories", listStories(backend))
+	mux.HandleFunc("PATCH /api/v1/stories", markStoriesRead(backend))
+	mux.HandleFunc("GET /api/v1/stories/{id}", getStory(backend))
+	mux.HandleFunc("PATCH /api/v1/stories/{id}", updateStory(backend))
+	mux.HandleFunc("POST /api/v1/stories/{id}/merge", mergeStory(backend))
+	mux.HandleFunc("POST /api/v1/stories/{id}/split", splitStory(backend))
 	mux.HandleFunc("POST /api/v1/opml/import", importOPML(backend))
 	mux.HandleFunc("GET /api/v1/opml/export", exportOPML(backend))
 	mux.HandleFunc("GET /api/v1/folders", listFolders(backend))
@@ -128,6 +141,166 @@ func newHandler(backend Backend, web fs.FS) http.Handler {
 	mux.HandleFunc("GET /api/v1/export/config", exportConfig(backend))
 	registerWeb(mux, web)
 	return mux
+}
+
+func listStories(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		limit, offset, ok := pagination(w, request)
+		if !ok {
+			return
+		}
+		items, err := backend.ListStories(request.Context(), story.Query{
+			Limit:    limit,
+			Offset:   offset,
+			Search:   request.URL.Query().Get("q"),
+			State:    request.URL.Query().Get("state"),
+			Tag:      request.URL.Query().Get("tag"),
+			SourceID: request.URL.Query().Get("source_id"),
+		})
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, nonNilSlice(items))
+	}
+}
+
+func getStory(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		item, err := backend.GetStory(request.Context(), story.ID(request.PathValue("id")))
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, item)
+	}
+}
+
+func updateStory(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Read    *bool `json:"read"`
+			Starred *bool `json:"starred"`
+			Hidden  *bool `json:"hidden"`
+			Later   *bool `json:"later"`
+		}
+		if err := decodeJSONBody(w, request, &body); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		updated, err := backend.UpdateStory(
+			request.Context(),
+			story.ID(request.PathValue("id")),
+			story.Patch{
+				Read: body.Read, Starred: body.Starred,
+				Hidden: body.Hidden, Later: body.Later,
+			},
+		)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, updated)
+	}
+}
+
+func mergeStory(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Into string `json:"into"`
+		}
+		if err := decodeJSONBody(w, request, &body); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		if body.Into == "" {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", "into is required", "into")
+			return
+		}
+		merged, err := backend.MergeStories(
+			request.Context(),
+			story.ID(request.PathValue("id")),
+			story.ID(body.Into),
+		)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, merged)
+	}
+}
+
+func splitStory(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			EntryID string `json:"entry_id"`
+		}
+		if err := decodeJSONBody(w, request, &body); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		if body.EntryID == "" {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", "entry_id is required", "entry_id")
+			return
+		}
+		split, err := backend.SplitStory(
+			request.Context(),
+			story.ID(request.PathValue("id")),
+			entry.ID(body.EntryID),
+		)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, split)
+	}
+}
+
+func markStoriesRead(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Read bool `json:"read"`
+		}
+		if err := decodeJSONBody(w, request, &body); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		if !body.Read {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", "read must be true", "read")
+			return
+		}
+		count, err := backend.MarkStoriesRead(
+			request.Context(),
+			request.URL.Query().Get("source_id"),
+		)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]int64{"updated_count": count})
+	}
+}
+
+func pagination(w http.ResponseWriter, request *http.Request) (int, int, bool) {
+	limit := 50
+	if value := request.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 200 {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", "limit must be between 1 and 200", "limit")
+			return 0, 0, false
+		}
+		limit = parsed
+	}
+	offset := 0
+	if value := request.URL.Query().Get("offset"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 0 {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", "offset must be zero or greater", "offset")
+			return 0, 0, false
+		}
+		offset = parsed
+	}
+	return limit, offset, true
 }
 
 func exportConfig(backend Backend) http.HandlerFunc {
@@ -1033,6 +1206,8 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusNotFound, "source_not_found", err.Error(), "")
 	case errors.Is(err, entry.ErrNotFound):
 		writeProblem(w, http.StatusNotFound, "entry_not_found", err.Error(), "")
+	case errors.Is(err, story.ErrSelfMerge):
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "into")
 	default:
 		writeProblem(w, http.StatusInternalServerError, "internal_error", "internal server error", "")
 	}

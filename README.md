@@ -326,8 +326,24 @@ make dev-api \
 | `PULSE_MASTER_KEY` | 空 | Base64 编码的 32 字节来源凭据主密钥 |
 | `PULSE_WEB_DIR` | `/web` | 已构建前端静态文件目录 |
 | `PULSE_IMPORT_ROOTS` | `/data/imports` | File Source 允许读取的路径列表 |
+| `PULSE_EMBEDDING_PROVIDER` | `disabled` | Story 语义聚合 Provider；可设为 `ollama` |
+| `PULSE_EMBEDDING_BASE_URL` | `http://127.0.0.1:11434` | Embedding 服务基础地址，不包含 `/api/embed` |
+| `PULSE_EMBEDDING_MODEL` | `qwen3-embedding` | Embedding 模型名称 |
 
 本机使用 Vite 时，浏览器访问 `5173`，Go 后端只需在 `8080` 提供 API；正式镜像则由 Go 服务直接提供 `/web` 中的前端静态资源。
+
+Story 聚合在未启用 embedding 时仍使用 URL、标题和正文指纹。启用本地 Ollama：
+
+```sh
+ollama pull qwen3-embedding
+export PULSE_EMBEDDING_PROVIDER=ollama
+export PULSE_EMBEDDING_BASE_URL=http://127.0.0.1:11434
+export PULSE_EMBEDDING_MODEL=qwen3-embedding
+```
+
+Pulse 在 Ollama 不可用时自动使用传统文本算法；Entry 摄取和 Checkpoint 不受影响。
+容器内的 `127.0.0.1` 指向 Pulse 容器本身，Compose 部署时应把
+`PULSE_EMBEDDING_BASE_URL` 设置为可从 Pulse 容器访问的 Ollama 服务地址。
 
 Pulse 当前不提供内置用户认证，并且阅读批注可能包含敏感内容。直接运行程序和默认 Compose 端口映射都只对本机开放；容器内部仍监听 `:8080`。不要将该端口直接暴露到公网；需要让 iPhone 等其他设备访问时，应通过可信 VPN 或带认证的反向代理开放，而不是直接改成公网监听。
 
@@ -339,7 +355,13 @@ Pulse 当前不提供内置用户认证，并且阅读批注可能包含敏感�
 make test
 make test-race
 make vet
-docker compose config --quiet
+make compose-config
+```
+
+RSS 浏览器端到端流程需要先启动完整应用，再运行：
+
+```sh
+make e2e
 ```
 
 GitHub Actions 会在 Pull Request 和 `main` 推送时执行后端、前端与容器验证；只有全部通过后才发布 GHCR 镜像。

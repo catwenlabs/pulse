@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 
 import * as api from './api'
-import type { AnnotationInput, CreateSourceInput, Entry, EntryPatch, Folder, PreviewResult, Source, SourceHealth, SourceKind } from './api'
+import type { AnnotationInput, CreateSourceInput, Entry, EntryPatch, Folder, PreviewResult, Source, SourceHealth, SourceKind, Story } from './api'
 import { Button, buttonVariants } from './components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, SheetContent } from './components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu'
@@ -1408,9 +1408,11 @@ function Reader({
   mobile: boolean
 }) {
   const [entries, setEntries] = useState<Entry[]>([])
+  const [storiesByEntry, setStoriesByEntry] = useState<Record<string, Story>>({})
   const [selected, setSelected] = useState<Entry | null>(null)
   const [actionMenuOpen, setActionMenuOpen] = useState(false)
   const [notesOpen, setNotesOpen] = useState(false)
+  const [mergePickerOpen, setMergePickerOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -1449,14 +1451,26 @@ function Reader({
     setLoading(true)
     setError('')
     const state = view === 'inbox' ? 'inbox' : view
-    void api.listEntries({
+    const query = {
       q: debouncedSearch,
       state,
       sourceId: sourceID || undefined,
       limit: pageSize,
-    }).then((items) => {
+    }
+    const request = sourceID
+      ? api.listEntries(query).then((items) => items.map((item) => ({
+          id: `entry:${item.id}`,
+          representative: item,
+          entries: [item],
+          entry_count: 1,
+          source_count: 1,
+        } satisfies Story)))
+      : api.listStories(query)
+    void request.then((stories) => {
       if (cancelled) return
+      const items = stories.map((story) => story.representative)
       setEntries(items)
+      setStoriesByEntry(Object.fromEntries(stories.map((story) => [story.representative.id, story])))
       setHasMore(items.length === pageSize)
       setSelected((current) => items.find((item) => item.id === current?.id) ?? null)
     }).catch((cause: unknown) => {
@@ -1474,14 +1488,28 @@ function Reader({
     setError('')
     try {
       const state = view === 'inbox' ? 'inbox' : view
-      const items = await api.listEntries({
+      const query = {
         q: debouncedSearch,
         state,
         sourceId: sourceID || undefined,
         limit: pageSize,
         offset: entries.length,
-      })
+      }
+      const stories = sourceID
+        ? (await api.listEntries(query)).map((item) => ({
+            id: `entry:${item.id}`,
+            representative: item,
+            entries: [item],
+            entry_count: 1,
+            source_count: 1,
+          } satisfies Story))
+        : await api.listStories(query)
+      const items = stories.map((story) => story.representative)
       setEntries((current) => [...current, ...items])
+      setStoriesByEntry((current) => ({
+        ...current,
+        ...Object.fromEntries(stories.map((story) => [story.representative.id, story])),
+      }))
       setHasMore(items.length === pageSize)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '加载更多文章失败')
@@ -1501,9 +1529,59 @@ function Reader({
   }, [selected])
 
   async function patch(item: Entry, change: EntryPatch) {
-    const updated = await api.updateEntry(item.id, change)
+    const cluster = storiesByEntry[item.id]
+    const changesEntryContent = change.display_title !== undefined || change.note !== undefined
+    let updated: Entry
+    if (!sourceID && cluster && !changesEntryContent) {
+      const updatedStory = await api.updateStory(cluster.id, change)
+      updated = updatedStory.representative
+      setStoriesByEntry((current) => ({ ...current, [item.id]: updatedStory }))
+    } else {
+      updated = await api.updateEntry(item.id, change)
+    }
     setEntries((current) => current.map((candidate) => candidate.id === updated.id ? updated : candidate))
+    setStoriesByEntry((current) => {
+      const story = current[updated.id]
+      return story ? { ...current, [updated.id]: { ...story, representative: updated } } : current
+    })
     setSelected((current) => current?.id === updated.id ? updated : current)
+  }
+
+  async function splitEntryFromStory(entryId: string) {
+    const story = selected ? storiesByEntry[selected.id] : undefined
+    if (!story?.entries) return
+    try {
+      await api.splitStory(story.id, entryId)
+      setStoriesByEntry((current) => {
+        const existing = current[selected.id]
+        if (!existing?.entries) return current
+        const remaining = existing.entries.filter((candidate) => candidate.id !== entryId)
+        return {
+          ...current,
+          [selected.id]: {
+            ...existing,
+            entries: remaining,
+            entry_count: remaining.length,
+            source_count: new Set(remaining.map((candidate) => candidate.source_id)).size,
+          },
+        }
+      })
+    } catch (cause) {
+      setReaderNotice(cause instanceof Error ? cause.message : '拆分报道失败')
+    }
+  }
+
+  async function mergeStoryInto(targetStoryId: string) {
+    const story = selected ? storiesByEntry[selected.id] : undefined
+    if (!story || story.id === targetStoryId) return
+    try {
+      await api.mergeStory(story.id, targetStoryId)
+      setMergePickerOpen(false)
+      setEntries((current) => current.filter((candidate) => candidate.id !== selected.id))
+      closeSelectedEntry()
+    } catch (cause) {
+      setReaderNotice(cause instanceof Error ? cause.message : '合并 Story 失败')
+    }
   }
 
   function toggleEntry(item: Entry, element: HTMLElement) {
@@ -1520,13 +1598,21 @@ function Reader({
     if (!item.read_at) {
       void patch(item, { read: true })
     }
+    const story = storiesByEntry[item.id]
+    if (story && story.entry_count > 1 && !story.entries) {
+      void api.getStory(story.id).then((detail) => {
+        setStoriesByEntry((current) => ({ ...current, [item.id]: detail }))
+      }).catch(() => {
+        // The representative Entry remains readable when Story detail loading fails.
+      })
+    }
   }
 
   async function markAllRead() {
     setMarkingAllRead(true)
     setReaderNotice('')
     try {
-      const result = await api.markEntriesRead(sourceID || undefined)
+      const result = await api.markStoriesRead(sourceID || undefined)
       const readAt = new Date().toISOString()
       setEntries((current) => current.map((item) => item.read_at ? item : { ...item, read_at: readAt }))
       setSelected((current) => current && !current.read_at ? { ...current, read_at: readAt } : current)
@@ -1600,7 +1686,12 @@ function Reader({
               >
                 <span className={cn('size-1.5 rounded-full bg-primary', item.read_at && 'border border-muted-foreground bg-transparent')} aria-hidden="true" />
                 <span className="truncate text-sm font-medium text-[#66717d] max-md:hidden">
-                  <HighlightText text={sourceNames[item.source_id] || item.author || '未知来源'} query={debouncedSearch} />
+                  <HighlightText
+                    text={storiesByEntry[item.id]?.source_count > 1
+                      ? `${storiesByEntry[item.id].source_count} 个来源`
+                      : sourceNames[item.source_id] || item.author || '未知来源'}
+                    query={debouncedSearch}
+                  />
                 </span>
                 <strong className="min-w-0 truncate text-base font-semibold leading-6 max-md:col-start-2">
                   <HighlightText text={item.display_title || item.source_title || '无标题'} query={debouncedSearch} />
@@ -1655,6 +1746,68 @@ function Reader({
                       </div>
                     </div>
                     <h2>{selected.display_title || selected.source_title || '无标题'}</h2>
+                    {(storiesByEntry[item.id]?.entries?.length ?? 0) > 1 && (
+                      <div className="mb-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                        <span>相关来源：</span>
+                        {storiesByEntry[item.id].entries!.map((sourceEntry) => (
+                          <span className="inline-flex items-center gap-1" key={sourceEntry.id}>
+                            <a
+                              className="text-primary hover:underline"
+                              href={sourceEntry.canonical_url || undefined}
+                              rel="noreferrer"
+                              target={sourceEntry.canonical_url ? '_blank' : undefined}
+                            >
+                              {sourceNames[sourceEntry.source_id] || sourceEntry.author || sourceEntry.source_title || '未知来源'}
+                            </a>
+                            {sourceEntry.id !== selected.id && (
+                              <Button
+                                unstyled
+                                className="text-xs text-muted-foreground hover:text-foreground"
+                                aria-label={`拆分 ${sourceEntry.source_title || '来源'}`}
+                                onClick={() => splitEntryFromStory(sourceEntry.id)}
+                              >
+                                拆分
+                              </Button>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {(() => {
+                      const current = storiesByEntry[selected.id]
+                      if (!current) return null
+                      const targets = entries
+                        .map((candidate) => storiesByEntry[candidate.id])
+                        .filter((story): story is Story => Boolean(story) && story.id !== current.id)
+                      if (targets.length === 0) return null
+                      return (
+                        <div className="mb-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                          <Button
+                            unstyled
+                            className="text-primary hover:underline"
+                            aria-expanded={mergePickerOpen}
+                            aria-label="合并到其他 Story"
+                            onClick={() => setMergePickerOpen((open) => !open)}
+                          >
+                            合并到其他 Story
+                          </Button>
+                          {mergePickerOpen && (
+                            <div className="flex flex-wrap gap-2">
+                              {targets.map((target) => (
+                                <Button
+                                  key={target.id}
+                                  unstyled
+                                  className="rounded border border-border px-2 py-0.5 text-xs hover:bg-accent"
+                                  onClick={() => mergeStoryInto(target.id)}
+                                >
+                                  合并到：{target.representative.display_title || target.representative.source_title || '无标题'}
+                                </Button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
                     <div
                       className="entry-prose"
                       dangerouslySetInnerHTML={{

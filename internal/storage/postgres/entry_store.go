@@ -13,6 +13,7 @@ import (
 	"github.com/wenpengfei/pulse/internal/entry"
 	"github.com/wenpengfei/pulse/internal/ingestion"
 	"github.com/wenpengfei/pulse/internal/source"
+	"github.com/wenpengfei/pulse/internal/story"
 )
 
 type EntryStore struct {
@@ -193,6 +194,34 @@ func (store *EntryStore) Update(ctx context.Context, id entry.ID, patch entry.Pa
 	if err := applyEnabledRulesTx(ctx, tx, id); err != nil {
 		return entry.Entry{}, fmt.Errorf("re-evaluate rules for entry %s: %w", id, err)
 	}
+	if patch.Read != nil || patch.Starred != nil || patch.Hidden != nil || patch.Later != nil {
+		if _, err := tx.Exec(ctx, `
+			WITH target_story AS (
+				UPDATE stories AS story
+				SET
+					read_at = target.read_at,
+					starred_at = target.starred_at,
+					hidden_at = target.hidden_at,
+					later_at = target.later_at,
+					updated_at = now()
+				FROM story_entries AS membership
+				JOIN entries AS target ON target.id = membership.entry_id
+				WHERE membership.entry_id = $1 AND story.id = membership.story_id
+				RETURNING story.id, story.read_at, story.starred_at, story.hidden_at, story.later_at
+			)
+			UPDATE entries AS member
+			SET
+				read_at = target_story.read_at,
+				starred_at = target_story.starred_at,
+				hidden_at = target_story.hidden_at,
+				later_at = target_story.later_at
+			FROM story_entries AS membership, target_story
+			WHERE membership.story_id = target_story.id
+			  AND membership.entry_id = member.id
+		`, id); err != nil {
+			return entry.Entry{}, fmt.Errorf("synchronize Story state for entry %s: %w", id, err)
+		}
+	}
 	item, err := scanEntry(tx.QueryRow(ctx, `
 		SELECT
 			entry.id, entry.source_id, entry.identity_key, entry.external_id, entry.canonical_url,
@@ -214,16 +243,7 @@ func (store *EntryStore) Update(ctx context.Context, id entry.ID, patch entry.Pa
 }
 
 func (store *EntryStore) MarkRead(ctx context.Context, sourceID source.ID) (int64, error) {
-	result, err := store.pool.Exec(ctx, `
-		UPDATE entries
-		SET read_at = now()
-		WHERE read_at IS NULL
-		  AND ($1 = '' OR source_id = $1::uuid)
-	`, sourceID)
-	if err != nil {
-		return 0, fmt.Errorf("mark entries read: %w", err)
-	}
-	return result.RowsAffected(), nil
+	return NewStoryStore(store.pool).MarkRead(ctx, string(sourceID))
 }
 
 func (store *EntryStore) AddTag(ctx context.Context, id entry.ID, name string) (entry.Tag, error) {
@@ -323,9 +343,14 @@ func (store *EntryStore) CommitBatch(
 		if err != nil {
 			return err
 		}
+		content := candidate.ContentHTML
+		if content == "" {
+			content = candidate.Summary
+		}
 		identified = append(identified, identifiedCandidate{
 			identityKey: identityKey,
 			candidate:   candidate,
+			features:    story.BuildFeatures(candidate.Title, content),
 		})
 	}
 	if len(checkpoint) == 0 {
@@ -349,9 +374,10 @@ func (store *EntryStore) CommitBatch(
 		err := tx.QueryRow(ctx, `
 			INSERT INTO entries (
 				source_id, identity_key, external_id, canonical_url,
-				source_title, author, summary, content_html, published_at
+				source_title, author, summary, content_html, published_at,
+				normalized_title, content_hash, content_simhash
 			)
-			SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
+			SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 			WHERE NOT EXISTS (
 				SELECT 1
 				FROM entry_tombstones
@@ -366,6 +392,33 @@ func (store *EntryStore) CommitBatch(
 				summary = EXCLUDED.summary,
 				content_html = EXCLUDED.content_html,
 				published_at = EXCLUDED.published_at,
+				normalized_title = EXCLUDED.normalized_title,
+				content_hash = EXCLUDED.content_hash,
+				content_simhash = EXCLUDED.content_simhash,
+				embedding = CASE
+					WHEN (entries.source_title, entries.summary, entries.content_html, entries.published_at)
+						IS DISTINCT FROM
+						(EXCLUDED.source_title, EXCLUDED.summary, EXCLUDED.content_html, EXCLUDED.published_at)
+					THEN NULL ELSE entries.embedding
+				END,
+				embedding_model = CASE
+					WHEN (entries.source_title, entries.summary, entries.content_html, entries.published_at)
+						IS DISTINCT FROM
+						(EXCLUDED.source_title, EXCLUDED.summary, EXCLUDED.content_html, EXCLUDED.published_at)
+					THEN '' ELSE entries.embedding_model
+				END,
+				embedding_updated_at = CASE
+					WHEN (entries.source_title, entries.summary, entries.content_html, entries.published_at)
+						IS DISTINCT FROM
+						(EXCLUDED.source_title, EXCLUDED.summary, EXCLUDED.content_html, EXCLUDED.published_at)
+					THEN NULL ELSE entries.embedding_updated_at
+				END,
+				embedding_attempted_at = CASE
+					WHEN (entries.source_title, entries.summary, entries.content_html, entries.published_at)
+						IS DISTINCT FROM
+						(EXCLUDED.source_title, EXCLUDED.summary, EXCLUDED.content_html, EXCLUDED.published_at)
+					THEN NULL ELSE entries.embedding_attempted_at
+				END,
 				source_updated_at = now(),
 				source_deleted = false
 			RETURNING id, (xmax = 0)
@@ -379,6 +432,9 @@ func (store *EntryStore) CommitBatch(
 			candidate.Summary,
 			candidate.ContentHTML,
 			candidate.PublishedAt,
+			item.features.NormalizedTitle,
+			item.features.ContentHash,
+			int64(item.features.ContentSimHash),
 		).Scan(&entryID, &inserted)
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue
@@ -414,6 +470,50 @@ func (store *EntryStore) CommitBatch(
 		}
 		if err := applyEnabledRulesTx(ctx, tx, entryID); err != nil {
 			return fmt.Errorf("apply rules to entry %q: %w", item.identityKey, err)
+		}
+		if _, err := tx.Exec(ctx, `
+			WITH created AS (
+				INSERT INTO stories (
+					representative_entry_id,
+					first_published_at,
+					last_published_at,
+					read_at,
+					starred_at,
+					hidden_at,
+					later_at
+				)
+				SELECT
+					entry.id,
+					coalesce($2::timestamptz, entry.discovered_at),
+					coalesce($2::timestamptz, entry.discovered_at),
+					entry.read_at,
+					entry.starred_at,
+					entry.hidden_at,
+					entry.later_at
+				FROM entries AS entry
+				WHERE entry.id = $1
+				  AND NOT EXISTS (
+					SELECT 1 FROM story_entries WHERE entry_id = $1
+				  )
+				RETURNING id
+			)
+			INSERT INTO story_entries (story_id, entry_id, match_method, final_score)
+			SELECT id, $1, 'singleton', 1 FROM created
+		`, entryID, candidate.PublishedAt); err != nil {
+			return fmt.Errorf("ensure Story for entry %q: %w", item.identityKey, err)
+		}
+		if !inserted {
+			if _, err := tx.Exec(ctx, `
+				UPDATE stories
+				SET clustered_at = NULL, updated_at = now()
+				WHERE id = (
+					SELECT story_id
+					FROM story_entries
+					WHERE entry_id = $1
+				)
+			`, entryID); err != nil {
+				return fmt.Errorf("schedule Story refresh for entry %q: %w", item.identityKey, err)
+			}
 		}
 		if inserted {
 			newCount++
@@ -460,4 +560,5 @@ func (store *EntryStore) CommitBatch(
 type identifiedCandidate struct {
 	identityKey string
 	candidate   ingestion.Candidate
+	features    story.Features
 }

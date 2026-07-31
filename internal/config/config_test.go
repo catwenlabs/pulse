@@ -28,16 +28,28 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if len(cfg.Roles) != 4 {
 		t.Fatalf("Roles count = %d, want 4", len(cfg.Roles))
 	}
+	if cfg.EmbeddingProvider != "disabled" {
+		t.Errorf("EmbeddingProvider = %q, want disabled", cfg.EmbeddingProvider)
+	}
+	if cfg.EmbeddingBaseURL != "http://127.0.0.1:11434" {
+		t.Errorf("EmbeddingBaseURL = %q", cfg.EmbeddingBaseURL)
+	}
+	if cfg.EmbeddingModel != "qwen3-embedding" {
+		t.Errorf("EmbeddingModel = %q", cfg.EmbeddingModel)
+	}
 }
 
 func TestLoadParsesRoles(t *testing.T) {
 	env := map[string]string{
-		"PULSE_HTTP_ADDR":    "127.0.0.1:9090",
-		"PULSE_DATABASE_URL": "postgres://custom",
-		"PULSE_ROLES":        "web, worker ,scheduler",
-		"PULSE_WEB_DIR":      "/custom/web",
-		"PULSE_IMPORT_ROOTS": "/imports,/more-imports",
-		"PULSE_MASTER_KEY":   "external-key",
+		"PULSE_HTTP_ADDR":          "127.0.0.1:9090",
+		"PULSE_DATABASE_URL":       "postgres://custom",
+		"PULSE_ROLES":              "web, worker ,scheduler",
+		"PULSE_WEB_DIR":            "/custom/web",
+		"PULSE_IMPORT_ROOTS":       "/imports,/more-imports",
+		"PULSE_MASTER_KEY":         "external-key",
+		"PULSE_EMBEDDING_PROVIDER": "ollama",
+		"PULSE_EMBEDDING_BASE_URL": "http://ollama:11434/",
+		"PULSE_EMBEDDING_MODEL":    "qwen3-embedding:0.6b",
 	}
 
 	cfg, err := Load(func(key string) (string, bool) {
@@ -63,10 +75,37 @@ func TestLoadParsesRoles(t *testing.T) {
 	if cfg.MasterKey != "external-key" {
 		t.Errorf("MasterKey was not loaded")
 	}
+	if cfg.EmbeddingProvider != "ollama" ||
+		cfg.EmbeddingBaseURL != "http://ollama:11434" ||
+		cfg.EmbeddingModel != "qwen3-embedding:0.6b" {
+		t.Errorf("embedding config = %#v", cfg)
+	}
 	want := []Role{RoleWeb, RoleWorker, RoleScheduler}
 	for i := range want {
 		if cfg.Roles[i] != want[i] {
 			t.Errorf("Roles[%d] = %q, want %q", i, cfg.Roles[i], want[i])
+		}
+	}
+}
+
+func TestLoadRejectsInvalidEmbeddingConfiguration(t *testing.T) {
+	tests := []map[string]string{
+		{"PULSE_EMBEDDING_PROVIDER": "unknown"},
+		{
+			"PULSE_EMBEDDING_PROVIDER": "ollama",
+			"PULSE_EMBEDDING_BASE_URL": "file:///tmp/model",
+		},
+		{
+			"PULSE_EMBEDDING_PROVIDER": "ollama",
+			"PULSE_EMBEDDING_MODEL":    " ",
+		},
+	}
+	for _, env := range tests {
+		if _, err := Load(func(key string) (string, bool) {
+			value, ok := env[key]
+			return value, ok
+		}); err == nil {
+			t.Errorf("Load(%v) error = nil", env)
 		}
 	}
 }

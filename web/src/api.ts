@@ -86,6 +86,20 @@ export interface Entry {
   annotation?: AnnotationDetail
 }
 
+export interface Story {
+  id: string
+  representative: Entry
+  entries?: Entry[]
+  entry_count: number
+  source_count: number
+  first_published_at?: string
+  last_published_at?: string
+  read_at?: string
+  starred_at?: string
+  hidden_at?: string
+  later_at?: string
+}
+
 export interface EntryQuery {
   q?: string
   state?: string
@@ -280,6 +294,60 @@ export function listEntries(query: EntryQuery = {}): Promise<Entry[]> {
   if (query.offset) parameters.set('offset', String(query.offset))
   const suffix = parameters.size > 0 ? `?${parameters}` : ''
   return requestList<Entry>(`/api/v1/entries${suffix}`)
+}
+
+export function listStories(query: EntryQuery = {}): Promise<Story[]> {
+  const parameters = new URLSearchParams()
+  if (query.q) parameters.set('q', query.q)
+  if (query.state) parameters.set('state', query.state)
+  if (query.tag) parameters.set('tag', query.tag)
+  if (query.sourceId) parameters.set('source_id', query.sourceId)
+  if (query.limit) parameters.set('limit', String(query.limit))
+  if (query.offset) parameters.set('offset', String(query.offset))
+  const suffix = parameters.size > 0 ? `?${parameters}` : ''
+  return requestList<Story>(`/api/v1/stories${suffix}`)
+}
+
+export function getStory(id: string): Promise<Story> {
+  return request<Story>(`/api/v1/stories/${id}`)
+}
+
+export function updateStory(
+  id: string,
+  patch: Pick<EntryPatch, 'read' | 'starred' | 'hidden' | 'later'>,
+): Promise<Story> {
+  return request<Story>(`/api/v1/stories/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+}
+
+export function markStoriesRead(sourceId?: string): Promise<{ updated_count: number }> {
+  const parameters = new URLSearchParams()
+  if (sourceId) parameters.set('source_id', sourceId)
+  const suffix = parameters.size > 0 ? `?${parameters}` : ''
+  return request<{ updated_count: number }>(`/api/v1/stories${suffix}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ read: true }),
+  })
+}
+
+export function mergeStory(storyId: string, intoStoryId: string): Promise<Story> {
+  return request<Story>(`/api/v1/stories/${storyId}/merge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ into: intoStoryId }),
+  })
+}
+
+export function splitStory(storyId: string, entryId: string): Promise<Story> {
+  return request<Story>(`/api/v1/stories/${storyId}/split`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entry_id: entryId }),
+  })
 }
 
 export function updateEntry(id: string, patch: EntryPatch): Promise<Entry> {

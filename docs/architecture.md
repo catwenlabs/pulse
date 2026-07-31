@@ -31,6 +31,8 @@ flowchart LR
     N --> U["Identify & Deduplicate"]
     U --> R["Rules"]
     R --> DB[("PostgreSQL")]
+    DB --> G["Story Aggregation"]
+    G --> DB
     R --> O["Effect Outbox"]
     O --> A["Effect Adapters"]
     DB --> UI["Reader / Search / Views"]
@@ -198,7 +200,13 @@ type Candidate struct {
 3. `source_id + normalized_url`
 4. `source_id + content_fingerprint`
 
-跨 Source 的近似去重属于 View 层能力，第一阶段不合并底层 Entry，避免把转载误判为同一记录。
+跨 Source 的近似去重由 Story 模块完成。每个 Entry 必须且只能属于一个 Story；
+未匹配内容形成单 Entry Story。Story 只聚合展示和阅读状态，不合并或删除底层 Entry，
+避免把转载、修订或不同媒体版本误判为同一记录。
+
+Story 聚合使用传统文本特征与 embedding 候选集合的并集。URL、正文哈希、标题、
+SimHash 和时间提供确定性及可解释信号，embedding 负责发现大幅改写和跨语言候选；
+日期、数字、型号和事件方向冲突可以否决自动聚合。
 
 相同身份的 Candidate 更新原 Entry，不保留正文历史版本。来源标题和正文与用户的显示标题、笔记分别保存，来源更新不得覆盖用户内容。来源中暂时缺失的 Entry 不删除；明确删除事件只设置 `source_deleted`。
 
@@ -251,6 +259,8 @@ sources
 source_checkpoints
 acquisitions
 entries
+stories
+story_entries
 entry_annotations
 entry_tombstones
 folders
@@ -267,6 +277,7 @@ diagnostic_snapshots
 
 - `sources(driver_kind, normalized_locator)` 唯一。
 - `entries(source_id, identity_key)` 唯一。
+- `story_entries(entry_id)` 唯一；每个 Entry 只能属于一个 Story。
 - `entry_annotations(entry_id)` 唯一，Annotation 与 Entry 同一事务提交；来源批注不得覆盖 Entry 上由用户维护的 Note。
 - `rule_executions(rule_id, rule_version, entry_id)` 唯一。
 - `effects(idempotency_key)` 唯一。
@@ -316,6 +327,7 @@ internal/
 ├── ingestion/    命令、队列、Lease、Acquisition Engine
 ├── drivers/      RSS、API、Web、Webhook、File 等 Adapter
 ├── entry/        Normalize、Identity、Deduplicate、Entry 生命周期
+├── story/        跨 Source 聚合、相似度判断和 Story 生命周期
 ├── rule/         条件求值、数据库动作和 Effect 创建
 ├── effect/       Outbox Worker 与通知/Webhook Adapter
 ├── search/       FTS 索引与查询

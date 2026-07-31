@@ -5,10 +5,14 @@ import {
   createSource,
   importAnnotations,
   listEntries,
+  listStories,
   listSources,
+  getStory,
+  mergeStory,
   previewSource,
   runSource,
   setSourceEnabled,
+  splitStory,
   updateSource,
   updateEntry,
 } from './api'
@@ -28,6 +32,8 @@ describe('source API', () => {
       .mockResolvedValueOnce(new Response('{"candidates":[],"diagnostics":{"status":"ok"}}', { status: 200 }))
       .mockResolvedValueOnce(new Response('[]', { status: 200 }))
       .mockResolvedValueOnce(new Response('{"id":"entry-1"}', { status: 200 }))
+      .mockResolvedValueOnce(new Response('[]', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"id":"story-1","representative":{"id":"entry-1"}}', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
     await listSources()
@@ -38,6 +44,8 @@ describe('source API', () => {
     await previewSource({ name: 'Feed', kind: 'rss', locator: 'https://example.com/feed' })
     await listEntries({ q: 'go', state: 'unread', sourceId: 'source-1', offset: 50 })
     await updateEntry('entry-1', { read: true })
+    await listStories({ q: 'go', state: 'unread', offset: 25 })
+    await getStory('story-1')
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/sources', undefined)
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/sources', expect.objectContaining({
@@ -63,6 +71,9 @@ describe('source API', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(8, '/api/v1/entries/entry-1', expect.objectContaining({
       method: 'PATCH',
     }))
+    expect(String(fetchMock.mock.calls[8][0])).toContain('/api/v1/stories?')
+    expect(String(fetchMock.mock.calls[8][0])).toContain('offset=25')
+    expect(fetchMock).toHaveBeenNthCalledWith(10, '/api/v1/stories/story-1', undefined)
   })
 
   it('enqueues a manually saved web page with an idempotency key', async () => {
@@ -120,6 +131,38 @@ describe('source API', () => {
         'Idempotency-Key': expect.any(String),
       },
       body: JSON.stringify({ annotations }),
+    })
+  })
+
+  it('merges one story into another', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      '{"id":"story-2","entry_count":2}',
+      { status: 200 },
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await mergeStory('story-1', 'story-2')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/stories/story-1/merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ into: 'story-2' }),
+    })
+  })
+
+  it('splits an entry out of a story', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      '{"id":"story-3","entry_count":1}',
+      { status: 200 },
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await splitStory('story-1', 'entry-2')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/stories/story-1/split', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entry_id: 'entry-2' }),
     })
   })
 })

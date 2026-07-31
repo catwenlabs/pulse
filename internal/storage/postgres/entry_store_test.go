@@ -70,6 +70,17 @@ func TestEntryStoreCommitBatchIsAtomicAndUpdatesExistingEntry(t *testing.T) {
 	if len(entries) != 1 || entries[0].SourceTitle != "Updated title" {
 		t.Errorf("List() = %+v", entries)
 	}
+
+	var storyCount, membershipCount int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM stories").Scan(&storyCount); err != nil {
+		t.Fatalf("count stories: %v", err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM story_entries").Scan(&membershipCount); err != nil {
+		t.Fatalf("count story entries: %v", err)
+	}
+	if storyCount != 1 || membershipCount != 1 {
+		t.Errorf("story count = %d, membership count = %d", storyCount, membershipCount)
+	}
 }
 
 func TestEntryStoreCommitsAnnotationDetailWithEntry(t *testing.T) {
