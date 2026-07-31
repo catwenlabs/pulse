@@ -1847,11 +1847,14 @@ function Reader({
             </article>
           ))}
           {!loading && !error && hasMore && (
-            <div className="flex justify-center border-t px-4 py-5">
+            <div className="flex min-h-[80dvh] justify-center border-t px-4 py-5">
               <Button variant="secondary" disabled={loadingMore} onClick={() => void loadMore()}>
                 {loadingMore ? '正在加载…' : '加载更多'}
               </Button>
             </div>
+          )}
+          {!loading && !error && !hasMore && entries.length > 0 && (
+            <div className="min-h-[80dvh]" aria-hidden="true" />
           )}
       </section>
     </div>
