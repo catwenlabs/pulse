@@ -44,6 +44,7 @@ type fakeBackend struct {
 	markStoriesRead func(context.Context, string) (int64, error)
 	mergeStories    func(context.Context, story.ID, story.ID) (story.Story, error)
 	splitStory      func(context.Context, story.ID, entry.ID) (story.Story, error)
+	recompute       func(context.Context) (int, error)
 	importOPML      func(context.Context, []opml.Subscription) (opml.ImportResult, error)
 	exportOPML      func(context.Context) ([]opml.Subscription, error)
 	previewSource   func(context.Context, source.Spec) (preview.Result, error)
@@ -175,6 +176,10 @@ func (fake fakeBackend) SplitStory(
 	entryID entry.ID,
 ) (story.Story, error) {
 	return fake.splitStory(ctx, storyID, entryID)
+}
+
+func (fake fakeBackend) Recompute(ctx context.Context) (int, error) {
+	return fake.recompute(ctx)
 }
 
 func (fake fakeBackend) ImportOPML(
@@ -520,6 +525,35 @@ func TestMergeStoriesRejectsSelfMerge(t *testing.T) {
 		bytes.NewBufferString(`{"into":"story-1"}`),
 	))
 	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestRecomputeStories(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.recompute = func(context.Context) (int, error) {
+		return 3, nil
+	}
+
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(response, httptest.NewRequest(
+		http.MethodPost, "/api/v1/stories/recompute", nil,
+	))
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `"processed":3`) {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestRecomputeStoriesUnavailable(t *testing.T) {
+	backend := completeFakeBackend()
+	// completeFakeBackend defaults recompute to ErrRecomputeUnavailable → 503.
+
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(response, httptest.NewRequest(
+		http.MethodPost, "/api/v1/stories/recompute", nil,
+	))
+	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
@@ -1032,6 +1066,9 @@ func completeFakeBackend() fakeBackend {
 		},
 		splitStory: func(context.Context, story.ID, entry.ID) (story.Story, error) {
 			return story.Story{}, errors.New("unexpected SplitStory")
+		},
+		recompute: func(context.Context) (int, error) {
+			return 0, story.ErrRecomputeUnavailable
 		},
 		importOPML: func(context.Context, []opml.Subscription) (opml.ImportResult, error) {
 			return opml.ImportResult{}, errors.New("unexpected ImportOPML")

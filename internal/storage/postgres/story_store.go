@@ -841,6 +841,7 @@ func scanCandidates(rows pgx.Rows) ([]story.Candidate, error) {
 		if err != nil {
 			return nil, err
 		}
+		item.Features.CanonicalURL = item.Entry.CanonicalURL
 		if err := decodeAnnotation(annotationJSON, &item.Entry); err != nil {
 			return nil, err
 		}

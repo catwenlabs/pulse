@@ -57,3 +57,24 @@ Ollama is an optional stateless compute dependency.
 - PostgreSQL deployments must provide the `vector` extension.
 - Model changes require regenerating embeddings because vectors from different models are
   not comparable.
+
+## Note: matching and recompute refinements
+
+Two hard-match and conflict refinements extend the original decision:
+
+- **Canonical URL hard-match.** When two Entries share a non-empty canonical URL, they
+  aggregate immediately (match method `url`), ahead of content-hash and title scoring. This
+  makes syndicated reposts with rewritten titles aggregate reliably. Critical conflict
+  detection still vetoes first, so a same-URL pair that differs on a critical number or
+  direction is not aggregated.
+- **Critical conflict detection** covers numbers (e.g. `2025` vs `2026`) and opposite
+  directions (e.g. `加息` vs `降息`). Subject/entity conflicts (`人物/公司/地点`) are **not**
+  implemented: `Entry` carries no entity data, and honest subject-conflict detection requires
+  named-entity extraction plus a schema migration and backfill. That is deferred to a separate
+  task rather than approximated with a noisy title heuristic.
+- **On-demand recompute.** `POST /api/v1/stories/recompute` drains pending aggregation
+  immediately (re-evaluating single-Entry Stories and embedding backfill) instead of waiting
+  for the background tick, which is useful after a model or algorithm change. It only
+  re-evaluates single-Entry Stories; it never auto-splits an existing multi-Entry Story, to
+  avoid membership churn. An HTTP-triggered pass is serialized against the background loop so
+  the two cannot run concurrently.

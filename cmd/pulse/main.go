@@ -92,6 +92,18 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 	if err != nil {
 		return fmt.Errorf("create driver registry: %w", err)
 	}
+	var embeddingProvider embedding.Provider
+	if cfg.EmbeddingProvider == "ollama" {
+		embeddingProvider, err = embedding.NewOllama(
+			cfg.EmbeddingBaseURL,
+			cfg.EmbeddingModel,
+			nil,
+		)
+		if err != nil {
+			return fmt.Errorf("configure embedding provider: %w", err)
+		}
+	}
+	storyProcessor := story.NewProcessor(storyStore, embeddingProvider)
 	backend := httpserver.NewBackend(
 		sourceStore,
 		acquisitionStore,
@@ -100,22 +112,11 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 		preview.New(registry),
 		organizationStore,
 		storyStore,
+		storyProcessor,
 		ruleStore,
 	)
 
 	if slices.Contains(cfg.Roles, config.RoleWorker) {
-		var embeddingProvider embedding.Provider
-		if cfg.EmbeddingProvider == "ollama" {
-			embeddingProvider, err = embedding.NewOllama(
-				cfg.EmbeddingBaseURL,
-				cfg.EmbeddingModel,
-				nil,
-			)
-			if err != nil {
-				return fmt.Errorf("configure embedding provider: %w", err)
-			}
-		}
-		storyProcessor := story.NewProcessor(storyStore, embeddingProvider)
 		go func() {
 			if err := storyProcessor.Run(ctx); err != nil {
 				slog.Error("Story worker stopped", "error", err)

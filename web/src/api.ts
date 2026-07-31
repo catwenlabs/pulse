@@ -350,6 +350,12 @@ export function splitStory(storyId: string, entryId: string): Promise<Story> {
   })
 }
 
+export function recomputeStories(): Promise<{ processed: number }> {
+  return request<{ processed: number }>('/api/v1/stories/recompute', {
+    method: 'POST',
+  })
+}
+
 export function updateEntry(id: string, patch: EntryPatch): Promise<Entry> {
   return request<Entry>(`/api/v1/entries/${id}`, {
     method: 'PATCH',

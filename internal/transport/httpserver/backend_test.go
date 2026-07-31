@@ -159,6 +159,7 @@ func TestBackendForwardsOperations(t *testing.T) {
 		fakePreviewer{},
 		fakeOrganization{},
 		fakeStories{},
+		nil,
 	)
 	ctx := context.Background()
 
@@ -231,6 +232,7 @@ func TestBackendHidesArchivedSource(t *testing.T) {
 		fakePreviewer{},
 		fakeOrganization{},
 		fakeStories{},
+		nil,
 	)
 
 	if _, err := backend.GetSource(context.Background(), "archived"); !errors.Is(err, source.ErrNotFound) {

@@ -30,6 +30,7 @@ type Processor struct {
 	now        func() time.Time
 
 	mu                  sync.Mutex
+	runMu               sync.Mutex
 	embeddingRetryAfter time.Time
 }
 
@@ -42,6 +43,9 @@ func NewProcessor(repository Repository, embedder embedding.Provider) *Processor
 }
 
 func (processor *Processor) RunOnce(ctx context.Context, limit int) (int, error) {
+	processor.runMu.Lock()
+	defer processor.runMu.Unlock()
+
 	model := ""
 	if processor.embedder != nil {
 		model = processor.embedder.Model()
@@ -87,6 +91,7 @@ func (processor *Processor) process(ctx context.Context, item Candidate) error {
 			content = item.Entry.Summary
 		}
 		item.Features = BuildFeatures(item.Entry.SourceTitle, content)
+		item.Features.CanonicalURL = item.Entry.CanonicalURL
 		if err := processor.repository.SaveFeatures(ctx, item.Entry.ID, item.Features); err != nil {
 			return fmt.Errorf("save features for Entry %s: %w", item.Entry.ID, err)
 		}

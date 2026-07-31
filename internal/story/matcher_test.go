@@ -75,6 +75,52 @@ func TestMatchRejectsCriticalNumberConflict(t *testing.T) {
 	}
 }
 
+func TestMatchRejectsCriticalDirectionConflict(t *testing.T) {
+	now := time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC)
+	left := BuildFeatures("美联储宣布加息 50 个基点", "")
+	right := BuildFeatures("美联储宣布降息 50 个基点", "")
+	left.Embedding = []float32{1, 0}
+	right.Embedding = []float32{1, 0}
+
+	result := Match(left, right, now, now)
+
+	if result.Matched || !result.CriticalConflict {
+		t.Fatalf("Match() = %+v, want critical conflict on opposite directions", result)
+	}
+}
+
+func TestMatchAggregatesByCanonicalURL(t *testing.T) {
+	now := time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC)
+	left := BuildFeatures("媒体一报道同一事件", "")
+	right := BuildFeatures("另一家媒体转载了该事件", "")
+	left.CanonicalURL = "https://example.com/article-a"
+	right.CanonicalURL = "https://example.com/article-a"
+	left.Embedding = []float32{1, 0}
+	right.Embedding = []float32{0, 1}
+
+	result := Match(left, right, now, now)
+
+	if !result.Matched || result.Method != MatchURL || result.FinalScore != 1 {
+		t.Fatalf("Match() = %+v, want canonical URL match", result)
+	}
+}
+
+func TestMatchRejectsCriticalConflictDespiteCanonicalURL(t *testing.T) {
+	now := time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC)
+	left := BuildFeatures("公司发布 2025 年年度报告", "")
+	right := BuildFeatures("公司发布 2026 年年度报告", "")
+	left.CanonicalURL = "https://example.com/report"
+	right.CanonicalURL = "https://example.com/report"
+	left.Embedding = []float32{1, 0}
+	right.Embedding = []float32{1, 0}
+
+	result := Match(left, right, now, now)
+
+	if result.Matched || !result.CriticalConflict {
+		t.Fatalf("Match() = %+v, want critical conflict to override canonical URL", result)
+	}
+}
+
 func TestCosineSimilarity(t *testing.T) {
 	if got := cosineSimilarity([]float32{1, 1}, []float32{1, 1}); math.Abs(got-1) > 1e-6 {
 		t.Errorf("cosineSimilarity() = %v", got)

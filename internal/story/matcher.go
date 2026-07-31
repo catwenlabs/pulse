@@ -19,12 +19,29 @@ const (
 	MatchTitle       = "title"
 	MatchHybrid      = "hybrid"
 	MatchManual      = "manual"
+	MatchURL         = "url"
 )
 
 var numberPattern = regexp.MustCompile(`\d+(?:\.\d+)?`)
 
+// directionConflictPairs holds antonym pairs whose co-occurrence across two
+// titles signals contradictory reporting. A headline reporting one direction
+// cannot be the same story as a headline reporting the opposite direction,
+// even when their embeddings and numbers agree.
+var directionConflictPairs = [][2]string{
+	{"加息", "降息"},
+	{"上涨", "下跌"},
+	{"增长", "下降"},
+	{"增加", "减少"},
+	{"买入", "卖出"},
+	{"盈利", "亏损"},
+	{"升值", "贬值"},
+	{"顺差", "逆差"},
+}
+
 type Features struct {
 	NormalizedTitle string
+	CanonicalURL    string
 	ContentHash     string
 	ContentSimHash  uint64
 	Embedding       []float32
@@ -70,6 +87,12 @@ func Match(left, right Features, leftPublishedAt, rightPublishedAt time.Time) Re
 	}
 	result.CriticalConflict = criticalConflict(left.NormalizedTitle, right.NormalizedTitle)
 	if result.CriticalConflict {
+		return result
+	}
+	if left.CanonicalURL != "" && left.CanonicalURL == right.CanonicalURL {
+		result.Matched = true
+		result.Method = MatchURL
+		result.FinalScore = 1
 		return result
 	}
 	if left.ContentHash != "" && left.ContentHash == right.ContentHash {
@@ -207,11 +230,25 @@ func ngrams(value string, size int) []string {
 }
 
 func criticalConflict(left, right string) bool {
+	return numberConflict(left, right) || directionConflict(left, right)
+}
+
+func numberConflict(left, right string) bool {
 	leftNumbers := numberPattern.FindAllString(left, -1)
 	rightNumbers := numberPattern.FindAllString(right, -1)
 	slices.Sort(leftNumbers)
 	slices.Sort(rightNumbers)
 	return len(leftNumbers) > 0 && len(rightNumbers) > 0 && !slices.Equal(leftNumbers, rightNumbers)
+}
+
+func directionConflict(left, right string) bool {
+	for _, pair := range directionConflictPairs {
+		if (strings.Contains(left, pair[0]) && strings.Contains(right, pair[1])) ||
+			(strings.Contains(left, pair[1]) && strings.Contains(right, pair[0])) {
+			return true
+		}
+	}
+	return false
 }
 
 func timeSimilarity(left, right time.Time) float64 {

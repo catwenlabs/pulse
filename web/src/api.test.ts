@@ -10,6 +10,7 @@ import {
   getStory,
   mergeStory,
   previewSource,
+  recomputeStories,
   runSource,
   setSourceEnabled,
   splitStory,
@@ -163,6 +164,21 @@ describe('source API', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ entry_id: 'entry-2' }),
+    })
+  })
+
+  it('recomputes story aggregation on demand', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      '{"processed":7}',
+      { status: 200 },
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await recomputeStories()
+
+    expect(result.processed).toBe(7)
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/stories/recompute', {
+      method: 'POST',
     })
   })
 })
