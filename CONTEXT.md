@@ -28,6 +28,10 @@ _Avoid_: Raw Entry、Article
 完成统一化并进入阅读库的内容记录，是搜索、规则和阅读操作的共同对象。
 _Avoid_: Item、Post、Article
 
+**Story**:
+一个用于阅读和检索的新闻事件聚合，由一条或多条不同 Source 的 Entry 组成；每个 Entry 必须且只能属于一个 Story，单独出现的 Entry 组成单 Entry Story。
+_Avoid_: Duplicate Entry、Merged Entry、Topic
+
 **Annotation**:
 用户在外部阅读器中产生的一条阅读批注，由高亮原文、个人批注、书籍身份和阅读位置组成；摄取后成为一个 Entry，来源批注与用户在 Pulse 中追加的 Note 分开保存。
 _Avoid_: Highlight Entry、Book Note

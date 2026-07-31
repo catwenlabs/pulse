@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -17,23 +18,29 @@ const (
 var allRoles = []Role{RoleWeb, RoleScheduler, RoleWorker, RoleEffect}
 
 type Config struct {
-	HTTPAddr    string
-	DatabaseURL string
-	WebDir      string
-	ImportRoots []string
-	MasterKey   string
-	Roles       []Role
+	HTTPAddr          string
+	DatabaseURL       string
+	WebDir            string
+	ImportRoots       []string
+	MasterKey         string
+	Roles             []Role
+	EmbeddingProvider string
+	EmbeddingBaseURL  string
+	EmbeddingModel    string
 }
 
 type LookupEnv func(string) (string, bool)
 
 func Load(lookup LookupEnv) (Config, error) {
 	cfg := Config{
-		HTTPAddr:    "127.0.0.1:8080",
-		DatabaseURL: "postgres://pulse:pulse@postgres:5432/pulse?sslmode=disable",
-		WebDir:      "/web",
-		ImportRoots: []string{"/data/imports"},
-		Roles:       append([]Role(nil), allRoles...),
+		HTTPAddr:          "127.0.0.1:8080",
+		DatabaseURL:       "postgres://pulse:pulse@postgres:5432/pulse?sslmode=disable",
+		WebDir:            "/web",
+		ImportRoots:       []string{"/data/imports"},
+		Roles:             append([]Role(nil), allRoles...),
+		EmbeddingProvider: "disabled",
+		EmbeddingBaseURL:  "http://127.0.0.1:11434",
+		EmbeddingModel:    "qwen3-embedding",
 	}
 
 	if value, ok := lookup("PULSE_HTTP_ADDR"); ok && strings.TrimSpace(value) != "" {
@@ -57,6 +64,29 @@ func Load(lookup LookupEnv) (Config, error) {
 			return Config{}, err
 		}
 		cfg.Roles = roles
+	}
+	if value, ok := lookup("PULSE_EMBEDDING_PROVIDER"); ok {
+		cfg.EmbeddingProvider = strings.ToLower(strings.TrimSpace(value))
+	}
+	if value, ok := lookup("PULSE_EMBEDDING_BASE_URL"); ok && strings.TrimSpace(value) != "" {
+		cfg.EmbeddingBaseURL = strings.TrimRight(strings.TrimSpace(value), "/")
+	}
+	if value, ok := lookup("PULSE_EMBEDDING_MODEL"); ok {
+		cfg.EmbeddingModel = strings.TrimSpace(value)
+	}
+	if cfg.EmbeddingProvider != "disabled" && cfg.EmbeddingProvider != "ollama" {
+		return Config{}, fmt.Errorf(
+			"invalid PULSE_EMBEDDING_PROVIDER: unknown provider %q",
+			cfg.EmbeddingProvider,
+		)
+	}
+	embeddingURL, err := url.Parse(cfg.EmbeddingBaseURL)
+	if err != nil || (embeddingURL.Scheme != "http" && embeddingURL.Scheme != "https") ||
+		embeddingURL.Host == "" {
+		return Config{}, fmt.Errorf("invalid PULSE_EMBEDDING_BASE_URL: absolute HTTP(S) URL required")
+	}
+	if cfg.EmbeddingProvider == "ollama" && cfg.EmbeddingModel == "" {
+		return Config{}, fmt.Errorf("invalid PULSE_EMBEDDING_MODEL: model is required")
 	}
 
 	return cfg, nil

@@ -22,6 +22,7 @@ import (
 	jsonapidriver "github.com/wenpengfei/pulse/internal/drivers/jsonapi"
 	"github.com/wenpengfei/pulse/internal/drivers/push"
 	"github.com/wenpengfei/pulse/internal/effect"
+	"github.com/wenpengfei/pulse/internal/embedding"
 	"github.com/wenpengfei/pulse/internal/ingestion"
 	"github.com/wenpengfei/pulse/internal/platform/httpclient"
 	"github.com/wenpengfei/pulse/internal/preview"
@@ -30,6 +31,7 @@ import (
 	"github.com/wenpengfei/pulse/internal/source"
 	"github.com/wenpengfei/pulse/internal/storage/migrate"
 	postgresstore "github.com/wenpengfei/pulse/internal/storage/postgres"
+	"github.com/wenpengfei/pulse/internal/story"
 	"github.com/wenpengfei/pulse/internal/transport/httpserver"
 	"github.com/wenpengfei/pulse/internal/worker"
 )
@@ -73,6 +75,7 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 	sourceStore := postgresstore.NewSourceStore(pool, credentialCipher)
 	acquisitionStore := postgresstore.NewAcquisitionStore(pool)
 	entryStore := postgresstore.NewEntryStore(pool)
+	storyStore := postgresstore.NewStoryStore(pool)
 	opmlStore := postgresstore.NewOPMLStore(pool)
 	organizationStore := postgresstore.NewOrganizationStore(pool)
 	ruleStore := postgresstore.NewRuleStore(pool)
@@ -89,6 +92,18 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 	if err != nil {
 		return fmt.Errorf("create driver registry: %w", err)
 	}
+	var embeddingProvider embedding.Provider
+	if cfg.EmbeddingProvider == "ollama" {
+		embeddingProvider, err = embedding.NewOllama(
+			cfg.EmbeddingBaseURL,
+			cfg.EmbeddingModel,
+			nil,
+		)
+		if err != nil {
+			return fmt.Errorf("configure embedding provider: %w", err)
+		}
+	}
+	storyProcessor := story.NewProcessor(storyStore, embeddingProvider)
 	backend := httpserver.NewBackend(
 		sourceStore,
 		acquisitionStore,
@@ -96,10 +111,17 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 		opmlStore,
 		preview.New(registry),
 		organizationStore,
+		storyStore,
+		storyProcessor,
 		ruleStore,
 	)
 
 	if slices.Contains(cfg.Roles, config.RoleWorker) {
+		go func() {
+			if err := storyProcessor.Run(ctx); err != nil {
+				slog.Error("Story worker stopped", "error", err)
+			}
+		}()
 		processor := ingestion.NewProcessor(acquisitionStore, sourceStore, entryStore, registry)
 		owner, err := os.Hostname()
 		if err != nil || owner == "" {

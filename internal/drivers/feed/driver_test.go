@@ -169,8 +169,8 @@ func TestDriverRejectsMalformedFeed(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	_, err := New(server.Client()).Acquire(context.Background(), requestFor(server.URL, nil))
-	if err == nil || !strings.Contains(err.Error(), "parse feed") {
-		t.Fatalf("Acquire() error = %v", err)
+	if err == nil || !errors.Is(err, ingestion.ErrParse) {
+		t.Fatalf("Acquire() error = %v, want errors.Is ErrParse", err)
 	}
 }
 
@@ -232,5 +232,24 @@ func requestFor(url string, checkpoint ingestion.Checkpoint) ingestion.AcquireRe
 		Trigger:    ingestion.TriggerSchedule,
 		Checkpoint: checkpoint,
 		Limits:     ingestion.Limits{MaxBytes: 1 << 20},
+	}
+}
+
+func TestAcquireWrapsFetchError(t *testing.T) {
+	_, err := New(failingClient{}).Acquire(context.Background(), requestFor("https://example.invalid/feed", nil))
+	if !errors.Is(err, ingestion.ErrFetch) {
+		t.Fatalf("Acquire() err = %v, want errors.Is ErrFetch", err)
+	}
+}
+
+func TestAcquireWrapsParseError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("<<< not a feed"))
+	}))
+	t.Cleanup(server.Close)
+
+	_, err := New(server.Client()).Acquire(context.Background(), requestFor(server.URL, nil))
+	if !errors.Is(err, ingestion.ErrParse) {
+		t.Fatalf("Acquire() err = %v, want errors.Is ErrParse", err)
 	}
 }

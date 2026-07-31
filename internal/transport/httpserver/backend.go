@@ -11,6 +11,7 @@ import (
 	"github.com/wenpengfei/pulse/internal/preview"
 	"github.com/wenpengfei/pulse/internal/rule"
 	"github.com/wenpengfei/pulse/internal/source"
+	"github.com/wenpengfei/pulse/internal/story"
 )
 
 type sourceRepository interface {
@@ -36,6 +37,21 @@ type entryRepository interface {
 	MarkRead(context.Context, source.ID) (int64, error)
 	AddTag(context.Context, entry.ID, string) (entry.Tag, error)
 	RemoveTag(context.Context, entry.ID, string) error
+}
+
+type storyRepository interface {
+	Search(context.Context, story.Query) ([]story.Story, error)
+	Get(context.Context, story.ID) (story.Story, error)
+	Update(context.Context, story.ID, story.Patch) (story.Story, error)
+	MarkRead(context.Context, string) (int64, error)
+	MergeManual(context.Context, story.ID, story.ID) error
+	Split(context.Context, story.ID, entry.ID) (story.ID, error)
+}
+
+// storyRecomputer runs an on-demand Story aggregation pass. It is optional: when
+// nil (no aggregation processor wired in), Recompute returns ErrRecomputeUnavailable.
+type storyRecomputer interface {
+	RunOnce(context.Context, int) (int, error)
 }
 
 type opmlRepository interface {
@@ -77,6 +93,8 @@ type backend struct {
 	previewer    sourcePreviewer
 	organization organizationRepository
 	rules        ruleRepository
+	stories      storyRepository
+	recomputer   storyRecomputer
 }
 
 func NewBackend(
@@ -86,6 +104,8 @@ func NewBackend(
 	opmlRepository opmlRepository,
 	previewer sourcePreviewer,
 	organizationStore organizationRepository,
+	storyStore storyRepository,
+	recomputer storyRecomputer,
 	ruleStores ...ruleRepository,
 ) Backend {
 	service := &backend{
@@ -95,11 +115,79 @@ func NewBackend(
 		opml:         opmlRepository,
 		previewer:    previewer,
 		organization: organizationStore,
+		stories:      storyStore,
+		recomputer:   recomputer,
 	}
 	if len(ruleStores) > 0 {
 		service.rules = ruleStores[0]
 	}
 	return service
+}
+
+func (service *backend) ListStories(ctx context.Context, query story.Query) ([]story.Story, error) {
+	return service.stories.Search(ctx, query)
+}
+
+func (service *backend) GetStory(ctx context.Context, id story.ID) (story.Story, error) {
+	return service.stories.Get(ctx, id)
+}
+
+func (service *backend) UpdateStory(
+	ctx context.Context,
+	id story.ID,
+	patch story.Patch,
+) (story.Story, error) {
+	return service.stories.Update(ctx, id, patch)
+}
+
+func (service *backend) MarkStoriesRead(ctx context.Context, sourceID string) (int64, error) {
+	return service.stories.MarkRead(ctx, sourceID)
+}
+
+func (service *backend) MergeStories(
+	ctx context.Context,
+	from story.ID,
+	into story.ID,
+) (story.Story, error) {
+	if err := service.stories.MergeManual(ctx, from, into); err != nil {
+		return story.Story{}, err
+	}
+	return service.stories.Get(ctx, into)
+}
+
+func (service *backend) SplitStory(
+	ctx context.Context,
+	storyID story.ID,
+	entryID entry.ID,
+) (story.Story, error) {
+	newID, err := service.stories.Split(ctx, storyID, entryID)
+	if err != nil {
+		return story.Story{}, err
+	}
+	return service.stories.Get(ctx, newID)
+}
+
+// Recompute drains pending Story aggregation on demand, re-evaluating single-Entry
+// Stories (and embedding backfill) instead of waiting for the background tick. It is
+// bounded so a large backlog cannot keep an HTTP request open indefinitely.
+func (service *backend) Recompute(ctx context.Context) (int, error) {
+	if service.recomputer == nil {
+		return 0, story.ErrRecomputeUnavailable
+	}
+	const batchSize = 50
+	const maxPasses = 200
+	total := 0
+	for pass := 0; pass < maxPasses; pass++ {
+		processed, err := service.recomputer.RunOnce(ctx, batchSize)
+		if err != nil {
+			return total, err
+		}
+		total += processed
+		if processed < batchSize {
+			break
+		}
+	}
+	return total, nil
 }
 
 func (service *backend) CreateRule(ctx context.Context, definition rule.Rule) (rule.Rule, error) {

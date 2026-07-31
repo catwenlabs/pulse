@@ -62,7 +62,7 @@ func (driver *Driver) Acquire(
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, acquireRequest.Source.Locator, nil)
 	if err != nil {
-		return ingestion.AcquisitionBatch{}, fmt.Errorf("create feed request: %w", err)
+		return ingestion.AcquisitionBatch{}, fmt.Errorf("%w: create request: %w", ingestion.ErrFetch, err)
 	}
 	request.Header.Set("Accept", "application/atom+xml, application/rss+xml, application/feed+json, application/json;q=0.9, application/xml;q=0.8")
 	if previous.ParserVersion >= parserVersion {
@@ -76,7 +76,7 @@ func (driver *Driver) Acquire(
 
 	response, err := driver.client.Do(request)
 	if err != nil {
-		return ingestion.AcquisitionBatch{}, fmt.Errorf("fetch feed: %w", err)
+		return ingestion.AcquisitionBatch{}, fmt.Errorf("%w: %w", ingestion.ErrFetch, err)
 	}
 	defer response.Body.Close()
 
@@ -103,7 +103,7 @@ func (driver *Driver) Acquire(
 		}, nil
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return ingestion.AcquisitionBatch{}, fmt.Errorf("fetch feed: HTTP status %d", response.StatusCode)
+		return ingestion.AcquisitionBatch{}, fmt.Errorf("%w: HTTP status %d", ingestion.ErrFetch, response.StatusCode)
 	}
 
 	maxBytes := acquireRequest.Limits.MaxBytes
@@ -112,15 +112,15 @@ func (driver *Driver) Acquire(
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxBytes+1))
 	if err != nil {
-		return ingestion.AcquisitionBatch{}, fmt.Errorf("read feed: %w", err)
+		return ingestion.AcquisitionBatch{}, fmt.Errorf("%w: read body: %w", ingestion.ErrFetch, err)
 	}
 	if int64(len(body)) > maxBytes {
-		return ingestion.AcquisitionBatch{}, fmt.Errorf("read feed: response exceeds %d bytes", maxBytes)
+		return ingestion.AcquisitionBatch{}, fmt.Errorf("%w: response exceeds %d bytes", ingestion.ErrFetch, maxBytes)
 	}
 
 	candidates, err := parse(body)
 	if err != nil {
-		return ingestion.AcquisitionBatch{}, fmt.Errorf("parse feed: %w", err)
+		return ingestion.AcquisitionBatch{}, fmt.Errorf("%w: %w", ingestion.ErrParse, err)
 	}
 	return ingestion.AcquisitionBatch{
 		Candidates:     candidates,

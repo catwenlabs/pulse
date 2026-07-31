@@ -299,6 +299,211 @@ paths:
                   updated_count:
                     type: integer
                     format: int64
+  /stories:
+    get:
+      operationId: listStories
+      description: Lists Story clusters. A single Entry is represented by a one-Entry Story.
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+            enum: [inbox, unread, starred, later, hidden]
+        - name: tag
+          in: query
+          schema:
+            type: string
+        - name: source_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Stories ordered by latest publication time
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Story"
+    patch:
+      operationId: markStoriesRead
+      parameters:
+        - name: source_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [read]
+              properties:
+                read:
+                  type: boolean
+                  const: true
+      responses:
+        "200":
+          description: Number of Stories newly marked as read
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated_count]
+                properties:
+                  updated_count:
+                    type: integer
+                    format: int64
+  /stories/{storyId}:
+    parameters:
+      - name: storyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getStory
+      responses:
+        "200":
+          description: Story and all Source Entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Story"
+        "404":
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateStory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StoryPatch"
+      responses:
+        "200":
+          description: Updated Story
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Story"
+  /stories/{storyId}/merge:
+    parameters:
+      - name: storyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: mergeStory
+      summary: Manually merge one Story into another
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [into]
+              properties:
+                into:
+                  type: string
+                  format: uuid
+                  description: The Story that absorbs the path Story.
+      responses:
+        "200":
+          description: Merged Story
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Story"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+  /stories/{storyId}/split:
+    parameters:
+      - name: storyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: splitStory
+      summary: Detach an Entry from a Story into its own Story
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entry_id]
+              properties:
+                entry_id:
+                  type: string
+                  format: uuid
+                  description: The member Entry to detach.
+      responses:
+        "200":
+          description: The newly created single-Entry Story
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Story"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+  /stories/recompute:
+    post:
+      operationId: recomputeStories
+      summary: Re-run Story aggregation on demand
+      description: >
+        Drains pending Story aggregation immediately, re-evaluating single-Entry
+        Stories (and embedding backfill) instead of waiting for the background
+        tick. Useful after a model or algorithm change. Returns the number of
+        Entries processed in this pass.
+      responses:
+        "200":
+          description: Recompute completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [processed]
+                properties:
+                  processed:
+                    type: integer
+                    description: Number of Entries re-evaluated.
+        "503":
+          description: No aggregation processor is wired into this process.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
   /entries/{entryId}:
     parameters:
       - name: entryId
@@ -822,6 +1027,55 @@ components:
           type: string
         note:
           type: string
+    Story:
+      type: object
+      required: [id, representative, entry_count, source_count]
+      properties:
+        id:
+          type: string
+          format: uuid
+        representative:
+          $ref: "#/components/schemas/Entry"
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/Entry"
+        entry_count:
+          type: integer
+          minimum: 1
+        source_count:
+          type: integer
+          minimum: 1
+        first_published_at:
+          type: string
+          format: date-time
+        last_published_at:
+          type: string
+          format: date-time
+        read_at:
+          type: string
+          format: date-time
+        starred_at:
+          type: string
+          format: date-time
+        hidden_at:
+          type: string
+          format: date-time
+        later_at:
+          type: string
+          format: date-time
+    StoryPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        read:
+          type: boolean
+        starred:
+          type: boolean
+        hidden:
+          type: boolean
+        later:
+          type: boolean
     Rule:
       type: object
       required: [name, condition, actions]

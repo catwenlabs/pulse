@@ -12,6 +12,7 @@ import (
 	"github.com/wenpengfei/pulse/internal/organization"
 	"github.com/wenpengfei/pulse/internal/preview"
 	"github.com/wenpengfei/pulse/internal/source"
+	"github.com/wenpengfei/pulse/internal/story"
 )
 
 type fakeSourceRepository struct{}
@@ -60,6 +61,33 @@ type fakeEntries struct{}
 
 func (fakeEntries) List(context.Context, int) ([]entry.Entry, error) {
 	return []entry.Entry{{ID: "entry"}}, nil
+}
+
+type fakeStories struct{}
+
+func (fakeStories) Search(context.Context, story.Query) ([]story.Story, error) {
+	return []story.Story{{ID: "story"}}, nil
+}
+
+func (fakeStories) Get(_ context.Context, id story.ID) (story.Story, error) {
+	return story.Story{ID: id}, nil
+}
+
+func (fakeStories) Update(_ context.Context, id story.ID, _ story.Patch) (story.Story, error) {
+	return story.Story{ID: id}, nil
+}
+
+func (fakeStories) MarkRead(context.Context, string) (int64, error) {
+	return 1, nil
+}
+func (fakeStories) MergeManual(_ context.Context, from story.ID, into story.ID) error {
+	if from == into {
+		return story.ErrSelfMerge
+	}
+	return nil
+}
+func (fakeStories) Split(_ context.Context, storyID story.ID, entryID entry.ID) (story.ID, error) {
+	return story.ID("split-" + string(entryID)), nil
 }
 func (fakeEntries) Search(context.Context, entry.Query) ([]entry.Entry, error) {
 	return []entry.Entry{{ID: "entry"}}, nil
@@ -130,6 +158,8 @@ func TestBackendForwardsOperations(t *testing.T) {
 		fakeOPMLRepository{},
 		fakePreviewer{},
 		fakeOrganization{},
+		fakeStories{},
+		nil,
 	)
 	ctx := context.Background()
 
@@ -176,6 +206,9 @@ func TestBackendForwardsOperations(t *testing.T) {
 	if got, err := backend.GetEntry(ctx, "entry"); err != nil || got.ID != "entry" {
 		t.Fatalf("GetEntry() = %+v, %v", got, err)
 	}
+	if stories, err := backend.ListStories(ctx, story.Query{Limit: 10}); err != nil || len(stories) != 1 {
+		t.Fatalf("ListStories() = %+v, %v", stories, err)
+	}
 	imported, err := backend.ImportOPML(ctx, []opml.Subscription{{FeedURL: "https://example.com/feed"}})
 	if err != nil || imported.CreatedSources != 1 {
 		t.Fatalf("ImportOPML() = %+v, %v", imported, err)
@@ -198,6 +231,8 @@ func TestBackendHidesArchivedSource(t *testing.T) {
 		fakeOPMLRepository{},
 		fakePreviewer{},
 		fakeOrganization{},
+		fakeStories{},
+		nil,
 	)
 
 	if _, err := backend.GetSource(context.Background(), "archived"); !errors.Is(err, source.ErrNotFound) {
