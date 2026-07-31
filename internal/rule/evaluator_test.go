@@ -3,7 +3,7 @@ package rule
 import (
 	"testing"
 
-	"github.com/wenpengfei/pulse/internal/entry"
+	"github.com/catwenlabs/pulse/internal/entry"
 )
 
 func TestConditionSupportsBooleanASTAndEntryFields(t *testing.T) {

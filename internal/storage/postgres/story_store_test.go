@@ -6,9 +6,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/wenpengfei/pulse/internal/entry"
-	"github.com/wenpengfei/pulse/internal/ingestion"
-	"github.com/wenpengfei/pulse/internal/story"
+	"github.com/catwenlabs/pulse/internal/entry"
+	"github.com/catwenlabs/pulse/internal/ingestion"
+	"github.com/catwenlabs/pulse/internal/story"
 )
 
 func TestStoryProcessorGroupsMatchingEntriesAcrossSources(t *testing.T) {

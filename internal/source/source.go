@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wenpengfei/pulse/internal/security"
+	"github.com/catwenlabs/pulse/internal/security"
 )
 
 var (

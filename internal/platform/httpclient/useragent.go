@@ -7,7 +7,7 @@ import (
 // defaultUserAgent identifies Pulse to feed and content servers. Some WAFs reject
 // Go's default "Go-http-client/1.1" with HTTP 403; the "compatible" token keeps it
 // honest while matching the Mozilla-prefixed pattern those gateways accept.
-const defaultUserAgent = "Mozilla/5.0 (compatible; Pulse/1.0; +https://github.com/wenpengfei/pulse)"
+const defaultUserAgent = "Mozilla/5.0 (compatible; Pulse/1.0; +https://github.com/catwenlabs/pulse)"
 
 // userAgentTransport sets a default User-Agent on outgoing requests that do not
 // already specify one. Drivers that set their own User-Agent (e.g. the push

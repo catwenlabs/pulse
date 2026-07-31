@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wenpengfei/pulse/internal/ingestion"
-	"github.com/wenpengfei/pulse/internal/rule"
+	"github.com/catwenlabs/pulse/internal/ingestion"
+	"github.com/catwenlabs/pulse/internal/rule"
 )
 
 type Store interface {

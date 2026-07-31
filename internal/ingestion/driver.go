@@ -8,8 +8,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/wenpengfei/pulse/internal/annotation"
-	"github.com/wenpengfei/pulse/internal/source"
+	"github.com/catwenlabs/pulse/internal/annotation"
+	"github.com/catwenlabs/pulse/internal/source"
 )
 
 var ErrDriverNotFound = errors.New("driver not found")

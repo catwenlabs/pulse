@@ -3,7 +3,7 @@ package story
 import (
 	"time"
 
-	"github.com/wenpengfei/pulse/internal/entry"
+	"github.com/catwenlabs/pulse/internal/entry"
 )
 
 type ID string

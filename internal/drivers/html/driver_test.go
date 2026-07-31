@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wenpengfei/pulse/internal/ingestion"
-	"github.com/wenpengfei/pulse/internal/source"
+	"github.com/catwenlabs/pulse/internal/ingestion"
+	"github.com/catwenlabs/pulse/internal/source"
 )
 
 type clientFunc func(*http.Request) (*http.Response, error)

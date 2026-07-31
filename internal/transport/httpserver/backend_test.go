@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wenpengfei/pulse/internal/entry"
-	"github.com/wenpengfei/pulse/internal/ingestion"
-	"github.com/wenpengfei/pulse/internal/opml"
-	"github.com/wenpengfei/pulse/internal/organization"
-	"github.com/wenpengfei/pulse/internal/preview"
-	"github.com/wenpengfei/pulse/internal/source"
-	"github.com/wenpengfei/pulse/internal/story"
+	"github.com/catwenlabs/pulse/internal/entry"
+	"github.com/catwenlabs/pulse/internal/ingestion"
+	"github.com/catwenlabs/pulse/internal/opml"
+	"github.com/catwenlabs/pulse/internal/organization"
+	"github.com/catwenlabs/pulse/internal/preview"
+	"github.com/catwenlabs/pulse/internal/source"
+	"github.com/catwenlabs/pulse/internal/story"
 )
 
 type fakeSourceRepository struct{}

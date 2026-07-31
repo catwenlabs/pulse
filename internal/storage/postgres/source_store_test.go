@@ -8,8 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/wenpengfei/pulse/internal/source"
-	"github.com/wenpengfei/pulse/internal/storage/migrate"
+	"github.com/catwenlabs/pulse/internal/source"
+	"github.com/catwenlabs/pulse/internal/storage/migrate"
 )
 
 func testPool(t *testing.T) *pgxpool.Pool {

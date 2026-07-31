@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/wenpengfei/pulse/internal/opml"
+	"github.com/catwenlabs/pulse/internal/opml"
 )
 
 func TestOPMLStoreImportIsIdempotentAndPreservesFolders(t *testing.T) {

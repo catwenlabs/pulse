@@ -1,4 +1,4 @@
-module github.com/wenpengfei/pulse
+module github.com/catwenlabs/pulse
 
 go 1.25.0
 

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/wenpengfei/pulse/internal/entry"
-	"github.com/wenpengfei/pulse/internal/organization"
+	"github.com/catwenlabs/pulse/internal/entry"
+	"github.com/catwenlabs/pulse/internal/organization"
 )
 
 func TestOrganizationStoreFoldersAndViews(t *testing.T) {

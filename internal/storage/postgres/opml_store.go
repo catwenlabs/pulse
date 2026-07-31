@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/wenpengfei/pulse/internal/opml"
-	"github.com/wenpengfei/pulse/internal/source"
+	"github.com/catwenlabs/pulse/internal/opml"
+	"github.com/catwenlabs/pulse/internal/source"
 )
 
 type OPMLStore struct {

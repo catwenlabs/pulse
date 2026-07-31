@@ -1,6 +1,6 @@
 package organization
 
-import "github.com/wenpengfei/pulse/internal/entry"
+import "github.com/catwenlabs/pulse/internal/entry"
 
 type Folder struct {
 	ID          string   `json:"id"`

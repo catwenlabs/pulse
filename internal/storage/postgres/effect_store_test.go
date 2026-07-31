@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wenpengfei/pulse/internal/entry"
-	"github.com/wenpengfei/pulse/internal/ingestion"
-	"github.com/wenpengfei/pulse/internal/rule"
+	"github.com/catwenlabs/pulse/internal/entry"
+	"github.com/catwenlabs/pulse/internal/ingestion"
+	"github.com/catwenlabs/pulse/internal/rule"
 )
 
 func TestEffectStoreIsIdempotentAndCompletesNotification(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wenpengfei/pulse/internal/source"
+	"github.com/catwenlabs/pulse/internal/source"
 )
 
 type fakeQueue struct {
