@@ -185,18 +185,17 @@ func (processor *Processor) pauseEmbedding() {
 }
 
 func embeddingInput(item entry.Entry) string {
+	const maxBodyRunes = 500
+	body := strings.Join([]string{item.Summary, item.ContentHTML}, "\n")
+	if runes := []rune(body); len(runes) > maxBodyRunes {
+		body = string(runes[:maxBodyRunes])
+	}
 	parts := []string{item.SourceTitle}
 	if item.PublishedAt != nil {
 		parts = append(parts, item.PublishedAt.UTC().Format(time.RFC3339))
 	}
-	parts = append(parts, item.Summary, item.ContentHTML)
-	value := strings.Join(parts, "\n")
-	const maxRunes = 8000
-	runes := []rune(value)
-	if len(runes) > maxRunes {
-		value = string(runes[:maxRunes])
-	}
-	return value
+	parts = append(parts, body)
+	return strings.Join(parts, "\n")
 }
 
 func entryTime(item entry.Entry) time.Time {

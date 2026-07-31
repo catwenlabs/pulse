@@ -203,6 +203,10 @@ func (store *StoryStore) Pending(ctx context.Context, limit int, model string) (
 						AND entry.embedding_attempted_at IS NOT NULL
 						AND entry.embedding_attempted_at < now() - interval '1 day'
 					)
+					-- Backfill: entries clustered while embeddings were disabled never had a
+					-- vector attempted. Once a model is configured, pick them up so recluster
+					-- (and the background worker) gradually re-embed and re-cluster history.
+					OR (entry.embedding IS NULL AND entry.embedding_attempted_at IS NULL)
 				)
 			)
 		  )

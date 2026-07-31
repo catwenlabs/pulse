@@ -32,6 +32,9 @@ dev-db-logs:
 dev-api:
 	PULSE_DATABASE_URL="$(DEV_DATABASE_URL)" \
 	PULSE_IMPORT_ROOTS="$(DEV_IMPORT_ROOTS)" \
+	PULSE_EMBEDDING_PROVIDER=ollama \
+	PULSE_EMBEDDING_BASE_URL=http://127.0.0.1:11434 \
+	PULSE_EMBEDDING_MODEL=qwen3-embedding \
 	$(MAKE) run
 
 dev-web-install:
