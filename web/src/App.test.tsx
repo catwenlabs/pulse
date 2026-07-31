@@ -582,7 +582,7 @@ describe('App', () => {
     await screen.findByText('First story')
 
     fireEvent.click(screen.getByText('First story'))
-    fireEvent.click(await screen.findByRole('button', { name: '拆分 Alt source' }))
+    fireEvent.click(await screen.findByRole('button', { name: '分开 Alt source' }))
     await waitFor(() => {
       const splitCalls = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
         String(url).includes('/stories/story-1/split') && init?.method === 'POST')
@@ -590,7 +590,8 @@ describe('App', () => {
       expect(JSON.parse(String(splitCalls[0][1]?.body))).toEqual({ entry_id: 'entry-2' })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: '合并到其他 Story' }))
+    fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }), { button: 0 })
+    fireEvent.click(await screen.findByRole('menuitem', { name: '合并到其他 Story' }))
     fireEvent.click(screen.getByRole('button', { name: '合并到：Second story' }))
     await waitFor(() => {
       const mergeCalls = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
