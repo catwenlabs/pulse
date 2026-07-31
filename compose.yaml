@@ -12,6 +12,7 @@ services:
       retries: 10
     volumes:
       - pulse-postgres-v17:/var/lib/postgresql/data
+    restart: unless-stopped
 
   pulse:
     build: .
@@ -32,6 +33,7 @@ services:
     volumes:
       - ./imports:/data/imports:ro
       - ./exports:/data/exports
+    restart: unless-stopped
 
 volumes:
   pulse-postgres-v17:
