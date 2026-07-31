@@ -4,8 +4,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/wenpengfei/pulse/internal/annotation"
-	"github.com/wenpengfei/pulse/internal/source"
+	"github.com/catwenlabs/pulse/internal/annotation"
+	"github.com/catwenlabs/pulse/internal/source"
 )
 
 var ErrNotFound = errors.New("entry not found")

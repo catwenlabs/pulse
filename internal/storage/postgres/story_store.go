@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/wenpengfei/pulse/internal/entry"
-	"github.com/wenpengfei/pulse/internal/story"
+	"github.com/catwenlabs/pulse/internal/entry"
+	"github.com/catwenlabs/pulse/internal/story"
 )
 
 type StoryStore struct {

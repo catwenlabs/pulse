@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/wenpengfei/pulse/internal/source"
+	"github.com/catwenlabs/pulse/internal/source"
 )
 
 var ErrNoAcquisition = errors.New("no acquisition available")

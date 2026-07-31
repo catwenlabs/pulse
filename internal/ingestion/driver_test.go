@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/wenpengfei/pulse/internal/source"
+	"github.com/catwenlabs/pulse/internal/source"
 )
 
 type stubDriver struct {

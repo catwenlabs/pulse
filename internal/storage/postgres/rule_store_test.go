@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/wenpengfei/pulse/internal/ingestion"
-	"github.com/wenpengfei/pulse/internal/rule"
+	"github.com/catwenlabs/pulse/internal/ingestion"
+	"github.com/catwenlabs/pulse/internal/rule"
 )
 
 func TestRuleStoreReplayRetractsDerivedTagsAndKeepsEffectsIdempotent(t *testing.T) {

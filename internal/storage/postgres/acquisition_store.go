@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/wenpengfei/pulse/internal/ingestion"
-	"github.com/wenpengfei/pulse/internal/security"
+	"github.com/catwenlabs/pulse/internal/ingestion"
+	"github.com/catwenlabs/pulse/internal/security"
 )
 
 type AcquisitionStore struct {

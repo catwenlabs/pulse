@@ -24,7 +24,7 @@ Use the project terms Source, Driver, Trigger, Acquisition, Candidate, Entry, Ch
 | Vite development server | `http://localhost:5173` |
 | Local development database | `127.0.0.1:54321` |
 | Health endpoint | `GET /healthz` |
-| Container image | `ghcr.io/wenpengfei/pulse` |
+| Container image | `ghcr.io/catwenlabs/pulse` |
 
 The default process enables `web,scheduler,worker,effect-worker`. Database migrations run automatically during application startup.
 

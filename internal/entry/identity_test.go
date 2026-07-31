@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wenpengfei/pulse/internal/ingestion"
+	"github.com/catwenlabs/pulse/internal/ingestion"
 )
 
 func TestIdentityPrefersExternalID(t *testing.T) {

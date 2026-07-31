@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wenpengfei/pulse/internal/annotation"
-	"github.com/wenpengfei/pulse/internal/ingestion"
-	"github.com/wenpengfei/pulse/internal/source"
+	"github.com/catwenlabs/pulse/internal/annotation"
+	"github.com/catwenlabs/pulse/internal/ingestion"
+	"github.com/catwenlabs/pulse/internal/source"
 )
 
 const (

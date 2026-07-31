@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wenpengfei/pulse/internal/ingestion"
+	"github.com/catwenlabs/pulse/internal/ingestion"
 )
 
 type sequenceProcessor struct {

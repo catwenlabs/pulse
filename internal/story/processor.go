@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wenpengfei/pulse/internal/embedding"
-	"github.com/wenpengfei/pulse/internal/entry"
+	"github.com/catwenlabs/pulse/internal/embedding"
+	"github.com/catwenlabs/pulse/internal/entry"
 )
 
 const candidateLimit = 200

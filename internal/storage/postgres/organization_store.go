@@ -8,8 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/wenpengfei/pulse/internal/organization"
-	"github.com/wenpengfei/pulse/internal/source"
+	"github.com/catwenlabs/pulse/internal/organization"
+	"github.com/catwenlabs/pulse/internal/source"
 )
 
 type OrganizationStore struct {

@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/wenpengfei/pulse/internal/config"
+	"github.com/catwenlabs/pulse/internal/config"
 )
 
 func TestRunContextStartsMigratesAndStops(t *testing.T) {

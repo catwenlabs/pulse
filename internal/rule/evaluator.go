@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wenpengfei/pulse/internal/entry"
+	"github.com/catwenlabs/pulse/internal/entry"
 )
 
 var ErrNoEffect = errors.New("no effect available")

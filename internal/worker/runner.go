@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/wenpengfei/pulse/internal/ingestion"
+	"github.com/catwenlabs/pulse/internal/ingestion"
 )
 
 const (

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wenpengfei/pulse/internal/ingestion"
-	"github.com/wenpengfei/pulse/internal/source"
+	"github.com/catwenlabs/pulse/internal/ingestion"
+	"github.com/catwenlabs/pulse/internal/source"
 )
 
 func TestAcquireParsesAnnotationBatch(t *testing.T) {
