@@ -131,7 +131,7 @@ func (failingProvider) Embed(context.Context, []string) ([][]float32, error) {
 var _ embedding.Provider = failingProvider{}
 
 // TestProcessorRunOnceSerializes verifies that two concurrent RunOnce passes do
-// not overlap: an HTTP-triggered recompute must not race the background loop.
+// not overlap: an HTTP-triggered recluster must not race the background loop.
 func TestProcessorRunOnceSerializes(t *testing.T) {
 	repository := &serializeRepository{proceed: make(chan struct{}), entered: make(chan struct{}, 1)}
 	processor := NewProcessor(repository, nil)

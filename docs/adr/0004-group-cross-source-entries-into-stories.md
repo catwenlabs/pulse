@@ -58,7 +58,7 @@ Ollama is an optional stateless compute dependency.
 - Model changes require regenerating embeddings because vectors from different models are
   not comparable.
 
-## Note: matching and recompute refinements
+## Note: matching and recluster refinements
 
 Two hard-match and conflict refinements extend the original decision:
 
@@ -72,7 +72,7 @@ Two hard-match and conflict refinements extend the original decision:
   implemented: `Entry` carries no entity data, and honest subject-conflict detection requires
   named-entity extraction plus a schema migration and backfill. That is deferred to a separate
   task rather than approximated with a noisy title heuristic.
-- **On-demand recompute.** `POST /api/v1/stories/recompute` drains pending aggregation
+- **On-demand recluster.** `POST /api/v1/stories/recluster` drains pending aggregation
   immediately (re-evaluating single-Entry Stories and embedding backfill) instead of waiting
   for the background tick, which is useful after a model or algorithm change. It only
   re-evaluates single-Entry Stories; it never auto-splits an existing multi-Entry Story, to
