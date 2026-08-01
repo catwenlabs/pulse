@@ -2,12 +2,15 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/catwenlabs/pulse/internal/entry"
+	"github.com/catwenlabs/pulse/internal/ingestion"
 	"github.com/catwenlabs/pulse/internal/source"
 	"github.com/catwenlabs/pulse/internal/storage/migrate"
 )
@@ -149,5 +152,66 @@ func TestSourceStoreListExcludesArchived(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != active.ID {
 		t.Errorf("List() = %+v, want active source", got)
+	}
+}
+
+func TestSourceStoreListIncludesUnreadEntryCount(t *testing.T) {
+	pool := testPool(t)
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	entryStore := NewEntryStore(pool)
+	ctx := context.Background()
+
+	src := createTestSource(t, sourceStore, "unread-source")
+	acquisition := claimTestAcquisition(t, acquisitionStore, src.ID, "unread")
+	if err := entryStore.CommitBatch(ctx, acquisition, "worker", []ingestion.Candidate{
+		{ExternalID: "unread-one", Title: "Unread one"},
+		{ExternalID: "unread-two", Title: "Unread two"},
+		{ExternalID: "read-one", Title: "Read one"},
+		{ExternalID: "hidden-one", Title: "Hidden one"},
+	}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("CommitBatch() error = %v", err)
+	}
+
+	// A second Source with its own unread Entries must not bleed into src's count.
+	other := createTestSource(t, sourceStore, "other-source")
+	otherAcquisition := claimTestAcquisition(t, acquisitionStore, other.ID, "other")
+	if err := entryStore.CommitBatch(ctx, otherAcquisition, "worker", []ingestion.Candidate{
+		{ExternalID: "other-unread-a", Title: "Other unread A"},
+		{ExternalID: "other-unread-b", Title: "Other unread B"},
+		{ExternalID: "other-unread-c", Title: "Other unread C"},
+	}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("other CommitBatch() error = %v", err)
+	}
+
+	results, err := entryStore.Search(ctx, entry.Query{Limit: 10, SourceID: src.ID})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	byExternal := make(map[string]entry.Entry, len(results))
+	for _, item := range results {
+		byExternal[item.ExternalID] = item
+	}
+	yes := true
+	if _, err := entryStore.Update(ctx, byExternal["read-one"].ID, entry.Patch{Read: &yes}); err != nil {
+		t.Fatalf("mark read Update() error = %v", err)
+	}
+	if _, err := entryStore.Update(ctx, byExternal["hidden-one"].ID, entry.Patch{Hidden: &yes}); err != nil {
+		t.Fatalf("mark hidden Update() error = %v", err)
+	}
+
+	got, err := sourceStore.List(ctx)
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	counts := make(map[source.ID]int, len(got))
+	for _, item := range got {
+		counts[item.ID] = item.UnreadCount
+	}
+	if counts[src.ID] != 2 {
+		t.Errorf("src UnreadCount = %d, want 2 (only this Source's unread, non-hidden entries)", counts[src.ID])
+	}
+	if counts[other.ID] != 3 {
+		t.Errorf("other UnreadCount = %d, want 3", counts[other.ID])
 	}
 }

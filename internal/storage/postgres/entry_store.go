@@ -102,7 +102,7 @@ func (store *EntryStore) Search(ctx context.Context, query entry.Query) ([]entry
 				)
 			)
 			AND ($5 = '' OR entry.source_id = $5::uuid)
-		ORDER BY discovered_at DESC, id DESC
+		ORDER BY (read_at IS NULL) DESC, discovered_at DESC, id DESC
 		LIMIT $1
 		OFFSET $6
 	`,

@@ -1105,4 +1105,71 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
+
+  it('shows an unread count next to each source and hides it when zero', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/api/v1/sources') && !init?.method) {
+        return new Response(JSON.stringify([
+          { ...source, unread_count: 7 },
+          { ...source, id: 'source-2', name: 'Quiet Feed', unread_count: 0 },
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return defaultFetch(input, init)
+    })
+
+    render(<App />)
+    const sidebar = document.querySelector('aside')!
+    const feed = await within(sidebar).findByRole('button', { name: /Example Feed/ })
+    expect(within(feed).getByText('7')).toBeInTheDocument()
+    const quiet = within(sidebar).getByRole('button', { name: /Quiet Feed/ })
+    expect(within(quiet).queryByText('0')).not.toBeInTheDocument()
+  })
+
+  it('shows the total unread count on the all-articles item', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/api/v1/sources') && !init?.method) {
+        return new Response(JSON.stringify([
+          { ...source, unread_count: 3 },
+          { ...source, id: 'source-2', name: 'Second Feed', unread_count: 4 },
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return defaultFetch(input, init)
+    })
+
+    render(<App />)
+    const sidebar = document.querySelector('aside')!
+    const allArticles = await within(sidebar).findByRole('link', { name: /全部文章/ })
+    expect(within(allArticles).getByText('7')).toBeInTheDocument()
+  })
+
+  it('refreshes source counts after marking an entry read', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/api/v1/sources') && !init?.method) {
+        return new Response(JSON.stringify([{ ...source, unread_count: 5 }]), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return defaultFetch(input, init)
+    })
+
+    const sourcesGets = () => vi.mocked(fetch).mock.calls.filter(([url, init]) =>
+      String(url).endsWith('/api/v1/sources') && !init?.method).length
+
+    render(<App />)
+    await screen.findByText('Reader article')
+    expect(sourcesGets()).toBe(1)
+
+    fireEvent.click(screen.getByText('Reader article'))
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.some(([url, init]) =>
+        String(url).endsWith('/api/v1/stories/story-1') && init?.method === 'PATCH')).toBe(true)
+    })
+    await waitFor(() => expect(sourcesGets()).toBeGreaterThanOrEqual(2))
+  })
 })

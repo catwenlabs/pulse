@@ -60,6 +60,7 @@ type Source struct {
 	CreatedAt         time.Time       `json:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at"`
 	ArchivedAt        *time.Time      `json:"archived_at,omitempty"`
+	UnreadCount       int             `json:"unread_count"`
 }
 
 func (item Source) MarshalJSON() ([]byte, error) {

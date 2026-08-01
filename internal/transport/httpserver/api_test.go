@@ -452,6 +452,20 @@ func TestListSourcesAndEntries(t *testing.T) {
 	}
 }
 
+func TestListSourcesExposesUnreadCount(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.listSources = func(context.Context) ([]source.Source, error) {
+		return []source.Source{{ID: "source-1", Name: "One", UnreadCount: 7}}, nil
+	}
+
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/sources", nil))
+
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"unread_count":7`)) {
+		t.Errorf("status = %d, body = %s, want unread_count in response", response.Code, response.Body.String())
+	}
+}
+
 func TestListAndGetStories(t *testing.T) {
 	backend := completeFakeBackend()
 	backend.listStories = func(_ context.Context, query story.Query) ([]story.Story, error) {

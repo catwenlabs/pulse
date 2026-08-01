@@ -803,7 +803,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/CreateSource"
         - type: object
-          required: [id, enabled, normalized_locator, created_at, updated_at]
+          required: [id, enabled, normalized_locator, created_at, updated_at, unread_count]
           properties:
             id:
               type: string
@@ -818,6 +818,9 @@ components:
             updated_at:
               type: string
               format: date-time
+            unread_count:
+              type: integer
+              description: Number of this Source's Entries that are unread and not hidden.
     SourceHealth:
       type: object
       required: [source_id, status, duration_milliseconds, candidate_count, new_count, updated_count, consecutive_failures]
