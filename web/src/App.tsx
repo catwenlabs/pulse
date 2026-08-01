@@ -42,6 +42,15 @@ function navItemClass(active: boolean, className?: string) {
   )
 }
 
+function UnreadBadge({ count, className }: { count: number; className?: string }) {
+  if (!count) return null
+  return (
+    <span className={cn('shrink-0 text-xs font-semibold tabular-nums text-muted-foreground', className)}>
+      {count}
+    </span>
+  )
+}
+
 export function App() {
   const [sources, setSources] = useState<Source[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
@@ -91,6 +100,14 @@ export function App() {
       setLoadError(error instanceof Error ? error.message : '加载信息源失败')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function refreshSources() {
+    try {
+      setSources(await api.listSources())
+    } catch {
+      // unread counts refresh on the next navigation if this fails
     }
   }
 
@@ -260,6 +277,7 @@ export function App() {
   const activeSourceName = sources.find((source) => source.id === selectedSourceID)?.name
   const assignedSourceIDs = new Set(folders.flatMap((folder) => folder.source_ids))
   const rootSources = sources.filter((source) => !assignedSourceIDs.has(source.id))
+  const totalUnread = sources.reduce((sum, source) => sum + (source.unread_count || 0), 0)
   const mobileTitle = activeView === 'sources'
     ? '信息源'
     : activeSourceName || (
@@ -364,6 +382,7 @@ export function App() {
               onClick={() => showStream('inbox')}
             >
               <NavIcon name="inbox" />全部文章
+              <UnreadBadge count={totalUnread} className="ml-auto" />
             </a>
           </div>
           {loading && <p className="border-0 bg-transparent px-2 py-1 text-left text-xs text-muted-foreground">正在同步信息源…</p>}
@@ -403,6 +422,7 @@ export function App() {
                         >
                           <span className={cn('size-2 shrink-0 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
                           <span className="min-w-0 flex-1 truncate text-left">{source.name}</span>
+                          <UnreadBadge count={source.unread_count} />
                         </Button>
                       )
                     })}
@@ -419,6 +439,7 @@ export function App() {
               >
                 <span className={cn('size-2 shrink-0 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
                 <span className="min-w-0 flex-1 truncate text-left">{source.name}</span>
+                <UnreadBadge count={source.unread_count} />
               </Button>
             ))}
           </div>
@@ -644,6 +665,7 @@ export function App() {
             sourceName={activeSourceName}
             sources={sources}
             mobile={isMobile}
+            refreshSources={refreshSources}
           />
         )}
       </main>
@@ -1400,12 +1422,14 @@ function Reader({
   sourceName,
   sources,
   mobile,
+  refreshSources,
 }: {
   view: Exclude<View, 'sources'>
   sourceID: string
   sourceName?: string
   sources: Source[]
   mobile: boolean
+  refreshSources: () => void
 }) {
   const [entries, setEntries] = useState<Entry[]>([])
   const [storiesByEntry, setStoriesByEntry] = useState<Record<string, Story>>({})
@@ -1552,6 +1576,9 @@ function Reader({
       return story ? { ...current, [updated.id]: { ...story, representative: updated } } : current
     })
     setSelected((current) => current?.id === updated.id ? updated : current)
+    if (change.read !== undefined) {
+      void refreshSources()
+    }
   }
 
   async function splitEntryFromStory(entryId: string) {
@@ -1630,6 +1657,7 @@ function Reader({
       setEntries((current) => current.map((item) => item.read_at ? item : { ...item, read_at: readAt }))
       setSelected((current) => current && !current.read_at ? { ...current, read_at: readAt } : current)
       setReaderNotice(result.updated_count > 0 ? `已将 ${result.updated_count} 篇文章标记为已读` : '没有未读文章')
+    void refreshSources()
     } catch (cause) {
       setReaderNotice(cause instanceof Error ? cause.message : '全部标记为已读失败')
     } finally {

@@ -80,7 +80,7 @@ func (store *StoryStore) Search(ctx context.Context, query story.Query) ([]story
 					  AND source_entry.source_id = $5::uuid
 				)
 			)
-		ORDER BY story.last_published_at DESC NULLS LAST, story.id DESC
+		ORDER BY (story.read_at IS NULL) DESC, story.last_published_at DESC NULLS LAST, story.id DESC
 		LIMIT $1 OFFSET $6
 	`,
 		query.Limit,

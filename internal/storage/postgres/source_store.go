@@ -28,6 +28,16 @@ func NewSourceStore(pool *pgxpool.Pool, ciphers ...*security.CredentialCipher) *
 	return store
 }
 
+// sourceColumns is the column list every Source read returns. The trailing scalar
+// subquery computes each Source's unread count — its Entries that are unread and
+// not hidden — and works in SELECT, RETURNING, and UPDATE ... RETURNING contexts.
+const sourceColumns = `id, name, driver_kind, locator, normalized_locator, config,
+	secret_ref, enabled, created_at, updated_at, archived_at,
+	(SELECT COUNT(*)::int FROM entries AS unread_entry
+		WHERE unread_entry.source_id = sources.id
+		AND unread_entry.read_at IS NULL
+		AND unread_entry.hidden_at IS NULL) AS unread_count`
+
 func (store *SourceStore) Create(ctx context.Context, spec source.Spec) (source.Source, error) {
 	validated, err := spec.Validate()
 	if err != nil {
@@ -49,8 +59,7 @@ func (store *SourceStore) Create(ctx context.Context, spec source.Spec) (source.
 		)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING
-			id, name, driver_kind, locator, normalized_locator, config,
-			secret_ref, enabled, created_at, updated_at, archived_at
+		`+sourceColumns+`
 	`,
 		validated.Name,
 		validated.Kind,
@@ -74,8 +83,7 @@ func (store *SourceStore) Create(ctx context.Context, spec source.Spec) (source.
 func (store *SourceStore) Get(ctx context.Context, id source.ID) (source.Source, error) {
 	row := store.pool.QueryRow(ctx, `
 		SELECT
-			id, name, driver_kind, locator, normalized_locator, config,
-			secret_ref, enabled, created_at, updated_at, archived_at
+		`+sourceColumns+`
 		FROM sources
 		WHERE id = $1
 	`, id)
@@ -93,8 +101,7 @@ func (store *SourceStore) Get(ctx context.Context, id source.ID) (source.Source,
 func (store *SourceStore) List(ctx context.Context) ([]source.Source, error) {
 	rows, err := store.pool.Query(ctx, `
 		SELECT
-			id, name, driver_kind, locator, normalized_locator, config,
-			secret_ref, enabled, created_at, updated_at, archived_at
+		`+sourceColumns+`
 		FROM sources
 		WHERE archived_at IS NULL
 		ORDER BY name, id
@@ -164,8 +171,7 @@ func (store *SourceStore) Update(ctx context.Context, id source.ID, spec source.
 			updated_at = now()
 		WHERE id = $1 AND archived_at IS NULL
 		RETURNING
-			id, name, driver_kind, locator, normalized_locator, config,
-			secret_ref, enabled, created_at, updated_at, archived_at
+		`+sourceColumns+`
 	`, id, validated.Name, validated.Locator, validated.NormalizedLocator)
 
 	updated, err := store.scanSource(row)
@@ -293,6 +299,7 @@ func (store *SourceStore) scanSource(row sourceRow) (source.Source, error) {
 		&result.CreatedAt,
 		&result.UpdatedAt,
 		&result.ArchivedAt,
+		&result.UnreadCount,
 	)
 	if err == nil {
 		result.Config, err = store.cipher.Reveal(result.Config)

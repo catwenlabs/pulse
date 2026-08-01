@@ -11,6 +11,7 @@ export interface Source {
   created_at: string
   updated_at: string
   archived_at?: string
+  unread_count: number
 }
 
 export interface SourceHealth {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/ingestion"
@@ -223,5 +224,56 @@ func TestStoryStoreSplitDetachesEntry(t *testing.T) {
 	}
 	if remaining.EntryCount != 1 || len(remaining.Entries) != 1 || remaining.Entries[0].ID == splitEntryID {
 		t.Errorf("remaining story = %#v", remaining)
+	}
+}
+
+func TestStoryStoreSearchSurfacesUnreadBeforeRead(t *testing.T) {
+	pool := testPool(t)
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	entryStore := NewEntryStore(pool)
+	storyStore := NewStoryStore(pool)
+	ctx := context.Background()
+
+	src := createTestSource(t, sourceStore, "story-order")
+	acquisition := claimTestAcquisition(t, acquisitionStore, src.ID, "story-order")
+	older := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	newer := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	if err := entryStore.CommitBatch(ctx, acquisition, "worker", []ingestion.Candidate{
+		{ExternalID: "unread-story", Title: "Unread story", ContentHTML: "<p>unread body alpha</p>", PublishedAt: &older},
+		{ExternalID: "read-story", Title: "Read story", ContentHTML: "<p>read body beta</p>", PublishedAt: &newer},
+	}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("CommitBatch() error = %v", err)
+	}
+
+	stories, err := storyStore.Search(ctx, story.Query{Limit: 10})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if len(stories) != 2 {
+		t.Fatalf("expected 2 distinct stories, got %d: %+v", len(stories), stories)
+	}
+	byExternal := make(map[string]story.Story, len(stories))
+	for _, item := range stories {
+		byExternal[item.Representative.ExternalID] = item
+	}
+	readStory, ok := byExternal["read-story"]
+	if !ok {
+		t.Fatalf("missing read-story in search results: %+v", stories)
+	}
+
+	yes := true
+	if _, err := entryStore.Update(ctx, readStory.Representative.ID, entry.Patch{Read: &yes}); err != nil {
+		t.Fatalf("mark read Update() error = %v", err)
+	}
+
+	results, err := storyStore.Search(ctx, story.Query{Limit: 10})
+	if err != nil {
+		t.Fatalf("Search() after mark-read error = %v", err)
+	}
+	// "read-story" has the newer published time, so pure time-ordering would
+	// place it first; the unread story must sort ahead of it.
+	if got := results[0].Representative.ExternalID; got != "unread-story" {
+		t.Errorf("first story ExternalID = %q, want %q (unread before read)", got, "unread-story")
 	}
 }

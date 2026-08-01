@@ -259,6 +259,47 @@ func TestEntryStoreMarkReadCanBeScopedToSource(t *testing.T) {
 	}
 }
 
+func TestEntryStoreSearchSurfacesUnreadBeforeRead(t *testing.T) {
+	pool := testPool(t)
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	store := NewEntryStore(pool)
+	ctx := context.Background()
+
+	src := createTestSource(t, sourceStore, "entry-order")
+	acquisition := claimTestAcquisition(t, acquisitionStore, src.ID, "entry-order")
+	if err := store.CommitBatch(ctx, acquisition, "worker", []ingestion.Candidate{
+		{ExternalID: "alpha", Title: "Alpha", ContentHTML: "<p>alpha body</p>"},
+		{ExternalID: "beta", Title: "Beta", ContentHTML: "<p>beta body</p>"},
+	}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("CommitBatch() error = %v", err)
+	}
+
+	initial, err := store.Search(ctx, entry.Query{Limit: 10, SourceID: src.ID})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if len(initial) != 2 {
+		t.Fatalf("expected 2 entries, got %d: %+v", len(initial), initial)
+	}
+	first, second := initial[0], initial[1]
+
+	yes := true
+	if _, err := store.Update(ctx, first.ID, entry.Patch{Read: &yes}); err != nil {
+		t.Fatalf("mark read Update() error = %v", err)
+	}
+
+	results, err := store.Search(ctx, entry.Query{Limit: 10, SourceID: src.ID})
+	if err != nil {
+		t.Fatalf("Search() after mark-read error = %v", err)
+	}
+	// The entry that naturally sorts first was marked read; the unread entry
+	// must now sort ahead of it.
+	if results[0].ID != second.ID {
+		t.Errorf("first entry ID = %v, want %v (unread before read)", results[0].ID, second.ID)
+	}
+}
+
 func claimTestAcquisition(
 	t *testing.T,
 	store *AcquisitionStore,
