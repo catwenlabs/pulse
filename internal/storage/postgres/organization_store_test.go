@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/organization"
@@ -69,6 +70,10 @@ func TestOrganizationStorePersistsIndependentNavigationOrder(t *testing.T) {
 	rootHidden := createTestSource(t, sourceStore, "root-hidden")
 	rootLast := createTestSource(t, sourceStore, "root-last")
 	folderOnly := createTestSource(t, sourceStore, "folder-only")
+	originalUpdatedAt := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `UPDATE sources SET updated_at = $2 WHERE id = $1`, rootFirst.ID, originalUpdatedAt); err != nil {
+		t.Fatalf("set source updated_at() error = %v", err)
+	}
 
 	firstFolder, err := store.CreateFolder(ctx, "First folder")
 	if err != nil {
@@ -93,6 +98,13 @@ func TestOrganizationStorePersistsIndependentNavigationOrder(t *testing.T) {
 	}
 	if err := store.ReorderRootSources(ctx, []source.ID{rootLast.ID, rootFirst.ID}); err != nil {
 		t.Fatalf("ReorderRootSources() error = %v", err)
+	}
+	updatedRootFirst, err := sourceStore.Get(ctx, rootFirst.ID)
+	if err != nil {
+		t.Fatalf("Get() after ReorderRootSources() error = %v", err)
+	}
+	if !updatedRootFirst.UpdatedAt.Equal(originalUpdatedAt) {
+		t.Fatalf("ReorderRootSources() changed UpdatedAt to %v, want %v", updatedRootFirst.UpdatedAt, originalUpdatedAt)
 	}
 	if err := store.ReorderFolderSources(ctx, firstFolder.ID, []source.ID{folderOnly.ID, rootHidden.ID}); err != nil {
 		t.Fatalf("ReorderFolderSources() error = %v", err)

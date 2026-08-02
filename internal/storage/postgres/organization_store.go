@@ -163,7 +163,7 @@ func (store *OrganizationStore) ReorderRootSources(ctx context.Context, ids []so
 	for position, id := range orderedRootIDs {
 		if _, err := tx.Exec(ctx, `
 			UPDATE sources
-			SET navigation_position = $2, updated_at = now()
+			SET navigation_position = $2
 			WHERE id = $1 AND archived_at IS NULL
 		`, id, position); err != nil {
 			return fmt.Errorf("persist root Source order: %w", err)
