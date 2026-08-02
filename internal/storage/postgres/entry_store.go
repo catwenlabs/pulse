@@ -18,11 +18,16 @@ import (
 )
 
 type EntryStore struct {
-	pool *pgxpool.Pool
+	pool    *pgxpool.Pool
+	publish func(string)
 }
 
-func NewEntryStore(pool *pgxpool.Pool) *EntryStore {
-	return &EntryStore{pool: pool}
+func NewEntryStore(pool *pgxpool.Pool, publishers ...func(string)) *EntryStore {
+	var publish func(string)
+	if len(publishers) > 0 {
+		publish = publishers[0]
+	}
+	return &EntryStore{pool: pool, publish: publish}
 }
 
 // List and Search expose source content for internal maintenance and rule
@@ -713,6 +718,9 @@ func (store *EntryStore) CommitBatch(
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit entry batch: %w", err)
+	}
+	if store.publish != nil && len(candidates) > 0 {
+		store.publish(string(acquisition.SourceID))
 	}
 	return nil
 }

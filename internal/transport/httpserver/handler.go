@@ -21,6 +21,7 @@ import (
 
 	"github.com/catwenlabs/pulse/internal/annotation"
 	"github.com/catwenlabs/pulse/internal/entry"
+	"github.com/catwenlabs/pulse/internal/events"
 	"github.com/catwenlabs/pulse/internal/ingestion"
 	"github.com/catwenlabs/pulse/internal/opml"
 	"github.com/catwenlabs/pulse/internal/organization"
@@ -82,14 +83,18 @@ func NewHandler(backends ...Backend) http.Handler {
 	if len(backends) > 0 {
 		backend = backends[0]
 	}
-	return newHandler(backend, nil)
+	return newHandler(backend, nil, nil)
 }
 
 func NewHandlerWithWeb(backend Backend, web fs.FS) http.Handler {
-	return newHandler(backend, web)
+	return newHandler(backend, web, nil)
 }
 
-func newHandler(backend Backend, web fs.FS) http.Handler {
+func NewHandlerWithWebAndEvents(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.Handler {
+	return newHandler(backend, web, hub)
+}
+
+func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -98,6 +103,9 @@ func newHandler(backend Backend, web fs.FS) http.Handler {
 	if backend == nil {
 		registerWeb(mux, web)
 		return mux
+	}
+	if hub != nil {
+		mux.HandleFunc("GET /api/v1/events", streamLibraryChanges(hub))
 	}
 	mux.HandleFunc("POST /api/v1/sources", createSource(backend))
 	mux.HandleFunc("POST /api/v1/sources/preview", previewSource(backend))

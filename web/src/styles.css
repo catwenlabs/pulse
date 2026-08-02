@@ -35,6 +35,22 @@
   :focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
 }
 
+@keyframes pulse-new-content {
+  0% { background-color: rgb(254 243 199 / 0.9); }
+  100% { background-color: transparent; }
+}
+
+.new-content-highlight {
+  animation: pulse-new-content 3s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .new-content-highlight {
+    animation: none;
+    background-color: rgb(254 243 199 / 0.9);
+  }
+}
+
 @layer components {
   /* Shell and navigation */
   .app-shell { @apply grid h-dvh min-h-0 grid-cols-[264px_minmax(0,1fr)] overflow-hidden max-md:block max-md:w-full; }

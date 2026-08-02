@@ -5,6 +5,28 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /events:
+    get:
+      operationId: streamLibraryChanges
+      summary: Stream committed library change signals
+      description: >
+        Opens an SSE stream. Each `library-change` event is a lightweight
+        invalidation signal; clients must reconcile Sources, Stories, and
+        unread counts through the HTTP API. The stream sends heartbeat
+        comments and supports normal EventSource retry behavior, but does not
+        replay historical events.
+      responses:
+        "200":
+          description: Server-Sent Events stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: >
+                  SSE frames containing `library-change` events and heartbeat
+                  comments.
+        "500":
+          description: Streaming is not supported by the server
   /sources:
     get:
       operationId: listSources
@@ -843,6 +865,14 @@ components:
             unread_count:
               type: integer
               description: Number of distinct Stories represented by this Source that are unread and not hidden.
+    LibraryChangeEvent:
+      type: object
+      additionalProperties: false
+      properties:
+        source_id:
+          type: string
+          format: uuid
+          description: Source whose committed data changed, when applicable.
     SourceHealth:
       type: object
       required: [source_id, status, duration_milliseconds, candidate_count, new_count, updated_count, consecutive_failures]

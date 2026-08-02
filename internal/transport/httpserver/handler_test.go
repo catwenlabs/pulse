@@ -1,13 +1,19 @@
 package httpserver
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
+
+	"github.com/catwenlabs/pulse/internal/events"
 )
 
 func TestHealth(t *testing.T) {
@@ -81,5 +87,121 @@ func TestUnknownRoute(t *testing.T) {
 
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusNotFound)
+	}
+}
+
+func TestLibraryEventsStreamsCommittedChangeSignals(t *testing.T) {
+	hub := events.NewLibraryChangeHub()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil).WithContext(ctx)
+	response := newTestStreamWriter()
+	done := make(chan struct{})
+	go func() {
+		NewHandlerWithWebAndEvents(completeFakeBackend(), nil, hub).ServeHTTP(response, request)
+		close(done)
+	}()
+	awaitFlush(t, response)
+	if response.statusCode != http.StatusOK {
+		t.Fatalf("status = %d", response.statusCode)
+	}
+	if got := response.Header().Get("Content-Type"); got != "text/event-stream; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if got := response.bodyString(); got != "retry: 3000\n\n" {
+		t.Fatalf("initial event = %q", got)
+	}
+
+	hub.PublishSource("source-1")
+	awaitFlush(t, response)
+	want := "retry: 3000\n\nevent: library-change\nid: 1\ndata: {\"source_id\":\"source-1\"}\n\n"
+	if got := response.bodyString(); got != want {
+		t.Fatalf("event = %q, want %q", got, want)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("event stream did not stop after cancellation")
+	}
+}
+
+func TestLibraryEventsSendHeartbeatsAndStopOnCancellation(t *testing.T) {
+	hub := events.NewLibraryChangeHub()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil).WithContext(ctx)
+	response := newTestStreamWriter()
+	done := make(chan struct{})
+	go func() {
+		streamLibraryChangesWithHeartbeat(hub, 5*time.Millisecond).ServeHTTP(response, request)
+		close(done)
+	}()
+	awaitFlush(t, response)
+	awaitFlush(t, response)
+	if got := response.bodyString(); !strings.Contains(got, ": heartbeat\n\n") {
+		t.Fatalf("stream = %q, want heartbeat", got)
+	}
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("stream did not close promptly")
+	}
+}
+
+type testStreamWriter struct {
+	mu         sync.Mutex
+	header     http.Header
+	body       bytes.Buffer
+	statusCode int
+	flushed    chan struct{}
+}
+
+func newTestStreamWriter() *testStreamWriter {
+	return &testStreamWriter{header: make(http.Header), flushed: make(chan struct{}, 8)}
+}
+
+func (writer *testStreamWriter) Header() http.Header {
+	return writer.header
+}
+
+func (writer *testStreamWriter) WriteHeader(statusCode int) {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	if writer.statusCode == 0 {
+		writer.statusCode = statusCode
+	}
+}
+
+func (writer *testStreamWriter) Write(data []byte) (int, error) {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	if writer.statusCode == 0 {
+		writer.statusCode = http.StatusOK
+	}
+	return writer.body.Write(data)
+}
+
+func (writer *testStreamWriter) Flush() {
+	select {
+	case writer.flushed <- struct{}{}:
+	default:
+	}
+}
+
+func (writer *testStreamWriter) bodyString() string {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	return writer.body.String()
+}
+
+func awaitFlush(t *testing.T, writer *testStreamWriter) {
+	t.Helper()
+	select {
+	case <-writer.flushed:
+	case <-time.After(time.Second):
+		t.Fatal("stream did not flush")
 	}
 }

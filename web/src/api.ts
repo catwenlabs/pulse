@@ -154,6 +154,12 @@ export interface EntryQuery {
   cursor?: string
 }
 
+export interface LibraryChangeEvent {
+  source_id?: string
+}
+
+export const libraryEventsPath = '/api/v1/events'
+
 export interface StoryPatch {
   read?: boolean
   starred?: boolean
