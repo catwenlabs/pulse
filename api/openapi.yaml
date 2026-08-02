@@ -133,6 +133,41 @@ paths:
   /sources/{sourceId}/entries:
     parameters:
       - $ref: "#/components/parameters/SourceId"
+    get:
+      operationId: listSourceEntries
+      summary: List Source Entries with owning Story state
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+            enum: [inbox, unread, starred, later, hidden]
+        - name: tag
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Source Entries and their real owning Story projections
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceEntryPage"
     post:
       operationId: createManualEntry
       description: >
@@ -220,85 +255,6 @@ paths:
           description: Webhook acquisition enqueued
         "401":
           $ref: "#/components/responses/Problem"
-  /entries:
-    get:
-      operationId: listEntries
-      parameters:
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 200
-            default: 50
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            minimum: 0
-            default: 0
-        - name: q
-          in: query
-          description: >
-            Full-text, substring, and typo-tolerant search across Entry titles,
-            authors, summaries, content, notes, annotations, and Source names.
-          schema:
-            type: string
-        - name: state
-          in: query
-          schema:
-            type: string
-            enum: [inbox, unread, starred, later, hidden]
-        - name: tag
-          in: query
-          schema:
-            type: string
-        - name: source_id
-          in: query
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: Inbox entries
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Entry"
-    patch:
-      operationId: markEntriesRead
-      parameters:
-        - name: source_id
-          in: query
-          description: When present, only entries belonging to this Source are marked read.
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [read]
-              properties:
-                read:
-                  type: boolean
-                  const: true
-      responses:
-        "200":
-          description: Number of entries newly marked as read
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [updated_count]
-                properties:
-                  updated_count:
-                    type: integer
-                    format: int64
   /stories:
     get:
       operationId: listStories
@@ -311,12 +267,10 @@ paths:
             minimum: 1
             maximum: 200
             default: 50
-        - name: offset
+        - name: cursor
           in: query
           schema:
-            type: integer
-            minimum: 0
-            default: 0
+            type: string
         - name: q
           in: query
           schema:
@@ -337,13 +291,11 @@ paths:
             format: uuid
       responses:
         "200":
-          description: Stories ordered by latest publication time
+          description: Stories ordered by unread bucket, stable Story sort time, and Story ID
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Story"
+                $ref: "#/components/schemas/StoryPage"
     patch:
       operationId: markStoriesRead
       parameters:
@@ -409,6 +361,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Story"
+  /stories/{storyId}/representative:
+    parameters:
+      - name: storyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: setStoryRepresentative
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entry_id]
+              additionalProperties: false
+              properties:
+                entry_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Story with the explicitly selected representative Entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Story"
+        "404":
+          $ref: "#/components/responses/Problem"
   /stories/{storyId}/merge:
     parameters:
       - name: storyId
@@ -432,6 +415,12 @@ paths:
                   type: string
                   format: uuid
                   description: The Story that absorbs the path Story.
+                display_title:
+                  type: string
+                  description: Explicitly selected surviving display title when the two Stories conflict.
+                note:
+                  type: string
+                  description: Explicitly selected surviving Note when the two Stories conflict.
       responses:
         "200":
           description: Merged Story
@@ -440,6 +429,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/Story"
         "400":
+          $ref: "#/components/responses/Problem"
+        "409":
           $ref: "#/components/responses/Problem"
         "404":
           $ref: "#/components/responses/Problem"
@@ -466,6 +457,18 @@ paths:
                   type: string
                   format: uuid
                   description: The member Entry to detach.
+                copy_display_title:
+                  type: boolean
+                move_display_title:
+                  type: boolean
+                copy_note:
+                  type: boolean
+                move_note:
+                  type: boolean
+                copy_tags:
+                  type: boolean
+                move_tags:
+                  type: boolean
       responses:
         "200":
           description: The newly created single-Entry Story
@@ -504,6 +507,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Problem"
+  /stories/{storyId}/tags:
+    parameters:
+      - name: storyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: addStoryTag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        "201":
+          description: Story tag added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tag"
+  /stories/{storyId}/tags/{tagId}:
+    parameters:
+      - name: storyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - $ref: "#/components/parameters/TagId"
+    delete:
+      operationId: removeStoryTag
+      responses:
+        "204":
+          description: User tag removed
   /entries/{entryId}:
     parameters:
       - name: entryId
@@ -521,48 +565,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Entry"
-    patch:
-      operationId: updateEntry
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EntryPatch"
+    delete:
+      operationId: deleteEntry
+      summary: Permanently delete source data and write an Entry Tombstone
+      parameters:
+        - name: confirm
+          in: query
+          schema:
+            type: boolean
+            default: false
       responses:
-        "200":
-          description: Updated Entry
+        "204":
+          description: Entry deleted
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: Deleting the final Entry requires explicit confirmation of Story metadata loss.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Entry"
-  /entries/{entryId}/tags:
-    parameters:
-      - $ref: "#/components/parameters/EntryId"
-    post:
-      operationId: addEntryTag
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name]
-              properties:
-                name:
-                  type: string
-      responses:
-        "201":
-          description: Tag added
-  /entries/{entryId}/tags/{tagId}:
-    parameters:
-      - $ref: "#/components/parameters/EntryId"
-      - $ref: "#/components/parameters/TagId"
-    delete:
-      operationId: removeEntryTag
-      responses:
-        "204":
-          description: User tag removed
+                $ref: "#/components/schemas/DeletionConfirmation"
   /entries/{entryId}/export.md:
     parameters:
       - $ref: "#/components/parameters/EntryId"
@@ -820,7 +842,7 @@ components:
               format: date-time
             unread_count:
               type: integer
-              description: Number of this Source's Entries that are unread and not hidden.
+              description: Number of distinct Stories represented by this Source that are unread and not hidden.
     SourceHealth:
       type: object
       required: [source_id, status, duration_milliseconds, candidate_count, new_count, updated_count, consecutive_failures]
@@ -997,9 +1019,65 @@ components:
         discovered_at:
           type: string
           format: date-time
-        later_at:
+        external_id:
+          type: string
+        author:
+          type: string
+        summary:
+          type: string
+        content_html:
+          type: string
+        published_at:
           type: string
           format: date-time
+        annotation:
+          $ref: "#/components/schemas/AnnotationDetail"
+    SourceEntry:
+      type: object
+      required: [entry, story]
+      properties:
+        entry:
+          $ref: "#/components/schemas/Entry"
+        story:
+          $ref: "#/components/schemas/StoryRef"
+    SourceEntryPage:
+      type: object
+      required: [entries, total_entries, reader_counts]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceEntry"
+        total_entries:
+          type: integer
+          minimum: 0
+          description: Exact number of Entry rows matching the Source query.
+        reader_counts:
+          $ref: "#/components/schemas/ReaderCounts"
+        next_cursor:
+          type: string
+          description: Opaque cursor for the next Source Entry page.
+    StoryRef:
+      type: object
+      required: [id, entry_count, source_count]
+      properties:
+        id:
+          type: string
+          format: uuid
+        entry_count:
+          type: integer
+          minimum: 1
+        source_count:
+          type: integer
+          minimum: 1
+        display_title:
+          type: string
+        note:
+          type: string
+        tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
         read_at:
           type: string
           format: date-time
@@ -1009,27 +1087,9 @@ components:
         hidden_at:
           type: string
           format: date-time
-        display_title:
+        later_at:
           type: string
-        note:
-          type: string
-        annotation:
-          $ref: "#/components/schemas/AnnotationDetail"
-    EntryPatch:
-      type: object
-      properties:
-        read:
-          type: boolean
-        starred:
-          type: boolean
-        hidden:
-          type: boolean
-        later:
-          type: boolean
-        display_title:
-          type: string
-        note:
-          type: string
+          format: date-time
     Story:
       type: object
       required: [id, representative, entry_count, source_count]
@@ -1037,12 +1097,22 @@ components:
         id:
           type: string
           format: uuid
+        display_title:
+          type: string
+        note:
+          type: string
+        tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
         representative:
           $ref: "#/components/schemas/Entry"
         entries:
           type: array
           items:
             $ref: "#/components/schemas/Entry"
+        matched_entry:
+          $ref: "#/components/schemas/Entry"
         entry_count:
           type: integer
           minimum: 1
@@ -1067,6 +1137,62 @@ components:
         later_at:
           type: string
           format: date-time
+    StoryPage:
+      type: object
+      required: [stories, total_stories, reader_counts]
+      properties:
+        stories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Story"
+        total_stories:
+          type: integer
+          minimum: 0
+          description: Exact number of Stories matching the active query.
+        reader_counts:
+          $ref: "#/components/schemas/ReaderCounts"
+        next_cursor:
+          type: string
+          description: Opaque cursor for the next Story page.
+    ReaderCounts:
+      type: object
+      required: [inbox_stories, unread_stories, starred_stories, later_stories, hidden_stories]
+      properties:
+        inbox_stories:
+          type: integer
+          minimum: 0
+        unread_stories:
+          type: integer
+          minimum: 0
+        starred_stories:
+          type: integer
+          minimum: 0
+        later_stories:
+          type: integer
+          minimum: 0
+        hidden_stories:
+          type: integer
+          minimum: 0
+      description: Exact Reader counts measured in distinct Story IDs.
+    DeletionConfirmation:
+      type: object
+      required: [code, detail, story_id, display_title, note, entry_count]
+      properties:
+        code:
+          type: string
+          const: confirmation_required
+        detail:
+          type: string
+        story_id:
+          type: string
+          format: uuid
+        display_title:
+          type: string
+        note:
+          type: string
+        entry_count:
+          type: integer
+          const: 1
     StoryPatch:
       type: object
       additionalProperties: false
@@ -1079,6 +1205,19 @@ components:
           type: boolean
         later:
           type: boolean
+        display_title:
+          type: string
+        note:
+          type: string
+    Tag:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
     Rule:
       type: object
       required: [name, condition, actions]

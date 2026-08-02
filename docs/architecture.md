@@ -214,7 +214,7 @@ Source 数量和首末发布时间从成员关系实时计算，不在 Story 行
 
 相同身份的 Candidate 更新原 Entry，不保留正文历史版本。来源标题和正文保存在 Entry；用户的显示标题和 Note 保存在 Story，来源更新不得覆盖用户内容。来源中暂时缺失的 Entry 不删除；明确删除事件只设置 `source_deleted`。
 
-用户删除 Entry 时进入回收站，并留下 `source_id + identity_key` Tombstone，防止来源再次返回时复活。删除 Source 默认停止摄取并归档 Source，历史 Entry 保留；批量删除内容必须显式选择。
+Reader 移除只更新 Story 的隐藏状态；维护者永久删除 Entry 时留下 `source_id + identity_key` Tombstone，防止来源再次返回时复活。删除最后一个 Entry 还必须确认将丢失的 Story 元数据。删除 Source 默认停止摄取并归档 Source，历史 Entry 保留；批量删除内容必须显式选择。
 
 ## 6. Checkpoints and Transaction Boundary
 
@@ -269,7 +269,9 @@ entry_annotations
 entry_tombstones
 folders
 tags
-entry_tags
+story_tags
+story_rule_tags
+story_aliases
 rules
 rule_executions
 effects

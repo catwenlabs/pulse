@@ -24,6 +24,7 @@ import (
 	"github.com/catwenlabs/pulse/internal/ingestion"
 	"github.com/catwenlabs/pulse/internal/opml"
 	"github.com/catwenlabs/pulse/internal/organization"
+	pagecursor "github.com/catwenlabs/pulse/internal/pagination"
 	"github.com/catwenlabs/pulse/internal/preview"
 	"github.com/catwenlabs/pulse/internal/rule"
 	"github.com/catwenlabs/pulse/internal/source"
@@ -49,19 +50,20 @@ type Backend interface {
 	ListViews(context.Context) ([]organization.View, error)
 	DeleteView(context.Context, string) error
 	Enqueue(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error)
-	ListEntries(context.Context, int) ([]entry.Entry, error)
-	SearchEntries(context.Context, entry.Query) ([]entry.Entry, error)
+	ListSourceEntries(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
+	ListSourceEntryPage(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
 	GetEntry(context.Context, entry.ID) (entry.Entry, error)
-	UpdateEntry(context.Context, entry.ID, entry.Patch) (entry.Entry, error)
-	MarkEntriesRead(context.Context, source.ID) (int64, error)
-	AddEntryTag(context.Context, entry.ID, string) (entry.Tag, error)
-	RemoveEntryTag(context.Context, entry.ID, string) error
+	DeleteEntry(context.Context, entry.ID, bool) error
 	ListStories(context.Context, story.Query) ([]story.Story, error)
+	ListStoryPage(context.Context, story.Query) (story.Page, error)
 	GetStory(context.Context, story.ID) (story.Story, error)
 	UpdateStory(context.Context, story.ID, story.Patch) (story.Story, error)
+	SetStoryRepresentative(context.Context, story.ID, entry.ID) (story.Story, error)
 	MarkStoriesRead(context.Context, string) (int64, error)
-	MergeStories(context.Context, story.ID, story.ID) (story.Story, error)
-	SplitStory(context.Context, story.ID, entry.ID) (story.Story, error)
+	MergeStories(context.Context, story.ID, story.ID, story.MergeOptions) (story.Story, error)
+	SplitStory(context.Context, story.ID, entry.ID, story.SplitOptions) (story.Story, error)
+	AddStoryTag(context.Context, story.ID, string) (entry.Tag, error)
+	RemoveStoryTag(context.Context, story.ID, string) error
 	Recluster(context.Context) (int, error)
 	ImportOPML(context.Context, []opml.Subscription) (opml.ImportResult, error)
 	ExportOPML(context.Context) ([]opml.Subscription, error)
@@ -105,23 +107,23 @@ func newHandler(backend Backend, web fs.FS) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/sources/{id}", archiveSource(backend))
 	mux.HandleFunc("POST /api/v1/sources/{id}/runs", runSource(backend))
 	mux.HandleFunc("POST /api/v1/sources/{id}/entries", createManualEntry(backend))
+	mux.HandleFunc("GET /api/v1/sources/{id}/entries", listSourceEntries(backend))
 	mux.HandleFunc("POST /api/v1/sources/{id}/annotations", importAnnotations(backend))
 	mux.HandleFunc("POST /api/v1/sources/{id}/secret", rotateSourceSecret(backend))
 	mux.HandleFunc("GET /api/v1/sources/{id}/health", getSourceHealth(backend))
 	mux.HandleFunc("POST /api/v1/webhooks/{id}", receiveWebhook(backend))
-	mux.HandleFunc("GET /api/v1/entries", listEntries(backend))
-	mux.HandleFunc("PATCH /api/v1/entries", markEntriesRead(backend))
 	mux.HandleFunc("GET /api/v1/entries/{id}", getEntry(backend))
-	mux.HandleFunc("PATCH /api/v1/entries/{id}", updateEntry(backend))
-	mux.HandleFunc("POST /api/v1/entries/{id}/tags", addEntryTag(backend))
-	mux.HandleFunc("DELETE /api/v1/entries/{id}/tags/{tagID}", removeEntryTag(backend))
+	mux.HandleFunc("DELETE /api/v1/entries/{id}", deleteEntry(backend))
 	mux.HandleFunc("GET /api/v1/entries/{id}/export.md", exportEntryMarkdown(backend))
 	mux.HandleFunc("GET /api/v1/stories", listStories(backend))
 	mux.HandleFunc("PATCH /api/v1/stories", markStoriesRead(backend))
 	mux.HandleFunc("GET /api/v1/stories/{id}", getStory(backend))
 	mux.HandleFunc("PATCH /api/v1/stories/{id}", updateStory(backend))
+	mux.HandleFunc("PUT /api/v1/stories/{id}/representative", setStoryRepresentative(backend))
 	mux.HandleFunc("POST /api/v1/stories/{id}/merge", mergeStory(backend))
 	mux.HandleFunc("POST /api/v1/stories/{id}/split", splitStory(backend))
+	mux.HandleFunc("POST /api/v1/stories/{id}/tags", addStoryTag(backend))
+	mux.HandleFunc("DELETE /api/v1/stories/{id}/tags/{tagID}", removeStoryTag(backend))
 	mux.HandleFunc("POST /api/v1/stories/recluster", reclusterStories(backend))
 	mux.HandleFunc("POST /api/v1/opml/import", importOPML(backend))
 	mux.HandleFunc("GET /api/v1/opml/export", exportOPML(backend))
@@ -148,13 +150,13 @@ func newHandler(backend Backend, web fs.FS) http.Handler {
 
 func listStories(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
-		limit, offset, ok := pagination(w, request)
+		limit, cursor, ok := pagination(w, request)
 		if !ok {
 			return
 		}
-		items, err := backend.ListStories(request.Context(), story.Query{
+		page, err := backend.ListStoryPage(request.Context(), story.Query{
 			Limit:    limit,
-			Offset:   offset,
+			Cursor:   cursor,
 			Search:   request.URL.Query().Get("q"),
 			State:    request.URL.Query().Get("state"),
 			Tag:      request.URL.Query().Get("tag"),
@@ -164,7 +166,8 @@ func listStories(backend Backend) http.HandlerFunc {
 			writeDomainError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, nonNilSlice(items))
+		page.Stories = nonNilSlice(page.Stories)
+		writeJSON(w, http.StatusOK, page)
 	}
 }
 
@@ -182,10 +185,12 @@ func getStory(backend Backend) http.HandlerFunc {
 func updateStory(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
 		var body struct {
-			Read    *bool `json:"read"`
-			Starred *bool `json:"starred"`
-			Hidden  *bool `json:"hidden"`
-			Later   *bool `json:"later"`
+			Read         *bool   `json:"read"`
+			Starred      *bool   `json:"starred"`
+			Hidden       *bool   `json:"hidden"`
+			Later        *bool   `json:"later"`
+			DisplayTitle *string `json:"display_title"`
+			Note         *string `json:"note"`
 		}
 		if err := decodeJSONBody(w, request, &body); err != nil {
 			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
@@ -197,6 +202,7 @@ func updateStory(backend Backend) http.HandlerFunc {
 			story.Patch{
 				Read: body.Read, Starred: body.Starred,
 				Hidden: body.Hidden, Later: body.Later,
+				DisplayTitle: body.DisplayTitle, Note: body.Note,
 			},
 		)
 		if err != nil {
@@ -207,10 +213,68 @@ func updateStory(backend Backend) http.HandlerFunc {
 	}
 }
 
+func setStoryRepresentative(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			EntryID string `json:"entry_id"`
+		}
+		if err := decodeJSONBody(w, request, &body); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		if strings.TrimSpace(body.EntryID) == "" {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", "entry_id is required", "entry_id")
+			return
+		}
+		item, err := backend.SetStoryRepresentative(
+			request.Context(), story.ID(request.PathValue("id")), entry.ID(body.EntryID),
+		)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, item)
+	}
+}
+
+func addStoryTag(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Name string `json:"name"`
+		}
+		if err := decodeJSONBody(w, request, &body); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		tag, err := backend.AddStoryTag(request.Context(), story.ID(request.PathValue("id")), body.Name)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, tag)
+	}
+}
+
+func removeStoryTag(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		if err := backend.RemoveStoryTag(
+			request.Context(),
+			story.ID(request.PathValue("id")),
+			request.PathValue("tagID"),
+		); err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 func mergeStory(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
 		var body struct {
-			Into string `json:"into"`
+			Into         string  `json:"into"`
+			DisplayTitle *string `json:"display_title"`
+			Note         *string `json:"note"`
 		}
 		if err := decodeJSONBody(w, request, &body); err != nil {
 			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
@@ -224,6 +288,7 @@ func mergeStory(backend Backend) http.HandlerFunc {
 			request.Context(),
 			story.ID(request.PathValue("id")),
 			story.ID(body.Into),
+			story.MergeOptions{DisplayTitle: body.DisplayTitle, Note: body.Note},
 		)
 		if err != nil {
 			writeDomainError(w, err)
@@ -236,7 +301,13 @@ func mergeStory(backend Backend) http.HandlerFunc {
 func splitStory(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
 		var body struct {
-			EntryID string `json:"entry_id"`
+			EntryID          string `json:"entry_id"`
+			CopyDisplayTitle bool   `json:"copy_display_title"`
+			MoveDisplayTitle bool   `json:"move_display_title"`
+			CopyNote         bool   `json:"copy_note"`
+			MoveNote         bool   `json:"move_note"`
+			CopyTags         bool   `json:"copy_tags"`
+			MoveTags         bool   `json:"move_tags"`
 		}
 		if err := decodeJSONBody(w, request, &body); err != nil {
 			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
@@ -250,6 +321,14 @@ func splitStory(backend Backend) http.HandlerFunc {
 			request.Context(),
 			story.ID(request.PathValue("id")),
 			entry.ID(body.EntryID),
+			story.SplitOptions{
+				CopyDisplayTitle: body.CopyDisplayTitle,
+				MoveDisplayTitle: body.MoveDisplayTitle,
+				CopyNote:         body.CopyNote,
+				MoveNote:         body.MoveNote,
+				CopyTags:         body.CopyTags,
+				MoveTags:         body.MoveTags,
+			},
 		)
 		if err != nil {
 			writeDomainError(w, err)
@@ -295,26 +374,21 @@ func markStoriesRead(backend Backend) http.HandlerFunc {
 	}
 }
 
-func pagination(w http.ResponseWriter, request *http.Request) (int, int, bool) {
+func pagination(w http.ResponseWriter, request *http.Request) (int, string, bool) {
 	limit := 50
 	if value := request.URL.Query().Get("limit"); value != "" {
 		parsed, err := strconv.Atoi(value)
 		if err != nil || parsed < 1 || parsed > 200 {
 			writeProblem(w, http.StatusBadRequest, "invalid_request", "limit must be between 1 and 200", "limit")
-			return 0, 0, false
+			return 0, "", false
 		}
 		limit = parsed
 	}
-	offset := 0
-	if value := request.URL.Query().Get("offset"); value != "" {
-		parsed, err := strconv.Atoi(value)
-		if err != nil || parsed < 0 {
-			writeProblem(w, http.StatusBadRequest, "invalid_request", "offset must be zero or greater", "offset")
-			return 0, 0, false
-		}
-		offset = parsed
+	if request.URL.Query().Get("offset") != "" {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", "offset pagination is no longer supported; use cursor", "offset")
+		return 0, "", false
 	}
-	return limit, offset, true
+	return limit, request.URL.Query().Get("cursor"), true
 }
 
 func exportConfig(backend Backend) http.HandlerFunc {
@@ -351,10 +425,7 @@ func exportEntryMarkdown(backend Backend) http.HandlerFunc {
 			writeDomainError(w, err)
 			return
 		}
-		title := item.DisplayTitle
-		if title == "" {
-			title = item.SourceTitle
-		}
+		title := item.SourceTitle
 		if title == "" {
 			title = "Untitled"
 		}
@@ -1067,39 +1138,24 @@ func runSource(backend Backend) http.HandlerFunc {
 	}
 }
 
-func listEntries(backend Backend) http.HandlerFunc {
+func listSourceEntries(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
-		limit := 50
-		if value := request.URL.Query().Get("limit"); value != "" {
-			parsed, err := strconv.Atoi(value)
-			if err != nil || parsed < 1 || parsed > 200 {
-				writeProblem(w, http.StatusBadRequest, "invalid_request", "limit must be between 1 and 200", "limit")
-				return
-			}
-			limit = parsed
+		limit, cursor, ok := pagination(w, request)
+		if !ok {
+			return
 		}
-		offset := 0
-		if value := request.URL.Query().Get("offset"); value != "" {
-			parsed, err := strconv.Atoi(value)
-			if err != nil || parsed < 0 {
-				writeProblem(w, http.StatusBadRequest, "invalid_request", "offset must be zero or greater", "offset")
-				return
-			}
-			offset = parsed
-		}
-		entries, err := backend.SearchEntries(request.Context(), entry.Query{
-			Limit:    limit,
-			Offset:   offset,
-			Search:   request.URL.Query().Get("q"),
-			State:    request.URL.Query().Get("state"),
-			Tag:      request.URL.Query().Get("tag"),
-			SourceID: source.ID(request.URL.Query().Get("source_id")),
+		page, err := backend.ListSourceEntryPage(request.Context(), source.ID(request.PathValue("id")), entry.Query{
+			Limit: limit, Cursor: cursor,
+			Search: request.URL.Query().Get("q"),
+			State:  request.URL.Query().Get("state"),
+			Tag:    request.URL.Query().Get("tag"),
 		})
 		if err != nil {
 			writeDomainError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, nonNilSlice(entries))
+		page.Entries = nonNilSlice(page.Entries)
+		writeJSON(w, http.StatusOK, page)
 	}
 }
 
@@ -1114,94 +1170,22 @@ func getEntry(backend Backend) http.HandlerFunc {
 	}
 }
 
-func updateEntry(backend Backend) http.HandlerFunc {
+func deleteEntry(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
-		request.Body = http.MaxBytesReader(w, request.Body, 1<<20)
-		var body struct {
-			Read         *bool   `json:"read"`
-			Starred      *bool   `json:"starred"`
-			Hidden       *bool   `json:"hidden"`
-			Later        *bool   `json:"later"`
-			DisplayTitle *string `json:"display_title"`
-			Note         *string `json:"note"`
-		}
-		decoder := json.NewDecoder(request.Body)
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&body); err != nil {
-			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
-			return
-		}
-		updated, err := backend.UpdateEntry(
-			request.Context(),
-			entry.ID(request.PathValue("id")),
-			entry.Patch{
-				Read: body.Read, Starred: body.Starred, Hidden: body.Hidden, Later: body.Later,
-				DisplayTitle: body.DisplayTitle, Note: body.Note,
-			},
-		)
-		if err != nil {
-			writeDomainError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, updated)
-	}
-}
-
-func markEntriesRead(backend Backend) http.HandlerFunc {
-	return func(w http.ResponseWriter, request *http.Request) {
-		request.Body = http.MaxBytesReader(w, request.Body, 1<<10)
-		var body struct {
-			Read bool `json:"read"`
-		}
-		decoder := json.NewDecoder(request.Body)
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&body); err != nil {
-			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
-			return
-		}
-		if !body.Read {
-			writeProblem(w, http.StatusBadRequest, "invalid_request", "read must be true", "read")
-			return
-		}
-		updated, err := backend.MarkEntriesRead(
-			request.Context(),
-			source.ID(strings.TrimSpace(request.URL.Query().Get("source_id"))),
-		)
-		if err != nil {
-			writeDomainError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]int64{"updated_count": updated})
-	}
-}
-
-func addEntryTag(backend Backend) http.HandlerFunc {
-	return func(w http.ResponseWriter, request *http.Request) {
-		var body struct {
-			Name string `json:"name"`
-		}
-		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
-			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
-			return
-		}
-		tag, err := backend.AddEntryTag(
-			request.Context(), entry.ID(request.PathValue("id")), body.Name,
-		)
-		if err != nil {
-			writeDomainError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusCreated, tag)
-	}
-}
-
-func removeEntryTag(backend Backend) http.HandlerFunc {
-	return func(w http.ResponseWriter, request *http.Request) {
-		if err := backend.RemoveEntryTag(
-			request.Context(),
-			entry.ID(request.PathValue("id")),
-			request.PathValue("tagID"),
-		); err != nil {
+		confirmed := request.URL.Query().Get("confirm") == "true"
+		if err := backend.DeleteEntry(request.Context(), entry.ID(request.PathValue("id")), confirmed); err != nil {
+			var confirmation *entry.DeletionConfirmationError
+			if errors.As(err, &confirmation) {
+				writeJSON(w, http.StatusConflict, map[string]any{
+					"code":          "confirmation_required",
+					"detail":        confirmation.Error(),
+					"story_id":      confirmation.StoryID,
+					"display_title": confirmation.DisplayTitle,
+					"note":          confirmation.Note,
+					"entry_count":   confirmation.EntryCount,
+				})
+				return
+			}
 			writeDomainError(w, err)
 			return
 		}
@@ -1222,6 +1206,10 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusNotFound, "entry_not_found", err.Error(), "")
 	case errors.Is(err, story.ErrSelfMerge):
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "into")
+	case errors.Is(err, story.ErrMetadataConflict):
+		writeProblem(w, http.StatusConflict, "story_metadata_conflict", err.Error(), "display_title")
+	case errors.Is(err, pagecursor.ErrInvalidCursor):
+		writeProblem(w, http.StatusBadRequest, "invalid_cursor", err.Error(), "cursor")
 	case errors.Is(err, story.ErrReclusterUnavailable):
 		writeProblem(w, http.StatusServiceUnavailable, "recluster_unavailable", err.Error(), "")
 	case errors.Is(err, ingestion.ErrFetch):

@@ -13,6 +13,7 @@ import (
 	"github.com/catwenlabs/pulse/internal/ingestion"
 	"github.com/catwenlabs/pulse/internal/source"
 	"github.com/catwenlabs/pulse/internal/storage/migrate"
+	"github.com/catwenlabs/pulse/internal/story"
 )
 
 func testPool(t *testing.T) *pgxpool.Pool {
@@ -160,6 +161,7 @@ func TestSourceStoreListIncludesUnreadEntryCount(t *testing.T) {
 	sourceStore := NewSourceStore(pool)
 	acquisitionStore := NewAcquisitionStore(pool)
 	entryStore := NewEntryStore(pool)
+	storyStore := NewStoryStore(pool)
 	ctx := context.Background()
 
 	src := createTestSource(t, sourceStore, "unread-source")
@@ -193,10 +195,17 @@ func TestSourceStoreListIncludesUnreadEntryCount(t *testing.T) {
 		byExternal[item.ExternalID] = item
 	}
 	yes := true
-	if _, err := entryStore.Update(ctx, byExternal["read-one"].ID, entry.Patch{Read: &yes}); err != nil {
+	var readStoryID, hiddenStoryID story.ID
+	if err := pool.QueryRow(ctx, "SELECT story_id FROM story_entries WHERE entry_id = $1", byExternal["read-one"].ID).Scan(&readStoryID); err != nil {
+		t.Fatalf("find read Story: %v", err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT story_id FROM story_entries WHERE entry_id = $1", byExternal["hidden-one"].ID).Scan(&hiddenStoryID); err != nil {
+		t.Fatalf("find hidden Story: %v", err)
+	}
+	if _, err := storyStore.Update(ctx, readStoryID, story.Patch{Read: &yes}); err != nil {
 		t.Fatalf("mark read Update() error = %v", err)
 	}
-	if _, err := entryStore.Update(ctx, byExternal["hidden-one"].ID, entry.Patch{Hidden: &yes}); err != nil {
+	if _, err := storyStore.Update(ctx, hiddenStoryID, story.Patch{Hidden: &yes}); err != nil {
 		t.Fatalf("mark hidden Update() error = %v", err)
 	}
 

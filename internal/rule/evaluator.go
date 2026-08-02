@@ -247,10 +247,7 @@ func (condition Condition) matchLeaf(item entry.Entry) (bool, error) {
 	case FieldSource:
 		actual = string(item.SourceID)
 	case FieldTitle:
-		actual = item.DisplayTitle
-		if actual == "" {
-			actual = item.SourceTitle
-		}
+		actual = item.SourceTitle
 	case FieldAuthor:
 		actual = item.Author
 	case FieldBody:

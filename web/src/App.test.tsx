@@ -60,27 +60,27 @@ describe('App', () => {
           source_id: 'source-1',
           identity_key: 'external:entry-1',
           source_title: 'Reader article',
-          display_title: '',
           author: 'Ada',
           summary: 'A useful summary',
           content_html: '<h2>Section title</h2><p>Article body</p><img src="https://images.example/cover.jpg" alt="Cover"><script>alert("unsafe")</script>',
           discovered_at: '2026-07-25T00:00:00Z',
-          note: '',
         }
         if (init?.method === 'PATCH' && /\/stories\/[^?]+$/.test(url)) {
           const patch = JSON.parse(String(init.body)) as {
             read?: boolean
             starred?: boolean
             later?: boolean
+            display_title?: string
+            note?: string
           }
           return new Response(JSON.stringify({
             id: 'story-1',
-            representative: {
-              ...representative,
-              read_at: patch.read === false ? undefined : '2026-07-25T01:00:00Z',
-              starred_at: patch.starred ? '2026-07-25T01:00:00Z' : undefined,
-              later_at: patch.later ? '2026-07-25T01:00:00Z' : undefined,
-            },
+            display_title: patch.display_title ?? '',
+            note: patch.note ?? '',
+            read_at: patch.read === false ? undefined : '2026-07-25T01:00:00Z',
+            starred_at: patch.starred ? '2026-07-25T01:00:00Z' : undefined,
+            later_at: patch.later ? '2026-07-25T01:00:00Z' : undefined,
+            representative,
             entries: [representative],
             entry_count: 1,
             source_count: 1,
@@ -101,13 +101,50 @@ describe('App', () => {
                 entry_count: 1,
                 source_count: 1,
               }
-            : [{
-                id: 'story-1',
-                representative,
-                entry_count: 1,
-                source_count: 1,
-              }],
+            : {
+                stories: [{
+                  id: 'story-1',
+                  representative,
+                  entry_count: 1,
+                  source_count: 1,
+                }],
+                total_stories: 1,
+                reader_counts: {
+                  inbox_stories: 1,
+                  unread_stories: 1,
+                  starred_stories: 0,
+                  later_stories: 0,
+                  hidden_stories: 0,
+                },
+              },
         ), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (url.includes('/api/v1/sources/') && url.endsWith('/entries')) {
+        return new Response(JSON.stringify({
+          entries: [{
+            entry: {
+              id: 'entry-1',
+              source_id: 'source-1',
+              identity_key: 'external:entry-1',
+              source_title: 'Reader article',
+              author: 'Ada',
+              summary: 'A useful summary',
+              content_html: '<h2>Section title</h2><p>Article body</p><img src="https://images.example/cover.jpg" alt="Cover"><script>alert("unsafe")</script>',
+              discovered_at: '2026-07-25T00:00:00Z',
+            },
+            story: {
+              id: 'story-1',
+            },
+          }],
+          total_entries: 1,
+          reader_counts: {
+            inbox_stories: 1,
+            unread_stories: 1,
+            starred_stories: 0,
+            later_stories: 0,
+            hidden_stories: 0,
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
       if (url.includes('/api/v1/entries')) {
         if (init?.method === 'PATCH' && !url.includes('/entries/')) {
@@ -139,12 +176,10 @@ describe('App', () => {
           source_id: 'source-1',
           identity_key: 'external:entry-1',
           source_title: 'Reader article',
-          display_title: '',
           author: 'Ada',
           summary: 'A useful summary',
           content_html: '<h2>Section title</h2><p>Article body</p><img src="https://images.example/cover.jpg" alt="Cover"><script>alert("unsafe")</script>',
           discovered_at: '2026-07-25T00:00:00Z',
-          note: '',
         }]), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
       if (url.endsWith('/api/v1/sources') && init?.method === 'POST') {
@@ -514,12 +549,9 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存标题与笔记' }))
 
     await waitFor(() => {
-      const entryPatches = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
-        String(url).endsWith('/api/v1/entries/entry-1') && init?.method === 'PATCH')
       const storyPatches = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
         String(url).endsWith('/api/v1/stories/story-1') && init?.method === 'PATCH')
-      expect(entryPatches).toHaveLength(1)
-      expect(storyPatches).toHaveLength(3)
+      expect(storyPatches).toHaveLength(4)
     })
 
     fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }), { button: 0 })
@@ -532,12 +564,9 @@ describe('App', () => {
     fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }), { button: 0 })
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => {
-      const entryPatches = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
-        String(url).endsWith('/api/v1/entries/entry-1') && init?.method === 'PATCH')
       const storyPatches = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
         String(url).endsWith('/api/v1/stories/story-1') && init?.method === 'PATCH')
-      expect(entryPatches).toHaveLength(1)
-      expect(storyPatches).toHaveLength(3)
+      expect(storyPatches).toHaveLength(4)
     })
   })
 
@@ -561,19 +590,35 @@ describe('App', () => {
       display_title: '', author: 'Cy', summary: '', content_html: '<p>body three</p>',
       discovered_at: '2026-07-25T00:00:00Z', read_at: '2026-07-25T00:00:00Z', note: '',
     }
+    let mergeAttempts = 0
     const folder = { id: 'folder-1', name: 'Tech', source_count: 1, source_ids: ['source-1'] }
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.endsWith('/healthz')) return json({ status: 'ok' })
       if (url.endsWith('/api/v1/folders')) return json([folder])
       if (url.endsWith('/api/v1/sources')) return json([source])
-      if (url.includes('/stories/story-1/merge')) return json({ id: 'story-2', representative: second, entries: [second], entry_count: 1, source_count: 1 })
+      if (url.includes('/stories/story-1/representative')) return json({ id: 'story-1', representative: alt, entries: [first, alt], entry_count: 2, source_count: 2 })
+      if (url.includes('/stories/story-1/merge')) {
+        mergeAttempts += 1
+        if (mergeAttempts === 1) return json({ code: 'story_metadata_conflict', detail: 'metadata conflict' }, 409)
+        return json({ id: 'story-2', representative: second, entries: [second], entry_count: 1, source_count: 1 })
+      }
       if (url.includes('/stories/story-1/split')) return json({ id: 'story-3', representative: alt, entries: [alt], entry_count: 1, source_count: 1 })
       if (/\/api\/v1\/stories\/story-1$/.test(url)) return json({ id: 'story-1', representative: first, entries: [first, alt], entry_count: 2, source_count: 2 })
-      if (url.includes('/api/v1/stories')) return json([
-        { id: 'story-1', representative: first, entry_count: 2, source_count: 2 },
-        { id: 'story-2', representative: second, entry_count: 1, source_count: 1 },
-      ])
+      if (url.includes('/api/v1/stories')) return json({
+        stories: [
+          { id: 'story-1', representative: first, entry_count: 2, source_count: 2 },
+          { id: 'story-2', representative: second, entry_count: 1, source_count: 1 },
+        ],
+        total_stories: 2,
+        reader_counts: {
+          inbox_stories: 2,
+          unread_stories: 0,
+          starred_stories: 0,
+          later_stories: 0,
+          hidden_stories: 0,
+        },
+      })
       return json([])
     }))
 
@@ -582,22 +627,87 @@ describe('App', () => {
     await screen.findByText('First story')
 
     fireEvent.click(screen.getByText('First story'))
+    fireEvent.click(await screen.findByRole('button', { name: '设为默认来源 Bo' }))
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.some(([url, init]) =>
+        String(url).includes('/stories/story-1/representative') && init?.method === 'PUT')).toBe(true)
+    })
     fireEvent.click(await screen.findByRole('button', { name: '分开 Alt source' }))
+    fireEvent.click(screen.getByLabelText('复制显示标题'))
+    fireEvent.click(screen.getByRole('button', { name: '确认拆分' }))
     await waitFor(() => {
       const splitCalls = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
         String(url).includes('/stories/story-1/split') && init?.method === 'POST')
       expect(splitCalls).toHaveLength(1)
-      expect(JSON.parse(String(splitCalls[0][1]?.body))).toEqual({ entry_id: 'entry-2' })
+      expect(JSON.parse(String(splitCalls[0][1]?.body))).toEqual({ entry_id: 'entry-2', copy_display_title: true, move_display_title: false })
     })
 
     fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }), { button: 0 })
     fireEvent.click(await screen.findByRole('menuitem', { name: '合并到其他 Story' }))
     fireEvent.click(screen.getByRole('button', { name: '合并到：Second story' }))
+    await screen.findByLabelText('合并后的显示标题')
+    fireEvent.click(screen.getByRole('button', { name: '确认合并' }))
     await waitFor(() => {
       const mergeCalls = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
         String(url).includes('/stories/story-1/merge') && init?.method === 'POST')
-      expect(mergeCalls).toHaveLength(1)
+      expect(mergeCalls).toHaveLength(2)
       expect(JSON.parse(String(mergeCalls[0][1]?.body))).toEqual({ into: 'story-2' })
+      expect(JSON.parse(String(mergeCalls[1][1]?.body))).toEqual({ into: 'story-2', display_title: '', note: '' })
+    })
+  })
+
+  it('requires Story metadata confirmation before deleting a final Entry', async () => {
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    })
+    const representative = {
+      id: 'entry-1', source_id: 'source-1', identity_key: 'x:1', source_title: 'Reader article',
+      discovered_at: '2026-07-25T00:00:00Z', content_html: '<p>body</p>',
+    }
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/healthz')) return json({ status: 'ok' })
+      if (url.endsWith('/api/v1/folders')) return json([])
+      if (url.endsWith('/api/v1/sources')) return json([source])
+      if (url.endsWith('/api/v1/sources/source-1/health')) return json({ source_id: 'source-1', status: 'ok' })
+      if (url.endsWith('/api/v1/entries/entry-1') && init?.method === 'DELETE') {
+        if (!url.includes('confirm=true')) return json({
+          code: 'confirmation_required',
+          detail: 'metadata loss',
+          story_id: 'story-1',
+          display_title: 'Saved title',
+          note: 'Saved note',
+          entry_count: 1,
+        }, 409)
+        return new Response(null, { status: 204 })
+      }
+      if (url.endsWith('/api/v1/stories/story-1')) return json({
+        id: 'story-1', representative, entries: [representative], entry_count: 1, source_count: 1,
+      })
+      if (url.includes('/api/v1/stories')) return json({
+        stories: [{ id: 'story-1', representative, entry_count: 1, source_count: 1 }],
+        total_stories: 1,
+        reader_counts: { inbox_stories: 1, unread_stories: 1, starred_stories: 0, later_stories: 0, hidden_stories: 0 },
+      })
+      return json([])
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await screen.findByText('Reader article')
+    fireEvent.click(screen.getByText('Reader article'))
+    fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }), { button: 0 })
+    fireEvent.click(await screen.findByRole('menuitem', { name: '永久删除来源内容' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认永久删除' }))
+
+    await screen.findByText(/这会同时删除 Story「Saved title」及其笔记/)
+    expect(fetchMock.mock.calls.filter(([url, init]) => String(url).includes('/api/v1/entries/entry-1') && init?.method === 'DELETE')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: '确认永久删除' }))
+    await waitFor(() => {
+      const deletes = fetchMock.mock.calls.filter(([url, init]) => String(url).includes('/api/v1/entries/entry-1') && init?.method === 'DELETE')
+      expect(deletes).toHaveLength(2)
+      expect(String(deletes[1][0])).toContain('confirm=true')
     })
   })
 
@@ -639,7 +749,7 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'Example Feed' })).toBeInTheDocument()
     await waitFor(() => {
       expect(vi.mocked(fetch).mock.calls.some(([url]) =>
-        String(url).includes('/api/v1/entries?') && String(url).includes('source_id=source-1'))).toBe(true)
+        String(url).includes('/api/v1/sources/source-1/entries?') && !String(url).includes('source_id='))).toBe(true)
     })
   })
 
@@ -791,29 +901,40 @@ describe('App', () => {
           headers: { 'Content-Type': 'application/json' },
         })
       }
-      if (url.includes('/api/v1/entries?') && url.includes('source_id=annotation-source')) {
-        return new Response(JSON.stringify(Array.from({ length: 4 }, (_, index) => ({
-          id: `annotation-entry-${index}`,
-          source_id: 'annotation-source',
-          identity_key: `external:apple-books:book-123:${1284 + index}`,
-          source_title: '思考，快与慢',
-          display_title: '',
-          author: 'Daniel Kahneman',
-          summary: index === 3 ? '第四条可展开的批注。' : '系统一自动而快速地运行。',
-          content_html: '<blockquote>系统一自动而快速地运行。</blockquote>',
-          discovered_at: '2026-07-27T10:00:00Z',
-          note: '',
-          annotation: {
-            provider: 'apple-books',
-            book_identity: 'book-123',
-            book_title: '思考，快与慢',
-            book_author: 'Daniel Kahneman',
-            chapter: '第三章',
-            location: String(1284 + index),
-            highlight_color: 'yellow',
-            annotation_note: '这里对应直觉判断。',
+      if (url.includes('/api/v1/sources/annotation-source/entries')) {
+        return new Response(JSON.stringify({
+          entries: Array.from({ length: 4 }, (_, index) => ({
+            entry: {
+            id: `annotation-entry-${index}`,
+            source_id: 'annotation-source',
+            identity_key: `external:apple-books:book-123:${1284 + index}`,
+            source_title: '思考，快与慢',
+            author: 'Daniel Kahneman',
+            summary: index === 3 ? '第四条可展开的批注。' : '系统一自动而快速地运行。',
+            content_html: '<blockquote>系统一自动而快速地运行。</blockquote>',
+            discovered_at: '2026-07-27T10:00:00Z',
+            annotation: {
+              provider: 'apple-books',
+              book_identity: 'book-123',
+              book_title: '思考，快与慢',
+              book_author: 'Daniel Kahneman',
+              chapter: '第三章',
+              location: String(1284 + index),
+              highlight_color: 'yellow',
+              annotation_note: '这里对应直觉判断。',
+            },
           },
-        }))), {
+            story: { id: `story-${index}` },
+          })),
+          total_entries: 4,
+          reader_counts: {
+            inbox_stories: 4,
+            unread_stories: 4,
+            starred_stories: 0,
+            later_stories: 0,
+            hidden_stories: 0,
+          },
+        }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })

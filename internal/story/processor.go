@@ -127,7 +127,7 @@ func (processor *Processor) process(ctx context.Context, item Candidate) error {
 			bestMatch = match
 		}
 	}
-	if bestScore >= 0 {
+	if bestScore >= 0 && item.EntryCount == 1 {
 		if err := processor.repository.Merge(
 			ctx,
 			item.StoryID,

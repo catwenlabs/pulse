@@ -69,6 +69,10 @@ func (fakeStories) Search(context.Context, story.Query) ([]story.Story, error) {
 	return []story.Story{{ID: "story"}}, nil
 }
 
+func (fakeStories) SearchPage(context.Context, story.Query) (story.Page, error) {
+	return story.Page{Stories: []story.Story{{ID: "story"}}, TotalStories: 1}, nil
+}
+
 func (fakeStories) Get(_ context.Context, id story.ID) (story.Story, error) {
 	return story.Story{ID: id}, nil
 }
@@ -77,34 +81,30 @@ func (fakeStories) Update(_ context.Context, id story.ID, _ story.Patch) (story.
 	return story.Story{ID: id}, nil
 }
 
+func (fakeStories) SetRepresentative(_ context.Context, id story.ID, _ entry.ID) (story.Story, error) {
+	return story.Story{ID: id}, nil
+}
+
 func (fakeStories) MarkRead(context.Context, string) (int64, error) {
 	return 1, nil
 }
-func (fakeStories) MergeManual(_ context.Context, from story.ID, into story.ID) error {
+func (fakeStories) MergeManual(_ context.Context, from story.ID, into story.ID, _ story.MergeOptions) error {
 	if from == into {
 		return story.ErrSelfMerge
 	}
 	return nil
 }
-func (fakeStories) Split(_ context.Context, storyID story.ID, entryID entry.ID) (story.ID, error) {
+func (fakeStories) Split(_ context.Context, storyID story.ID, entryID entry.ID, _ story.SplitOptions) (story.ID, error) {
 	return story.ID("split-" + string(entryID)), nil
 }
-func (fakeEntries) Search(context.Context, entry.Query) ([]entry.Entry, error) {
-	return []entry.Entry{{ID: "entry"}}, nil
+func (fakeStories) AddTag(_ context.Context, _ story.ID, name string) (entry.Tag, error) {
+	return entry.Tag{ID: "tag", Name: name}, nil
 }
+func (fakeStories) RemoveTag(context.Context, story.ID, string) error { return nil }
 func (fakeEntries) Get(_ context.Context, id entry.ID) (entry.Entry, error) {
 	return entry.Entry{ID: id}, nil
 }
-func (fakeEntries) Update(_ context.Context, id entry.ID, _ entry.Patch) (entry.Entry, error) {
-	return entry.Entry{ID: id}, nil
-}
-func (fakeEntries) MarkRead(context.Context, source.ID) (int64, error) { return 0, nil }
-func (fakeEntries) AddTag(context.Context, entry.ID, string) (entry.Tag, error) {
-	return entry.Tag{ID: "tag", Name: "Go"}, nil
-}
-func (fakeEntries) RemoveTag(context.Context, entry.ID, string) error {
-	return nil
-}
+func (fakeEntries) Delete(context.Context, entry.ID, bool) error { return nil }
 
 type fakeOPMLRepository struct{}
 
@@ -195,13 +195,6 @@ func TestBackendForwardsOperations(t *testing.T) {
 	queued, err := backend.Enqueue(ctx, ingestion.EnqueueRequest{SourceID: "source"})
 	if err != nil || queued.ID != "queued" {
 		t.Fatalf("Enqueue() = %+v, %v", queued, err)
-	}
-	entries, err := backend.ListEntries(ctx, 10)
-	if err != nil || len(entries) != 1 {
-		t.Fatalf("ListEntries() = %+v, %v", entries, err)
-	}
-	if searched, err := backend.SearchEntries(ctx, entry.Query{Limit: 10}); err != nil || len(searched) != 1 {
-		t.Fatalf("SearchEntries() = %+v, %v", searched, err)
 	}
 	if got, err := backend.GetEntry(ctx, "entry"); err != nil || got.ID != "entry" {
 		t.Fatalf("GetEntry() = %+v, %v", got, err)

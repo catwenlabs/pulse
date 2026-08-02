@@ -12,6 +12,7 @@ import (
 
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/ingestion"
+	"github.com/catwenlabs/pulse/internal/pagination"
 	"github.com/catwenlabs/pulse/internal/source"
 	"github.com/catwenlabs/pulse/internal/story"
 )
@@ -24,121 +25,306 @@ func NewEntryStore(pool *pgxpool.Pool) *EntryStore {
 	return &EntryStore{pool: pool}
 }
 
+// List and Search expose source content for internal maintenance and rule
+// processing. Reader state and metadata are intentionally not part of Entry.
 func (store *EntryStore) List(ctx context.Context, limit int) ([]entry.Entry, error) {
 	return store.Search(ctx, entry.Query{Limit: limit})
 }
 
 func (store *EntryStore) Search(ctx context.Context, query entry.Query) ([]entry.Entry, error) {
-	if query.Limit <= 0 || query.Limit > 200 {
+	items, err := store.searchSourceEntries(ctx, query, true)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]entry.Entry, 0, len(items))
+	for _, item := range items {
+		result = append(result, item.Entry)
+	}
+	return result, nil
+}
+
+// SearchSourceEntries is the Source browsing seam. Reader state and user
+// metadata are returned under the real owning Story rather than copied onto
+// the source Entry or represented by a synthetic singleton Story.
+func (store *EntryStore) SearchSourceEntries(ctx context.Context, query entry.Query) ([]story.SourceEntry, error) {
+	return store.searchSourceEntries(ctx, query, true)
+}
+
+func (store *EntryStore) searchSourceEntries(ctx context.Context, query entry.Query, sourceOrder bool) ([]story.SourceEntry, error) {
+	if query.Limit <= 0 || query.Limit > 201 {
 		query.Limit = 50
 	}
 	if query.Offset < 0 {
 		query.Offset = 0
 	}
+	search := strings.TrimSpace(query.Search)
+	state := strings.TrimSpace(query.State)
+	tag := strings.TrimSpace(query.Tag)
+	sourceID := strings.TrimSpace(string(query.SourceID))
+	cursor, err := pagination.Decode(query.Cursor, "source_entries", search, state, tag, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	var cursorTime any
+	var cursorID any
+	if cursor.Kind != "" {
+		cursorTime = cursor.Time
+		cursorID = cursor.ID
+	}
 	rows, err := store.pool.Query(ctx, `
 		SELECT
 			entry.id, entry.source_id, entry.identity_key, entry.external_id, entry.canonical_url,
-			entry.source_title, entry.display_title, entry.author, entry.summary, entry.content_html,
-			entry.published_at, entry.discovered_at, entry.read_at, entry.starred_at,
-			entry.hidden_at, entry.later_at, entry.note,
-			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at'
+			entry.source_title, entry.author, entry.summary, entry.content_html,
+			entry.published_at, entry.discovered_at,
+			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at',
+			story.id,
+			(SELECT count(*)::integer FROM story_entries WHERE story_id = story.id),
+			(SELECT count(DISTINCT member_entry.source_id)::integer
+			 FROM story_entries AS count_member
+			 JOIN entries AS member_entry ON member_entry.id = count_member.entry_id
+			 WHERE count_member.story_id = story.id),
+			story.display_title, story.note,
+			story.read_at, story.starred_at, story.hidden_at, story.later_at,
+			COALESCE((
+				SELECT jsonb_agg(jsonb_build_object('id', tag.id, 'name', tag.name) ORDER BY tag.name)
+				FROM story_tags AS story_tag
+				JOIN tags AS tag ON tag.id = story_tag.tag_id
+				WHERE story_tag.story_id = story.id
+			), '[]'::jsonb)
 		FROM entries AS entry
 		JOIN sources AS source ON source.id = entry.source_id
+		JOIN story_entries AS membership ON membership.entry_id = entry.id
+		JOIN stories AS story ON story.id = membership.story_id
 		LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entry.id
 		WHERE
 			($2 = '' OR (
 				to_tsvector(
 					'simple',
-					coalesce(display_title, '') || ' ' ||
-					coalesce(source_title, '') || ' ' ||
-					coalesce(author, '') || ' ' ||
-					coalesce(summary, '') || ' ' ||
-					coalesce(content_html, '') || ' ' ||
-					coalesce(note, '') || ' ' ||
+					coalesce(entry.source_title, '') || ' ' ||
+					coalesce(story.display_title, '') || ' ' ||
+					coalesce(story.note, '') || ' ' ||
+					coalesce(entry.author, '') || ' ' ||
+					coalesce(entry.summary, '') || ' ' ||
+					coalesce(entry.content_html, '') || ' ' ||
 					coalesce(source.name, '') || ' ' ||
 					coalesce(entry_annotation.book_title, '') || ' ' ||
 					coalesce(entry_annotation.book_author, '') || ' ' ||
 					coalesce(entry_annotation.chapter, '') || ' ' ||
 					coalesce(entry_annotation.annotation_note, '')
 				) @@ plainto_tsquery('simple', $2)
-				OR display_title ILIKE '%' || $2 || '%'
-				OR source_title ILIKE '%' || $2 || '%'
-				OR author ILIKE '%' || $2 || '%'
+				OR entry.source_title ILIKE '%' || $2 || '%'
+				OR story.display_title ILIKE '%' || $2 || '%'
+				OR story.note ILIKE '%' || $2 || '%'
+				OR entry.author ILIKE '%' || $2 || '%'
 				OR source.name ILIKE '%' || $2 || '%'
 				OR lower(
-					coalesce(summary, '') || ' ' ||
-					coalesce(content_html, '') || ' ' ||
-					coalesce(note, '') || ' ' ||
+					coalesce(entry.summary, '') || ' ' ||
+					coalesce(entry.content_html, '') || ' ' ||
+					coalesce(story.note, '') || ' ' ||
 					coalesce(entry_annotation.book_title, '') || ' ' ||
 					coalesce(entry_annotation.book_author, '') || ' ' ||
 					coalesce(entry_annotation.chapter, '') || ' ' ||
 					coalesce(entry_annotation.annotation_note, '')
 				) LIKE '%' || lower($2) || '%'
-				OR word_similarity(lower($2), lower(coalesce(display_title, ''))) >= 0.45
-				OR word_similarity(lower($2), lower(coalesce(source_title, ''))) >= 0.45
-				OR word_similarity(lower($2), lower(coalesce(author, ''))) >= 0.45
+				OR word_similarity(lower($2), lower(coalesce(entry.source_title, ''))) >= 0.45
+				OR word_similarity(lower($2), lower(coalesce(story.display_title, ''))) >= 0.45
+				OR word_similarity(lower($2), lower(coalesce(entry.author, ''))) >= 0.45
 				OR word_similarity(lower($2), lower(coalesce(source.name, ''))) >= 0.45
-				OR pulse_fuzzy_contains(coalesce(display_title, ''), $2)
-				OR pulse_fuzzy_contains(coalesce(source_title, ''), $2)
-				OR pulse_fuzzy_contains(coalesce(author, ''), $2)
+				OR pulse_fuzzy_contains(coalesce(entry.source_title, ''), $2)
+				OR pulse_fuzzy_contains(coalesce(story.display_title, ''), $2)
+				OR pulse_fuzzy_contains(coalesce(entry.author, ''), $2)
 				OR pulse_fuzzy_contains(coalesce(source.name, ''), $2)
 			))
 			AND (
 				$3 = ''
-				OR ($3 = 'inbox' AND hidden_at IS NULL)
-				OR ($3 = 'unread' AND hidden_at IS NULL AND read_at IS NULL)
-				OR ($3 = 'starred' AND starred_at IS NOT NULL)
-				OR ($3 = 'later' AND later_at IS NOT NULL)
-				OR ($3 = 'hidden' AND hidden_at IS NOT NULL)
+				OR ($3 = 'inbox' AND story.hidden_at IS NULL)
+				OR ($3 = 'unread' AND story.hidden_at IS NULL AND story.read_at IS NULL)
+				OR ($3 = 'starred' AND story.starred_at IS NOT NULL)
+				OR ($3 = 'later' AND story.later_at IS NOT NULL)
+				OR ($3 = 'hidden' AND story.hidden_at IS NOT NULL)
 			)
 			AND (
 				$4 = ''
 				OR EXISTS (
 					SELECT 1
-					FROM entry_tags
-					JOIN tags ON tags.id = entry_tags.tag_id
-					WHERE entry_tags.entry_id = entry.id
+					FROM story_tags AS story_tag
+					JOIN tags ON tags.id = story_tag.tag_id
+					WHERE story_tag.story_id = story.id
 					  AND tags.normalized_name = lower($4)
 				)
 			)
 			AND ($5 = '' OR entry.source_id = $5::uuid)
-		ORDER BY (read_at IS NULL) DESC, discovered_at DESC, id DESC
+			AND (
+				$7::timestamptz IS NULL
+				OR entry.discovered_at < $7::timestamptz
+				OR (entry.discovered_at = $7::timestamptz AND entry.id < $8::uuid)
+			)
+		ORDER BY
+			CASE WHEN $9 THEN 0 ELSE CASE WHEN story.read_at IS NULL THEN 1 ELSE 0 END END DESC,
+			entry.discovered_at DESC, entry.id DESC
 		LIMIT $1
 		OFFSET $6
 	`,
 		query.Limit,
-		strings.TrimSpace(query.Search),
-		strings.TrimSpace(query.State),
-		strings.TrimSpace(query.Tag),
-		query.SourceID,
+		search, state, tag, query.SourceID,
 		query.Offset,
+		cursorTime, cursorID,
+		sourceOrder,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("search entries: %w", err)
 	}
 	defer rows.Close()
 
-	result := make([]entry.Entry, 0, query.Limit)
+	result := make([]story.SourceEntry, 0, query.Limit)
 	for rows.Next() {
-		item, err := scanEntry(rows)
+		item, err := scanSourceEntry(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan entry: %w", err)
+			return nil, fmt.Errorf("scan Source Entry: %w", err)
 		}
 		result = append(result, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list entries: %w", err)
+		return nil, fmt.Errorf("list Source Entries: %w", err)
 	}
 	return result, nil
+}
+
+func (store *EntryStore) SearchSourceEntryPage(ctx context.Context, query entry.Query) (story.SourceEntryPage, error) {
+	if query.Limit <= 0 || query.Limit > 200 {
+		query.Limit = 50
+	}
+	query.Offset = 0
+	search := strings.TrimSpace(query.Search)
+	state := strings.TrimSpace(query.State)
+	tag := strings.TrimSpace(query.Tag)
+	sourceID := strings.TrimSpace(string(query.SourceID))
+	total, counts, err := store.sourceReaderCounts(ctx, search, state, tag, sourceID)
+	if err != nil {
+		return story.SourceEntryPage{}, err
+	}
+	query.Limit++
+	items, err := store.searchSourceEntries(ctx, query, true)
+	if err != nil {
+		return story.SourceEntryPage{}, fmt.Errorf("search Source Entry page: %w", err)
+	}
+	page := story.SourceEntryPage{
+		Entries:      items,
+		TotalEntries: total,
+		ReaderCounts: counts,
+	}
+	if len(items) <= query.Limit-1 {
+		return page, nil
+	}
+	page.Entries = items[:query.Limit-1]
+	last := page.Entries[len(page.Entries)-1]
+	page.NextCursor, err = pagination.Encode(pagination.Position{
+		Kind:     "source_entries",
+		Search:   search,
+		State:    state,
+		Tag:      tag,
+		SourceID: sourceID,
+		Time:     last.Entry.DiscoveredAt,
+		ID:       string(last.Entry.ID),
+	})
+	if err != nil {
+		return story.SourceEntryPage{}, err
+	}
+	return page, nil
+}
+
+func (store *EntryStore) sourceReaderCounts(
+	ctx context.Context,
+	search string,
+	state string,
+	tag string,
+	sourceID string,
+) (int, story.ReaderCounts, error) {
+	var total int
+	var counts story.ReaderCounts
+	err := store.pool.QueryRow(ctx, `
+		WITH base AS (
+			SELECT entry.id, story.id AS story_id,
+				story.read_at, story.starred_at, story.hidden_at, story.later_at
+			FROM entries AS entry
+			JOIN sources AS source ON source.id = entry.source_id
+			JOIN story_entries AS membership ON membership.entry_id = entry.id
+			JOIN stories AS story ON story.id = membership.story_id
+			LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entry.id
+			WHERE entry.source_id = $4::uuid
+			  AND ($1 = '' OR (
+				to_tsvector(
+					'simple',
+					coalesce(entry.source_title, '') || ' ' ||
+					coalesce(story.display_title, '') || ' ' ||
+					coalesce(story.note, '') || ' ' ||
+					coalesce(entry.author, '') || ' ' ||
+					coalesce(entry.summary, '') || ' ' ||
+					coalesce(entry.content_html, '') || ' ' ||
+					coalesce(source.name, '') || ' ' ||
+					coalesce(entry_annotation.book_title, '') || ' ' ||
+					coalesce(entry_annotation.book_author, '') || ' ' ||
+					coalesce(entry_annotation.chapter, '') || ' ' ||
+					coalesce(entry_annotation.annotation_note, '')
+				) @@ plainto_tsquery('simple', $1)
+				OR entry.source_title ILIKE '%' || $1 || '%'
+				OR story.display_title ILIKE '%' || $1 || '%'
+				OR story.note ILIKE '%' || $1 || '%'
+				OR entry.author ILIKE '%' || $1 || '%'
+				OR source.name ILIKE '%' || $1 || '%'
+				OR lower(coalesce(entry.summary, '') || ' ' || coalesce(entry.content_html, '') || ' ' || coalesce(story.note, '') || ' ' || coalesce(entry_annotation.book_title, '') || ' ' || coalesce(entry_annotation.book_author, '') || ' ' || coalesce(entry_annotation.chapter, '') || ' ' || coalesce(entry_annotation.annotation_note, '')) LIKE '%' || lower($1) || '%'
+				OR word_similarity(lower($1), lower(coalesce(entry.source_title, ''))) >= 0.45
+				OR word_similarity(lower($1), lower(coalesce(story.display_title, ''))) >= 0.45
+				OR word_similarity(lower($1), lower(coalesce(entry.author, ''))) >= 0.45
+				OR word_similarity(lower($1), lower(coalesce(source.name, ''))) >= 0.45
+				OR pulse_fuzzy_contains(coalesce(entry.source_title, ''), $1)
+				OR pulse_fuzzy_contains(coalesce(story.display_title, ''), $1)
+				OR pulse_fuzzy_contains(coalesce(entry.author, ''), $1)
+				OR pulse_fuzzy_contains(coalesce(source.name, ''), $1)
+			  ))
+			  AND ($3 = '' OR EXISTS (
+				SELECT 1
+				FROM story_tags AS story_tag
+				JOIN tags ON tags.id = story_tag.tag_id
+				WHERE story_tag.story_id = story.id
+				  AND tags.normalized_name = lower($3)
+			  ))
+		)
+		SELECT
+			count(*) FILTER (WHERE
+				$2 = ''
+				OR ($2 = 'inbox' AND hidden_at IS NULL)
+				OR ($2 = 'unread' AND hidden_at IS NULL AND read_at IS NULL)
+				OR ($2 = 'starred' AND starred_at IS NOT NULL)
+				OR ($2 = 'later' AND later_at IS NOT NULL)
+				OR ($2 = 'hidden' AND hidden_at IS NOT NULL)
+			)::integer,
+			count(DISTINCT story_id) FILTER (WHERE hidden_at IS NULL)::integer,
+			count(DISTINCT story_id) FILTER (WHERE hidden_at IS NULL AND read_at IS NULL)::integer,
+			count(DISTINCT story_id) FILTER (WHERE starred_at IS NOT NULL)::integer,
+			count(DISTINCT story_id) FILTER (WHERE later_at IS NOT NULL)::integer,
+			count(DISTINCT story_id) FILTER (WHERE hidden_at IS NOT NULL)::integer
+		FROM base
+	`, search, state, tag, sourceID).Scan(
+		&total,
+		&counts.InboxStories,
+		&counts.UnreadStories,
+		&counts.StarredStories,
+		&counts.LaterStories,
+		&counts.HiddenStories,
+	)
+	if err != nil {
+		return 0, story.ReaderCounts{}, fmt.Errorf("count Source Entry page: %w", err)
+	}
+	return total, counts, nil
 }
 
 func (store *EntryStore) Get(ctx context.Context, id entry.ID) (entry.Entry, error) {
 	row := store.pool.QueryRow(ctx, `
 		SELECT
 			entry.id, entry.source_id, entry.identity_key, entry.external_id, entry.canonical_url,
-			entry.source_title, entry.display_title, entry.author, entry.summary, entry.content_html,
-			entry.published_at, entry.discovered_at, entry.read_at, entry.starred_at,
-			entry.hidden_at, entry.later_at, entry.note,
+			entry.source_title, entry.author, entry.summary, entry.content_html,
+			entry.published_at, entry.discovered_at,
 			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at'
 		FROM entries AS entry
 		LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entry.id
@@ -154,132 +340,80 @@ func (store *EntryStore) Get(ctx context.Context, id entry.ID) (entry.Entry, err
 	return item, nil
 }
 
-func (store *EntryStore) Update(ctx context.Context, id entry.ID, patch entry.Patch) (entry.Entry, error) {
+func (store *EntryStore) Delete(ctx context.Context, id entry.ID, confirmed bool) error {
 	tx, err := store.pool.Begin(ctx)
 	if err != nil {
-		return entry.Entry{}, fmt.Errorf("begin entry update: %w", err)
+		return fmt.Errorf("begin Entry deletion: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	row := tx.QueryRow(ctx, `
-		UPDATE entries
-		SET
-			read_at = CASE WHEN $2 THEN CASE WHEN $3 THEN COALESCE(read_at, now()) ELSE NULL END ELSE read_at END,
-			starred_at = CASE WHEN $4 THEN CASE WHEN $5 THEN COALESCE(starred_at, now()) ELSE NULL END ELSE starred_at END,
-			hidden_at = CASE WHEN $6 THEN CASE WHEN $7 THEN COALESCE(hidden_at, now()) ELSE NULL END ELSE hidden_at END,
-			later_at = CASE WHEN $8 THEN CASE WHEN $9 THEN COALESCE(later_at, now()) ELSE NULL END ELSE later_at END,
-			display_title = CASE WHEN $10 THEN $11 ELSE display_title END,
-			note = CASE WHEN $12 THEN $13 ELSE note END
-		WHERE id = $1
-			RETURNING
-				id, source_id, identity_key, external_id, canonical_url,
-				source_title, display_title, author, summary, content_html,
-				published_at, discovered_at, read_at, starred_at, hidden_at, later_at, note,
-				NULL::jsonb
-	`,
-		id,
-		patch.Read != nil, boolValue(patch.Read),
-		patch.Starred != nil, boolValue(patch.Starred),
-		patch.Hidden != nil, boolValue(patch.Hidden),
-		patch.Later != nil, boolValue(patch.Later),
-		patch.DisplayTitle != nil, stringValue(patch.DisplayTitle),
-		patch.Note != nil, stringValue(patch.Note),
+
+	var sourceID source.ID
+	var identityKey string
+	var storyID story.ID
+	var displayTitle, note string
+	var entryCount int
+	var representativeID entry.ID
+	err = tx.QueryRow(ctx, `
+		SELECT
+			entry.source_id, entry.identity_key,
+			story.id, story.display_title, story.note,
+			story.representative_entry_id,
+			(SELECT count(*) FROM story_entries WHERE story_id = story.id)
+		FROM entries AS entry
+		JOIN story_entries AS member ON member.entry_id = entry.id
+		JOIN stories AS story ON story.id = member.story_id
+		WHERE entry.id = $1
+		FOR UPDATE OF entry, story
+	`, id).Scan(
+		&sourceID, &identityKey, &storyID, &displayTitle, &note,
+		&representativeID, &entryCount,
 	)
-	_, err = scanEntry(row)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return entry.Entry{}, fmt.Errorf("%w: %s", entry.ErrNotFound, id)
+		return fmt.Errorf("%w: %s", entry.ErrNotFound, id)
 	}
 	if err != nil {
-		return entry.Entry{}, fmt.Errorf("update entry %s: %w", id, err)
+		return fmt.Errorf("load Entry deletion %s: %w", id, err)
 	}
-	if err := applyEnabledRulesTx(ctx, tx, id); err != nil {
-		return entry.Entry{}, fmt.Errorf("re-evaluate rules for entry %s: %w", id, err)
-	}
-	if patch.Read != nil || patch.Starred != nil || patch.Hidden != nil || patch.Later != nil {
-		if _, err := tx.Exec(ctx, `
-			WITH target_story AS (
-				UPDATE stories AS story
-				SET
-					read_at = target.read_at,
-					starred_at = target.starred_at,
-					hidden_at = target.hidden_at,
-					later_at = target.later_at,
-					updated_at = now()
-				FROM story_entries AS membership
-				JOIN entries AS target ON target.id = membership.entry_id
-				WHERE membership.entry_id = $1 AND story.id = membership.story_id
-				RETURNING story.id, story.read_at, story.starred_at, story.hidden_at, story.later_at
-			)
-			UPDATE entries AS member
-			SET
-				read_at = target_story.read_at,
-				starred_at = target_story.starred_at,
-				hidden_at = target_story.hidden_at,
-				later_at = target_story.later_at
-			FROM story_entries AS membership, target_story
-			WHERE membership.story_id = target_story.id
-			  AND membership.entry_id = member.id
-		`, id); err != nil {
-			return entry.Entry{}, fmt.Errorf("synchronize Story state for entry %s: %w", id, err)
+	if entryCount == 1 && !confirmed {
+		return &entry.DeletionConfirmationError{
+			StoryID:      string(storyID),
+			DisplayTitle: displayTitle,
+			Note:         note,
+			EntryCount:   entryCount,
 		}
 	}
-	item, err := scanEntry(tx.QueryRow(ctx, `
-		SELECT
-			entry.id, entry.source_id, entry.identity_key, entry.external_id, entry.canonical_url,
-			entry.source_title, entry.display_title, entry.author, entry.summary, entry.content_html,
-			entry.published_at, entry.discovered_at, entry.read_at, entry.starred_at,
-			entry.hidden_at, entry.later_at, entry.note,
-			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at'
-		FROM entries AS entry
-		LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entry.id
-		WHERE entry.id = $1
-	`, id))
-	if err != nil {
-		return entry.Entry{}, fmt.Errorf("reload entry %s: %w", id, err)
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO entry_tombstones (source_id, identity_key, deleted_at)
+		VALUES ($1, $2, now())
+		ON CONFLICT (source_id, identity_key) DO UPDATE SET deleted_at = EXCLUDED.deleted_at
+	`, sourceID, identityKey); err != nil {
+		return fmt.Errorf("write Entry tombstone %s: %w", id, err)
+	}
+	if entryCount == 1 {
+		if _, err := tx.Exec(ctx, `DELETE FROM stories WHERE id = $1`, storyID); err != nil {
+			return fmt.Errorf("delete final Story %s: %w", storyID, err)
+		}
+	} else if representativeID == id {
+		if _, err := tx.Exec(ctx, `
+			UPDATE stories
+			SET representative_entry_id = (
+				SELECT member.entry_id
+				FROM story_entries AS member
+				WHERE member.story_id = $1 AND member.entry_id <> $2
+				ORDER BY member.joined_at ASC, member.entry_id ASC
+				LIMIT 1
+			), updated_at = now()
+			WHERE id = $1
+		`, storyID, id); err != nil {
+			return fmt.Errorf("repair Story representative %s: %w", storyID, err)
+		}
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM entries WHERE id = $1`, id); err != nil {
+		return fmt.Errorf("delete Entry %s: %w", id, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return entry.Entry{}, fmt.Errorf("commit entry update %s: %w", id, err)
-	}
-	return item, nil
-}
-
-func (store *EntryStore) MarkRead(ctx context.Context, sourceID source.ID) (int64, error) {
-	return NewStoryStore(store.pool).MarkRead(ctx, string(sourceID))
-}
-
-func (store *EntryStore) AddTag(ctx context.Context, id entry.ID, name string) (entry.Tag, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return entry.Tag{}, fmt.Errorf("tag name is required")
-	}
-	normalized := strings.ToLower(name)
-	var tag entry.Tag
-	err := store.pool.QueryRow(ctx, `
-		WITH selected_tag AS (
-			INSERT INTO tags (name, normalized_name)
-			VALUES ($2, $3)
-			ON CONFLICT (normalized_name)
-			DO UPDATE SET name = tags.name
-			RETURNING id, name
-		), linked AS (
-			INSERT INTO entry_tags (entry_id, tag_id, origin)
-			SELECT $1, id, 'user' FROM selected_tag
-			ON CONFLICT DO NOTHING
-		)
-		SELECT id, name FROM selected_tag
-	`, id, name, normalized).Scan(&tag.ID, &tag.Name)
-	if err != nil {
-		return entry.Tag{}, fmt.Errorf("add tag to entry %s: %w", id, err)
-	}
-	return tag, nil
-}
-
-func (store *EntryStore) RemoveTag(ctx context.Context, id entry.ID, tagID string) error {
-	_, err := store.pool.Exec(ctx, `
-		DELETE FROM entry_tags
-		WHERE entry_id = $1 AND tag_id = $2 AND origin = 'user'
-	`, id, tagID)
-	if err != nil {
-		return fmt.Errorf("remove tag from entry %s: %w", id, err)
+		return fmt.Errorf("commit Entry deletion %s: %w", id, err)
 	}
 	return nil
 }
@@ -298,17 +432,11 @@ func scanEntry(row entryRow) (entry.Entry, error) {
 		&item.ExternalID,
 		&item.CanonicalURL,
 		&item.SourceTitle,
-		&item.DisplayTitle,
 		&item.Author,
 		&item.Summary,
 		&item.ContentHTML,
 		&item.PublishedAt,
 		&item.DiscoveredAt,
-		&item.ReadAt,
-		&item.StarredAt,
-		&item.HiddenAt,
-		&item.LaterAt,
-		&item.Note,
 		&annotationJSON,
 	)
 	if err == nil && len(annotationJSON) > 0 && string(annotationJSON) != "null" {
@@ -317,6 +445,48 @@ func scanEntry(row entryRow) (entry.Entry, error) {
 		}
 	}
 	return item, err
+}
+
+func scanSourceEntry(row entryRow) (story.SourceEntry, error) {
+	var item story.SourceEntry
+	var annotationJSON []byte
+	var tagsJSON []byte
+	err := row.Scan(
+		&item.Entry.ID,
+		&item.Entry.SourceID,
+		&item.Entry.IdentityKey,
+		&item.Entry.ExternalID,
+		&item.Entry.CanonicalURL,
+		&item.Entry.SourceTitle,
+		&item.Entry.Author,
+		&item.Entry.Summary,
+		&item.Entry.ContentHTML,
+		&item.Entry.PublishedAt,
+		&item.Entry.DiscoveredAt,
+		&annotationJSON,
+		&item.Story.ID,
+		&item.Story.EntryCount,
+		&item.Story.SourceCount,
+		&item.Story.DisplayTitle,
+		&item.Story.Note,
+		&item.Story.ReadAt,
+		&item.Story.StarredAt,
+		&item.Story.HiddenAt,
+		&item.Story.LaterAt,
+		&tagsJSON,
+	)
+	if err != nil {
+		return story.SourceEntry{}, err
+	}
+	if err := decodeAnnotation(annotationJSON, &item.Entry); err != nil {
+		return story.SourceEntry{}, fmt.Errorf("decode Source Entry annotation: %w", err)
+	}
+	if len(tagsJSON) > 0 && string(tagsJSON) != "null" {
+		if err := json.Unmarshal(tagsJSON, &item.Story.Tags); err != nil {
+			return story.SourceEntry{}, fmt.Errorf("decode Story tags: %w", err)
+		}
+	}
+	return item, nil
 }
 
 func boolValue(value *bool) bool {
@@ -468,26 +638,15 @@ func (store *EntryStore) CommitBatch(
 				return fmt.Errorf("upsert annotation for entry %q: %w", item.identityKey, err)
 			}
 		}
-		if err := applyEnabledRulesTx(ctx, tx, entryID); err != nil {
-			return fmt.Errorf("apply rules to entry %q: %w", item.identityKey, err)
-		}
 		if _, err := tx.Exec(ctx, `
 			WITH created AS (
 				INSERT INTO stories (
 					representative_entry_id,
-					sort_time,
-					read_at,
-					starred_at,
-					hidden_at,
-					later_at
+					sort_time
 				)
 				SELECT
 					entry.id,
-					least(coalesce($2::timestamptz, entry.discovered_at), entry.discovered_at),
-					entry.read_at,
-					entry.starred_at,
-					entry.hidden_at,
-					entry.later_at
+					least(coalesce($2::timestamptz, entry.discovered_at), entry.discovered_at)
 				FROM entries AS entry
 				WHERE entry.id = $1
 				  AND NOT EXISTS (
@@ -499,6 +658,9 @@ func (store *EntryStore) CommitBatch(
 			SELECT id, $1, 'singleton', 1 FROM created
 		`, entryID, candidate.PublishedAt); err != nil {
 			return fmt.Errorf("ensure Story for entry %q: %w", item.identityKey, err)
+		}
+		if err := applyEnabledRulesTx(ctx, tx, entryID); err != nil {
+			return fmt.Errorf("apply rules to entry %q: %w", item.identityKey, err)
 		}
 		if !inserted {
 			if _, err := tx.Exec(ctx, `
