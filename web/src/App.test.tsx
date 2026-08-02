@@ -850,6 +850,74 @@ describe('App', () => {
     expect(rowTitles()).toEqual(['Unread first', 'Unread second', 'Read first', 'Read second'])
   })
 
+  it('orders initial reader data without moving the article while reading', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    const makeStory = (id: string, title: string, readAt?: string) => {
+      const entry = {
+        id: `entry-${id}`,
+        source_id: 'source-1',
+        identity_key: `external:${id}`,
+        source_title: title,
+        content_html: `<p>${title} body</p>`,
+        discovered_at: '2026-07-25T00:00:00Z',
+      }
+      return {
+        id: `story-${id}`,
+        display_title: title,
+        note: '',
+        read_at: readAt,
+        representative: entry,
+        entry_count: 1,
+        source_count: 1,
+      }
+    }
+    const initialStories = [
+      makeStory('read', 'Read first', '2026-07-25T03:00:00Z'),
+      makeStory('unread-first', 'Unread first'),
+      makeStory('unread-second', 'Unread second'),
+    ]
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/v1/stories?') && !init?.method) {
+        return new Response(JSON.stringify({
+          stories: initialStories,
+          total_stories: initialStories.length,
+          reader_counts: {
+            inbox_stories: 3,
+            unread_stories: 2,
+            starred_stories: 0,
+            later_stories: 0,
+            hidden_stories: 0,
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (url.includes('/api/v1/stories/') && init?.method === 'PATCH') {
+        const storyID = url.split('/').at(-1)!
+        const story = initialStories.find((item) => item.id === storyID)!
+        return new Response(JSON.stringify({
+          ...story,
+          read_at: '2026-07-25T04:00:00Z',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return defaultFetch(input, init)
+    })
+
+    const rowTitles = () => [...document.querySelectorAll<HTMLElement>('[data-entry-row] strong')]
+      .map((element) => element.textContent)
+
+    renderApp()
+    await screen.findByText('Unread first')
+    expect(rowTitles()).toEqual(['Unread first', 'Unread second', 'Read first'])
+
+    fireEvent.click(screen.getByText('Unread first'))
+    expect(screen.getByText('Unread first body')).toBeInTheDocument()
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url, init]) =>
+      String(url).endsWith('/api/v1/stories/story-unread-first') && init?.method === 'PATCH')).toBe(true))
+
+    expect(rowTitles()).toEqual(['Unread first', 'Unread second', 'Read first'])
+    expect(screen.getByText('Unread first body')).toBeInTheDocument()
+  })
+
   it('splits a member entry out of a story and merges the story into another', async () => {
     const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
       status,

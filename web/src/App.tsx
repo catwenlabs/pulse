@@ -1894,7 +1894,7 @@ function Reader({
     if (added.length > 0) {
       setHighlightedEntryIDs((current) => new Set([...current, ...added]))
     }
-    setEntries(items)
+    setEntries(orderReaderEntries(items))
     setStoriesByEntry((current) => Object.fromEntries(stories.map((item) => {
       const existing = current[item.representative.id]
       return [item.representative.id, existing?.entries ? { ...item, entries: existing.entries } : item]
@@ -2203,7 +2203,7 @@ function Reader({
 
   const title = sourceName || (view === 'starred' ? '收藏' : view === 'later' ? '稍后阅读' : '全部文章')
   const sourceNames = Object.fromEntries(sources.map((source) => [source.id, source.name]))
-  const orderedEntries = orderReaderEntries(entries)
+  const orderedEntries = entries
   const currentStory = selected ? storiesByEntry[selected.id] : undefined
   const mergeTargets = currentStory
     ? orderedEntries
