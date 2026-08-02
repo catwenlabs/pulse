@@ -47,9 +47,9 @@ func TestRuleStoreReplayRetractsDerivedTagsAndKeepsEffectsIdempotent(t *testing.
 	}
 	var derived int
 	if err := pool.QueryRow(ctx, `
-		SELECT count(*) FROM entry_tags
-		WHERE entry_id = $1 AND origin = 'rule'
-	`, entries[0].ID).Scan(&derived); err != nil {
+		SELECT count(*) FROM story_rule_tags
+		WHERE entry_id = $1 AND rule_id = $2
+	`, entries[0].ID, definition.ID).Scan(&derived); err != nil {
 		t.Fatalf("count derived tags: %v", err)
 	}
 	if derived != 1 {
@@ -63,9 +63,9 @@ func TestRuleStoreReplayRetractsDerivedTagsAndKeepsEffectsIdempotent(t *testing.
 		t.Fatalf("non-match Replay() error = %v", err)
 	}
 	if err := pool.QueryRow(ctx, `
-		SELECT count(*) FROM entry_tags
-		WHERE entry_id = $1 AND origin = 'rule'
-	`, entries[0].ID).Scan(&derived); err != nil {
+		SELECT count(*) FROM story_rule_tags
+		WHERE entry_id = $1 AND rule_id = $2
+	`, entries[0].ID, definition.ID).Scan(&derived); err != nil {
 		t.Fatalf("count retracted tags: %v", err)
 	}
 	if derived != 0 {
@@ -121,7 +121,7 @@ func TestEntryCommitReevaluatesRulesInSameTransaction(t *testing.T) {
 	}
 	var tags, effects int
 	if err := pool.QueryRow(ctx, `
-		SELECT count(*) FROM entry_tags WHERE origin = 'rule' AND rule_id = $1
+		SELECT count(*) FROM story_rule_tags WHERE rule_id = $1
 	`, definition.ID).Scan(&tags); err != nil {
 		t.Fatalf("count rule tags: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestEntryCommitReevaluatesRulesInSameTransaction(t *testing.T) {
 		t.Fatalf("update CommitBatch() error = %v", err)
 	}
 	if err := pool.QueryRow(ctx, `
-		SELECT count(*) FROM entry_tags WHERE origin = 'rule' AND rule_id = $1
+		SELECT count(*) FROM story_rule_tags WHERE rule_id = $1
 	`, definition.ID).Scan(&tags); err != nil {
 		t.Fatalf("count retracted tags: %v", err)
 	}

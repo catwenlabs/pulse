@@ -3,12 +3,12 @@ package postgres
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/ingestion"
+	"github.com/catwenlabs/pulse/internal/source"
 	"github.com/catwenlabs/pulse/internal/story"
 )
 
@@ -102,7 +102,7 @@ func TestStoryStoreMergeManualCombinesStories(t *testing.T) {
 	}
 	from, into := items[0].ID, items[1].ID
 
-	if err := storyStore.MergeManual(ctx, from, into); err != nil {
+	if err := storyStore.MergeManual(ctx, from, into, story.MergeOptions{}); err != nil {
 		t.Fatalf("MergeManual() error = %v", err)
 	}
 
@@ -120,8 +120,12 @@ func TestStoryStoreMergeManualCombinesStories(t *testing.T) {
 		t.Errorf("Entries len = %d, want 2", len(merged.Entries))
 	}
 
-	if _, err := storyStore.Get(ctx, from); !errors.Is(err, entry.ErrNotFound) {
-		t.Errorf("expected from-story deleted (ErrNotFound), got err = %v", err)
+	alias, err := storyStore.Get(ctx, from)
+	if err != nil {
+		t.Fatalf("Get() aliased story error = %v", err)
+	}
+	if alias.ID != into || alias.EntryCount != 2 {
+		t.Errorf("aliased Story = %+v, want canonical Story %q", alias, into)
 	}
 }
 
@@ -152,7 +156,7 @@ func TestStoryStoreMergeManualRejectsSelfMerge(t *testing.T) {
 	}
 	id := items[0].ID
 
-	if err := storyStore.MergeManual(ctx, id, id); err == nil {
+	if err := storyStore.MergeManual(ctx, id, id, story.MergeOptions{}); err == nil {
 		t.Fatal("expected error merging a Story into itself, got nil")
 	}
 	if _, err := storyStore.Get(ctx, id); err != nil {
@@ -191,7 +195,7 @@ func TestStoryStoreSplitDetachesEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search() error = %v", err)
 	}
-	if err := storyStore.MergeManual(ctx, items[0].ID, items[1].ID); err != nil {
+	if err := storyStore.MergeManual(ctx, items[0].ID, items[1].ID, story.MergeOptions{}); err != nil {
 		t.Fatalf("MergeManual() error = %v", err)
 	}
 	storyID := items[1].ID
@@ -205,7 +209,7 @@ func TestStoryStoreSplitDetachesEntry(t *testing.T) {
 	}
 	splitEntryID := before.Entries[0].ID
 
-	newID, err := storyStore.Split(ctx, storyID, splitEntryID)
+	newID, err := storyStore.Split(ctx, storyID, splitEntryID, story.SplitOptions{})
 	if err != nil {
 		t.Fatalf("Split() error = %v", err)
 	}
@@ -263,7 +267,7 @@ func TestStoryStoreSearchSurfacesUnreadBeforeRead(t *testing.T) {
 	}
 
 	yes := true
-	if _, err := entryStore.Update(ctx, readStory.Representative.ID, entry.Patch{Read: &yes}); err != nil {
+	if _, err := storyStore.Update(ctx, readStory.ID, story.Patch{Read: &yes}); err != nil {
 		t.Fatalf("mark read Update() error = %v", err)
 	}
 
@@ -501,4 +505,181 @@ func TestStoryStoreMarkClusteredRepairsMultiEntryAggregates(t *testing.T) {
 	if got.LastPublishedAt == nil || !got.LastPublishedAt.Equal(firstPublished) {
 		t.Errorf("LastPublishedAt = %v, want %v", got.LastPublishedAt, firstPublished)
 	}
+}
+
+func TestStoryStoreOwnsReaderMetadataAndState(t *testing.T) {
+	pool := testPool(t)
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	entryStore := NewEntryStore(pool)
+	storyStore := NewStoryStore(pool)
+	ctx := context.Background()
+
+	src := createTestSource(t, sourceStore, "story-reader-owner")
+	acquisition := claimTestAcquisition(t, acquisitionStore, src.ID, "story-reader-owner")
+	if err := entryStore.CommitBatch(ctx, acquisition, "worker", []ingestion.Candidate{{
+		ExternalID: "owner-entry",
+		Title:      "来源标题",
+	}}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("CommitBatch() error = %v", err)
+	}
+	items, err := storyStore.Search(ctx, story.Query{Limit: 10})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("Search() = %+v, %v", items, err)
+	}
+
+	displayTitle := "我的 Story 标题"
+	note := "我的 Reader 笔记"
+	read := true
+	updated, err := storyStore.Update(ctx, items[0].ID, story.Patch{
+		DisplayTitle: &displayTitle,
+		Note:         &note,
+		Read:         &read,
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if updated.DisplayTitle != displayTitle || updated.Note != note || updated.ReadAt == nil {
+		t.Fatalf("updated Story = %+v, want Story-owned metadata and state", updated)
+	}
+
+	entryItem, err := entryStore.Get(ctx, items[0].Representative.ID)
+	if err != nil {
+		t.Fatalf("Get Entry() error = %v", err)
+	}
+	if entryItem.SourceTitle != "来源标题" {
+		t.Errorf("Entry source title = %q, want source content to remain intact", entryItem.SourceTitle)
+	}
+}
+
+func TestSourceEntryProjectionSharesRealStoryStateAcrossSources(t *testing.T) {
+	pool := testPool(t)
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	entryStore := NewEntryStore(pool)
+	storyStore := NewStoryStore(pool)
+	ctx := context.Background()
+
+	firstSource := createTestSource(t, sourceStore, "source-projection-one")
+	secondSource := createTestSource(t, sourceStore, "source-projection-two")
+	firstAcquisition := claimTestAcquisition(t, acquisitionStore, firstSource.ID, "source-projection-one")
+	secondAcquisition := claimTestAcquisition(t, acquisitionStore, secondSource.ID, "source-projection-two")
+	if err := entryStore.CommitBatch(ctx, firstAcquisition, "worker", []ingestion.Candidate{{
+		ExternalID: "first", Title: "同一事件的一则报道",
+	}}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("first CommitBatch() error = %v", err)
+	}
+	if err := entryStore.CommitBatch(ctx, secondAcquisition, "worker", []ingestion.Candidate{{
+		ExternalID: "second", Title: "同一事件的另一则报道",
+	}}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("second CommitBatch() error = %v", err)
+	}
+
+	items, err := storyStore.Search(ctx, story.Query{Limit: 10})
+	if err != nil || len(items) != 2 {
+		t.Fatalf("Search() = %+v, %v", items, err)
+	}
+	if err := storyStore.MergeManual(ctx, items[1].ID, items[0].ID, story.MergeOptions{}); err != nil {
+		t.Fatalf("MergeManual() error = %v", err)
+	}
+	title := "统一的 Story 标题"
+	read := true
+	if _, err := storyStore.Update(ctx, items[0].ID, story.Patch{DisplayTitle: &title, Read: &read}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if _, err := storyStore.AddTag(ctx, items[0].ID, "跨来源"); err != nil {
+		t.Fatalf("AddTag() error = %v", err)
+	}
+
+	for _, sourceID := range []string{string(firstSource.ID), string(secondSource.ID)} {
+		projected, err := entryStore.SearchSourceEntries(ctx, entry.Query{Limit: 10, SourceID: source.ID(sourceID)})
+		if err != nil || len(projected) != 1 {
+			t.Fatalf("SearchSourceEntries(%q) = %+v, %v", sourceID, projected, err)
+		}
+		item := projected[0]
+		if item.Story.ID != items[0].ID || item.Story.DisplayTitle != title || item.Story.ReadAt == nil {
+			t.Errorf("Story projection = %+v, want shared owning Story", item.Story)
+		}
+		if len(item.Story.Tags) != 1 || item.Story.Tags[0].Name != "跨来源" {
+			t.Errorf("Story tags = %+v", item.Story.Tags)
+		}
+	}
+}
+
+func TestReaderPagesUseExactCountsAndCursors(t *testing.T) {
+	pool := testPool(t)
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	entryStore := NewEntryStore(pool)
+	storyStore := NewStoryStore(pool)
+	ctx := context.Background()
+
+	locator := "page-cursor-" + time.Now().UTC().Format("20060102150405.000000000")
+	src := createTestSource(t, sourceStore, locator)
+	acquisition := claimTestAcquisition(t, acquisitionStore, src.ID, locator)
+	if err := entryStore.CommitBatch(ctx, acquisition, "worker", []ingestion.Candidate{
+		{ExternalID: "one", Title: "Page one", ContentHTML: "<p>one</p>", PublishedAt: timePtr(time.Now().Add(-3 * time.Hour))},
+		{ExternalID: "two", Title: "Page two", ContentHTML: "<p>two</p>", PublishedAt: timePtr(time.Now().Add(-2 * time.Hour))},
+		{ExternalID: "three", Title: "Page three", ContentHTML: "<p>three</p>", PublishedAt: timePtr(time.Now().Add(-1 * time.Hour))},
+	}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("CommitBatch() error = %v", err)
+	}
+
+	items, err := storyStore.Search(ctx, story.Query{Limit: 10, SourceID: string(src.ID)})
+	if err != nil || len(items) != 3 {
+		t.Fatalf("Search() = %d items, error = %v", len(items), err)
+	}
+	if _, err := storyStore.Update(ctx, items[0].ID, story.Patch{Read: boolPtr(true)}); err != nil {
+		t.Fatalf("mark Story read: %v", err)
+	}
+	if _, err := storyStore.Update(ctx, items[1].ID, story.Patch{Hidden: boolPtr(true)}); err != nil {
+		t.Fatalf("hide Story: %v", err)
+	}
+
+	first, err := storyStore.SearchPage(ctx, story.Query{Limit: 2, SourceID: string(src.ID)})
+	if err != nil {
+		t.Fatalf("SearchPage() first error = %v", err)
+	}
+	if first.TotalStories != 3 || first.ReaderCounts.InboxStories != 2 ||
+		first.ReaderCounts.UnreadStories != 1 || len(first.Stories) != 2 || first.NextCursor == "" {
+		t.Fatalf("first Story page = %+v", first)
+	}
+	second, err := storyStore.SearchPage(ctx, story.Query{
+		Limit: 2, SourceID: string(src.ID), Cursor: first.NextCursor,
+	})
+	if err != nil {
+		t.Fatalf("SearchPage() second error = %v", err)
+	}
+	if len(second.Stories) != 1 || second.NextCursor != "" || second.TotalStories != 3 {
+		t.Fatalf("second Story page = %+v", second)
+	}
+	if first.Stories[0].ID == second.Stories[0].ID || first.Stories[1].ID == second.Stories[0].ID {
+		t.Fatalf("cursor returned a duplicate Story: first=%+v second=%+v", first.Stories, second.Stories)
+	}
+
+	entryPage, err := entryStore.SearchSourceEntryPage(ctx, entry.Query{Limit: 2, SourceID: src.ID})
+	if err != nil {
+		t.Fatalf("SearchSourceEntryPage() first error = %v", err)
+	}
+	if entryPage.TotalEntries != 3 || entryPage.ReaderCounts.InboxStories != 2 ||
+		entryPage.ReaderCounts.UnreadStories != 1 || len(entryPage.Entries) != 2 || entryPage.NextCursor == "" {
+		t.Fatalf("first Source Entry page = %+v", entryPage)
+	}
+	entryPage2, err := entryStore.SearchSourceEntryPage(ctx, entry.Query{
+		Limit: 2, SourceID: src.ID, Cursor: entryPage.NextCursor,
+	})
+	if err != nil {
+		t.Fatalf("SearchSourceEntryPage() second error = %v", err)
+	}
+	if len(entryPage2.Entries) != 1 || entryPage2.NextCursor != "" {
+		t.Fatalf("second Source Entry page = %+v", entryPage2)
+	}
+}
+
+func boolPtr(value bool) *bool {
+	return &value
+}
+
+func timePtr(value time.Time) *time.Time {
+	return &value
 }

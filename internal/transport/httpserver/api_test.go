@@ -21,34 +21,33 @@ import (
 )
 
 type fakeBackend struct {
-	createSource    func(context.Context, source.Spec) (source.Source, error)
-	listSources     func(context.Context) ([]source.Source, error)
-	getSource       func(context.Context, source.ID) (source.Source, error)
-	updateSource    func(context.Context, source.ID, string, string) (source.Source, error)
-	setEnabled      func(context.Context, source.ID, bool) (source.Source, error)
-	archiveSource   func(context.Context, source.ID) error
-	setSecret       func(context.Context, source.ID, string) error
-	getSourceHealth func(context.Context, source.ID) (source.Health, error)
-	listFolders     func(context.Context) ([]organization.Folder, error)
-	enqueue         func(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error)
-	listEntries     func(context.Context, int) ([]entry.Entry, error)
-	searchEntries   func(context.Context, entry.Query) ([]entry.Entry, error)
-	getEntry        func(context.Context, entry.ID) (entry.Entry, error)
-	updateEntry     func(context.Context, entry.ID, entry.Patch) (entry.Entry, error)
-	markEntriesRead func(context.Context, source.ID) (int64, error)
-	addEntryTag     func(context.Context, entry.ID, string) (entry.Tag, error)
-	removeEntryTag  func(context.Context, entry.ID, string) error
-	listStories     func(context.Context, story.Query) ([]story.Story, error)
-	getStory        func(context.Context, story.ID) (story.Story, error)
-	updateStory     func(context.Context, story.ID, story.Patch) (story.Story, error)
-	markStoriesRead func(context.Context, string) (int64, error)
-	mergeStories    func(context.Context, story.ID, story.ID) (story.Story, error)
-	splitStory      func(context.Context, story.ID, entry.ID) (story.Story, error)
-	recluster       func(context.Context) (int, error)
-	importOPML      func(context.Context, []opml.Subscription) (opml.ImportResult, error)
-	exportOPML      func(context.Context) ([]opml.Subscription, error)
-	previewSource   func(context.Context, source.Spec) (preview.Result, error)
-	replayRule      func(context.Context, string, bool) (rule.ReplayResult, error)
+	createSource        func(context.Context, source.Spec) (source.Source, error)
+	listSources         func(context.Context) ([]source.Source, error)
+	getSource           func(context.Context, source.ID) (source.Source, error)
+	updateSource        func(context.Context, source.ID, string, string) (source.Source, error)
+	setEnabled          func(context.Context, source.ID, bool) (source.Source, error)
+	archiveSource       func(context.Context, source.ID) error
+	setSecret           func(context.Context, source.ID, string) error
+	getSourceHealth     func(context.Context, source.ID) (source.Health, error)
+	listFolders         func(context.Context) ([]organization.Folder, error)
+	enqueue             func(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error)
+	listSourceEntries   func(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
+	listSourceEntryPage func(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
+	getEntry            func(context.Context, entry.ID) (entry.Entry, error)
+	deleteEntry         func(context.Context, entry.ID, bool) error
+	listStories         func(context.Context, story.Query) ([]story.Story, error)
+	listStoryPage       func(context.Context, story.Query) (story.Page, error)
+	getStory            func(context.Context, story.ID) (story.Story, error)
+	updateStory         func(context.Context, story.ID, story.Patch) (story.Story, error)
+	setRepresentative   func(context.Context, story.ID, entry.ID) (story.Story, error)
+	markStoriesRead     func(context.Context, string) (int64, error)
+	mergeStories        func(context.Context, story.ID, story.ID) (story.Story, error)
+	splitStory          func(context.Context, story.ID, entry.ID) (story.Story, error)
+	recluster           func(context.Context) (int, error)
+	importOPML          func(context.Context, []opml.Subscription) (opml.ImportResult, error)
+	exportOPML          func(context.Context) ([]opml.Subscription, error)
+	previewSource       func(context.Context, source.Spec) (preview.Result, error)
+	replayRule          func(context.Context, string, bool) (rule.ReplayResult, error)
 }
 
 func (fake fakeBackend) CreateSource(ctx context.Context, spec source.Spec) (source.Source, error) {
@@ -114,36 +113,42 @@ func (fake fakeBackend) Enqueue(
 	return fake.enqueue(ctx, request)
 }
 
-func (fake fakeBackend) ListEntries(ctx context.Context, limit int) ([]entry.Entry, error) {
-	return fake.listEntries(ctx, limit)
+func (fake fakeBackend) ListSourceEntries(ctx context.Context, sourceID source.ID, query entry.Query) ([]story.SourceEntry, error) {
+	if fake.listSourceEntries != nil {
+		return fake.listSourceEntries(ctx, sourceID, query)
+	}
+	return []story.SourceEntry{}, nil
 }
 
-func (fake fakeBackend) SearchEntries(ctx context.Context, query entry.Query) ([]entry.Entry, error) {
-	return fake.searchEntries(ctx, query)
+func (fake fakeBackend) ListSourceEntryPage(ctx context.Context, sourceID source.ID, query entry.Query) (story.SourceEntryPage, error) {
+	if fake.listSourceEntryPage != nil {
+		return fake.listSourceEntryPage(ctx, sourceID, query)
+	}
+	items, err := fake.ListSourceEntries(ctx, sourceID, query)
+	return story.SourceEntryPage{Entries: items, TotalEntries: len(items)}, err
 }
 
 func (fake fakeBackend) GetEntry(ctx context.Context, id entry.ID) (entry.Entry, error) {
 	return fake.getEntry(ctx, id)
 }
 
-func (fake fakeBackend) UpdateEntry(ctx context.Context, id entry.ID, patch entry.Patch) (entry.Entry, error) {
-	return fake.updateEntry(ctx, id, patch)
-}
-
-func (fake fakeBackend) MarkEntriesRead(ctx context.Context, sourceID source.ID) (int64, error) {
-	return fake.markEntriesRead(ctx, sourceID)
-}
-
-func (fake fakeBackend) AddEntryTag(ctx context.Context, id entry.ID, name string) (entry.Tag, error) {
-	return fake.addEntryTag(ctx, id, name)
-}
-
-func (fake fakeBackend) RemoveEntryTag(ctx context.Context, id entry.ID, tagID string) error {
-	return fake.removeEntryTag(ctx, id, tagID)
+func (fake fakeBackend) DeleteEntry(ctx context.Context, id entry.ID, confirmed bool) error {
+	if fake.deleteEntry != nil {
+		return fake.deleteEntry(ctx, id, confirmed)
+	}
+	return nil
 }
 
 func (fake fakeBackend) ListStories(ctx context.Context, query story.Query) ([]story.Story, error) {
 	return fake.listStories(ctx, query)
+}
+
+func (fake fakeBackend) ListStoryPage(ctx context.Context, query story.Query) (story.Page, error) {
+	if fake.listStoryPage != nil {
+		return fake.listStoryPage(ctx, query)
+	}
+	items, err := fake.ListStories(ctx, query)
+	return story.Page{Stories: items, TotalStories: len(items)}, err
 }
 
 func (fake fakeBackend) GetStory(ctx context.Context, id story.ID) (story.Story, error) {
@@ -158,6 +163,13 @@ func (fake fakeBackend) UpdateStory(
 	return fake.updateStory(ctx, id, patch)
 }
 
+func (fake fakeBackend) SetStoryRepresentative(ctx context.Context, storyID story.ID, entryID entry.ID) (story.Story, error) {
+	if fake.setRepresentative != nil {
+		return fake.setRepresentative(ctx, storyID, entryID)
+	}
+	return story.Story{ID: storyID, Representative: entry.Entry{ID: entryID}}, nil
+}
+
 func (fake fakeBackend) MarkStoriesRead(ctx context.Context, sourceID string) (int64, error) {
 	return fake.markStoriesRead(ctx, sourceID)
 }
@@ -166,6 +178,7 @@ func (fake fakeBackend) MergeStories(
 	ctx context.Context,
 	from story.ID,
 	into story.ID,
+	_ story.MergeOptions,
 ) (story.Story, error) {
 	return fake.mergeStories(ctx, from, into)
 }
@@ -174,9 +187,16 @@ func (fake fakeBackend) SplitStory(
 	ctx context.Context,
 	storyID story.ID,
 	entryID entry.ID,
+	_ story.SplitOptions,
 ) (story.Story, error) {
 	return fake.splitStory(ctx, storyID, entryID)
 }
+
+func (fake fakeBackend) AddStoryTag(_ context.Context, _ story.ID, name string) (entry.Tag, error) {
+	return entry.Tag{ID: "tag", Name: name}, nil
+}
+
+func (fake fakeBackend) RemoveStoryTag(context.Context, story.ID, string) error { return nil }
 
 func (fake fakeBackend) Recluster(ctx context.Context) (int, error) {
 	return fake.recluster(ctx)
@@ -424,17 +444,11 @@ func TestListSourcesAndEntries(t *testing.T) {
 	backend.listSources = func(context.Context) ([]source.Source, error) {
 		return []source.Source{{ID: "source-1", Name: "One"}}, nil
 	}
-	backend.listEntries = func(_ context.Context, limit int) ([]entry.Entry, error) {
-		if limit != 25 {
-			t.Errorf("limit = %d, want 25", limit)
+	backend.listSourceEntries = func(_ context.Context, sourceID source.ID, query entry.Query) ([]story.SourceEntry, error) {
+		if sourceID != "source-1" || query.Limit != 25 || query.Cursor != "cursor-1" {
+			t.Errorf("query = %+v, want limit 25 cursor-1", query)
 		}
-		return []entry.Entry{{ID: "entry-1", SourceTitle: "Entry"}}, nil
-	}
-	backend.searchEntries = func(_ context.Context, query entry.Query) ([]entry.Entry, error) {
-		if query.Limit != 25 || query.Offset != 50 {
-			t.Errorf("query = %+v, want limit 25 offset 50", query)
-		}
-		return []entry.Entry{{ID: "entry-1", SourceTitle: "Entry"}}, nil
+		return []story.SourceEntry{{Entry: entry.Entry{ID: "entry-1", SourceTitle: "Entry"}, Story: story.StoryRef{ID: "story-1"}}}, nil
 	}
 
 	for _, test := range []struct {
@@ -442,7 +456,7 @@ func TestListSourcesAndEntries(t *testing.T) {
 		want string
 	}{
 		{path: "/api/v1/sources", want: "source-1"},
-		{path: "/api/v1/entries?limit=25&offset=50", want: "entry-1"},
+		{path: "/api/v1/sources/source-1/entries?limit=25&cursor=cursor-1", want: "entry-1"},
 	} {
 		response := httptest.NewRecorder()
 		NewHandler(backend).ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
@@ -469,7 +483,7 @@ func TestListSourcesExposesUnreadCount(t *testing.T) {
 func TestListAndGetStories(t *testing.T) {
 	backend := completeFakeBackend()
 	backend.listStories = func(_ context.Context, query story.Query) ([]story.Story, error) {
-		if query.Limit != 25 || query.Offset != 50 || query.SourceID != "source-1" {
+		if query.Limit != 25 || query.Cursor != "cursor-1" || query.SourceID != "source-1" {
 			t.Errorf("query = %+v", query)
 		}
 		return []story.Story{{
@@ -490,7 +504,7 @@ func TestListAndGetStories(t *testing.T) {
 	listResponse := httptest.NewRecorder()
 	NewHandler(backend).ServeHTTP(listResponse, httptest.NewRequest(
 		http.MethodGet,
-		"/api/v1/stories?limit=25&offset=50&source_id=source-1",
+		"/api/v1/stories?limit=25&cursor=cursor-1&source_id=source-1",
 		nil,
 	))
 	if listResponse.Code != http.StatusOK ||
@@ -605,23 +619,23 @@ func TestReclusterStoriesUnavailable(t *testing.T) {
 
 func TestReaderSearchAndPatch(t *testing.T) {
 	backend := completeFakeBackend()
-	backend.searchEntries = func(_ context.Context, query entry.Query) ([]entry.Entry, error) {
-		if query.Search != "go" || query.State != "unread" || query.Tag != "tech" {
+	backend.listSourceEntries = func(_ context.Context, sourceID source.ID, query entry.Query) ([]story.SourceEntry, error) {
+		if sourceID != "source-1" || query.Search != "go" || query.State != "unread" || query.Tag != "tech" {
 			t.Errorf("query = %+v", query)
 		}
-		return []entry.Entry{{ID: "entry-1", SourceTitle: "Go"}}, nil
+		return []story.SourceEntry{{Entry: entry.Entry{ID: "entry-1", SourceTitle: "Go"}, Story: story.StoryRef{ID: "story-1"}}}, nil
 	}
-	backend.updateEntry = func(_ context.Context, id entry.ID, patch entry.Patch) (entry.Entry, error) {
-		if id != "entry-1" || patch.Read == nil || !*patch.Read ||
+	backend.updateStory = func(_ context.Context, id story.ID, patch story.Patch) (story.Story, error) {
+		if id != "story-1" || patch.Read == nil || !*patch.Read ||
 			patch.Starred == nil || !*patch.Starred {
 			t.Errorf("patch %s = %+v", id, patch)
 		}
-		return entry.Entry{ID: id, SourceTitle: "Go"}, nil
+		return story.Story{ID: id}, nil
 	}
 	searchResponse := httptest.NewRecorder()
 	NewHandler(backend).ServeHTTP(
 		searchResponse,
-		httptest.NewRequest(http.MethodGet, "/api/v1/entries?q=go&state=unread&tag=tech", nil),
+		httptest.NewRequest(http.MethodGet, "/api/v1/sources/source-1/entries?q=go&state=unread&tag=tech", nil),
 	)
 	if searchResponse.Code != http.StatusOK || !bytes.Contains(searchResponse.Body.Bytes(), []byte("entry-1")) {
 		t.Errorf("search status = %d, body = %s", searchResponse.Code, searchResponse.Body.String())
@@ -631,7 +645,7 @@ func TestReaderSearchAndPatch(t *testing.T) {
 		patchResponse,
 		httptest.NewRequest(
 			http.MethodPatch,
-			"/api/v1/entries/entry-1",
+			"/api/v1/stories/story-1",
 			bytes.NewBufferString(`{"read":true,"starred":true}`),
 		),
 	)
@@ -642,7 +656,7 @@ func TestReaderSearchAndPatch(t *testing.T) {
 
 func TestMarkEntriesReadScopesToSourceWhenRequested(t *testing.T) {
 	backend := completeFakeBackend()
-	backend.markEntriesRead = func(_ context.Context, sourceID source.ID) (int64, error) {
+	backend.markStoriesRead = func(_ context.Context, sourceID string) (int64, error) {
 		if sourceID != "source-1" {
 			t.Errorf("source id = %q", sourceID)
 		}
@@ -653,7 +667,7 @@ func TestMarkEntriesReadScopesToSourceWhenRequested(t *testing.T) {
 		response,
 		httptest.NewRequest(
 			http.MethodPatch,
-			"/api/v1/entries?source_id=source-1",
+			"/api/v1/stories?source_id=source-1",
 			bytes.NewBufferString(`{"read":true}`),
 		),
 	)
@@ -666,7 +680,7 @@ func TestListEntriesRejectsInvalidLimit(t *testing.T) {
 	response := httptest.NewRecorder()
 	NewHandler(completeFakeBackend()).ServeHTTP(
 		response,
-		httptest.NewRequest(http.MethodGet, "/api/v1/entries?limit=500", nil),
+		httptest.NewRequest(http.MethodGet, "/api/v1/sources/source-1/entries?limit=500", nil),
 	)
 	if response.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", response.Code)
@@ -675,15 +689,15 @@ func TestListEntriesRejectsInvalidLimit(t *testing.T) {
 
 func TestListEntriesFiltersBySource(t *testing.T) {
 	backend := completeFakeBackend()
-	backend.searchEntries = func(_ context.Context, query entry.Query) ([]entry.Entry, error) {
-		if query.SourceID != "source-1" {
-			t.Errorf("SourceID = %q", query.SourceID)
+	backend.listSourceEntries = func(_ context.Context, sourceID source.ID, _ entry.Query) ([]story.SourceEntry, error) {
+		if sourceID != "source-1" {
+			t.Errorf("SourceID = %q", sourceID)
 		}
-		return []entry.Entry{}, nil
+		return []story.SourceEntry{}, nil
 	}
 	response := httptest.NewRecorder()
 	NewHandler(backend).ServeHTTP(response, httptest.NewRequest(
-		http.MethodGet, "/api/v1/entries?source_id=source-1", nil,
+		http.MethodGet, "/api/v1/sources/source-1/entries", nil,
 	))
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
@@ -984,9 +998,9 @@ func TestHTTPDomainErrors(t *testing.T) {
 		},
 		{
 			name:    "entry list failure",
-			request: httptest.NewRequest(http.MethodGet, "/api/v1/entries", nil),
+			request: httptest.NewRequest(http.MethodGet, "/api/v1/sources/source-1/entries", nil),
 			configure: func(backend *fakeBackend) {
-				backend.searchEntries = func(context.Context, entry.Query) ([]entry.Entry, error) {
+				backend.listSourceEntries = func(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error) {
 					return nil, errors.New("database unavailable")
 				}
 			},
@@ -1073,26 +1087,8 @@ func completeFakeBackend() fakeBackend {
 		enqueue: func(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error) {
 			return ingestion.Acquisition{}, errors.New("unexpected Enqueue")
 		},
-		listEntries: func(context.Context, int) ([]entry.Entry, error) {
-			return nil, nil
-		},
-		searchEntries: func(context.Context, entry.Query) ([]entry.Entry, error) {
-			return nil, nil
-		},
 		getEntry: func(context.Context, entry.ID) (entry.Entry, error) {
 			return entry.Entry{}, entry.ErrNotFound
-		},
-		updateEntry: func(context.Context, entry.ID, entry.Patch) (entry.Entry, error) {
-			return entry.Entry{}, errors.New("unexpected UpdateEntry")
-		},
-		markEntriesRead: func(context.Context, source.ID) (int64, error) {
-			return 0, errors.New("unexpected MarkEntriesRead")
-		},
-		addEntryTag: func(context.Context, entry.ID, string) (entry.Tag, error) {
-			return entry.Tag{}, errors.New("unexpected AddEntryTag")
-		},
-		removeEntryTag: func(context.Context, entry.ID, string) error {
-			return errors.New("unexpected RemoveEntryTag")
 		},
 		listStories: func(context.Context, story.Query) ([]story.Story, error) {
 			return nil, nil

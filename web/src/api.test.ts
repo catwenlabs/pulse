@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createManualEntry,
   createSource,
+  addStoryTag,
+  deleteEntry,
   importAnnotations,
-  listEntries,
+  listSourceEntries,
   listStories,
   listSources,
   getStory,
@@ -12,10 +14,11 @@ import {
   previewSource,
   reclusterStories,
   runSource,
+  removeStoryTag,
+  setStoryRepresentative,
   setSourceEnabled,
   splitStory,
   updateSource,
-  updateEntry,
 } from './api'
 
 afterEach(() => {
@@ -31,9 +34,8 @@ describe('source API', () => {
       .mockResolvedValueOnce(new Response('{"id":"source-1","enabled":false}', { status: 200 }))
       .mockResolvedValueOnce(new Response('{"id":"source-1","name":"Renamed"}', { status: 200 }))
       .mockResolvedValueOnce(new Response('{"candidates":[],"diagnostics":{"status":"ok"}}', { status: 200 }))
-      .mockResolvedValueOnce(new Response('[]', { status: 200 }))
-      .mockResolvedValueOnce(new Response('{"id":"entry-1"}', { status: 200 }))
-      .mockResolvedValueOnce(new Response('[]', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"entries":[],"total_entries":0,"reader_counts":{"inbox_stories":0,"unread_stories":0,"starred_stories":0,"later_stories":0,"hidden_stories":0}}', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"stories":[],"total_stories":0,"reader_counts":{"inbox_stories":0,"unread_stories":0,"starred_stories":0,"later_stories":0,"hidden_stories":0}}', { status: 200 }))
       .mockResolvedValueOnce(new Response('{"id":"story-1","representative":{"id":"entry-1"}}', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -43,9 +45,8 @@ describe('source API', () => {
     await setSourceEnabled('source-1', false)
     await updateSource('source-1', { name: 'Renamed', locator: 'https://example.com/new' })
     await previewSource({ name: 'Feed', kind: 'rss', locator: 'https://example.com/feed' })
-    await listEntries({ q: 'go', state: 'unread', sourceId: 'source-1', offset: 50 })
-    await updateEntry('entry-1', { read: true })
-    await listStories({ q: 'go', state: 'unread', offset: 25 })
+    await listSourceEntries('source-1', { q: 'go', state: 'unread', cursor: 'source-cursor' })
+    await listStories({ q: 'go', state: 'unread', cursor: 'story-cursor' })
     await getStory('story-1')
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/sources', undefined)
@@ -67,14 +68,11 @@ describe('source API', () => {
       method: 'POST',
     }))
     expect(String(fetchMock.mock.calls[6][0])).toContain('q=go')
-    expect(String(fetchMock.mock.calls[6][0])).toContain('source_id=source-1')
-    expect(String(fetchMock.mock.calls[6][0])).toContain('offset=50')
-    expect(fetchMock).toHaveBeenNthCalledWith(8, '/api/v1/entries/entry-1', expect.objectContaining({
-      method: 'PATCH',
-    }))
-    expect(String(fetchMock.mock.calls[8][0])).toContain('/api/v1/stories?')
-    expect(String(fetchMock.mock.calls[8][0])).toContain('offset=25')
-    expect(fetchMock).toHaveBeenNthCalledWith(10, '/api/v1/stories/story-1', undefined)
+    expect(String(fetchMock.mock.calls[6][0])).toContain('/api/v1/sources/source-1/entries')
+    expect(String(fetchMock.mock.calls[6][0])).toContain('cursor=source-cursor')
+    expect(String(fetchMock.mock.calls[7][0])).toContain('/api/v1/stories?')
+    expect(String(fetchMock.mock.calls[7][0])).toContain('cursor=story-cursor')
+    expect(fetchMock).toHaveBeenNthCalledWith(9, '/api/v1/stories/story-1', undefined)
   })
 
   it('enqueues a manually saved web page with an idempotency key', async () => {
@@ -165,6 +163,41 @@ describe('source API', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ entry_id: 'entry-2' }),
     })
+  })
+
+  it('targets representative changes and permanent Entry deletion explicitly', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('{"id":"story-1"}', { status: 200 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await setStoryRepresentative('story-1', 'entry-2')
+    await deleteEntry('entry-2')
+    await deleteEntry('entry-2', true)
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/stories/story-1/representative', expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ entry_id: 'entry-2' }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/entries/entry-2', { method: 'DELETE' })
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/entries/entry-2?confirm=true', { method: 'DELETE' })
+  })
+
+  it('keeps tag mutations on the Story endpoints', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('{"id":"tag-1","name":"tech"}', { status: 201 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await addStoryTag('story-1', 'tech')
+    await removeStoryTag('story-1', 'tag-1')
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/stories/story-1/tags', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ name: 'tech' }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/stories/story-1/tags/tag-1', { method: 'DELETE' })
   })
 
   it('reclusters story aggregation on demand', async () => {

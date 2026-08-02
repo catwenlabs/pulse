@@ -12,6 +12,7 @@ import (
 
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/rule"
+	"github.com/catwenlabs/pulse/internal/story"
 )
 
 type RuleStore struct {
@@ -169,10 +170,7 @@ func (store *RuleStore) Preview(ctx context.Context, id string) (rule.PreviewRes
 		if !evaluation.Matched {
 			continue
 		}
-		title := item.DisplayTitle
-		if title == "" {
-			title = item.SourceTitle
-		}
+		title := item.SourceTitle
 		result.Matched++
 		result.Items = append(result.Items, rule.PreviewItem{
 			EntryID: item.ID, Title: title, Actions: evaluation.Actions,
@@ -185,10 +183,11 @@ func (store *RuleStore) allEntries(ctx context.Context) ([]entry.Entry, error) {
 	rows, err := store.pool.Query(ctx, `
 		SELECT
 			id, source_id, identity_key, external_id, canonical_url,
-			source_title, display_title, author, summary, content_html,
-			published_at, discovered_at, read_at, starred_at, hidden_at, later_at, note,
-			NULL::jsonb
+			source_title, author, summary, content_html,
+			published_at, discovered_at,
+			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at'
 		FROM entries
+		LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entries.id
 		ORDER BY discovered_at, id
 	`)
 	if err != nil {
@@ -242,16 +241,8 @@ func applyRuleEvaluationTx(
 	evaluation rule.Result,
 	effectsEnabled bool,
 ) (int, error) {
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM entry_tags
-		WHERE entry_id = $1 AND origin = 'rule' AND rule_id = $2
-	`, item.ID, definition.ID); err != nil {
-		return 0, fmt.Errorf("retract derived tags: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM rule_entry_tags WHERE entry_id = $1 AND rule_id = $2
-	`, item.ID, definition.ID); err != nil {
-		return 0, fmt.Errorf("clear derived tag records: %w", err)
+	if err := retractRuleTagsTx(ctx, tx, item.ID, definition.ID); err != nil {
+		return 0, err
 	}
 
 	effectCount := 0
@@ -294,10 +285,12 @@ func applyEnabledRulesTx(ctx context.Context, tx pgx.Tx, entryID entry.ID) error
 	item, err := scanEntry(tx.QueryRow(ctx, `
 		SELECT
 			id, source_id, identity_key, external_id, canonical_url,
-			source_title, display_title, author, summary, content_html,
-			published_at, discovered_at, read_at, starred_at, hidden_at, later_at, note,
-			NULL::jsonb
-		FROM entries WHERE id = $1
+			source_title, author, summary, content_html,
+			published_at, discovered_at,
+			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at'
+		FROM entries
+		LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entries.id
+		WHERE entries.id = $1
 	`, entryID))
 	if err != nil {
 		return fmt.Errorf("load entry for rule evaluation: %w", err)
@@ -347,6 +340,12 @@ func applyRuleTag(
 		return fmt.Errorf("rule tag name is required")
 	}
 	var tagID string
+	var storyID story.ID
+	if err := tx.QueryRow(ctx, `
+		SELECT story_id FROM story_entries WHERE entry_id = $1
+	`, entryID).Scan(&storyID); err != nil {
+		return fmt.Errorf("find owning Story for rule tag: %w", err)
+	}
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO tags (name, normalized_name)
 		VALUES ($1, lower($1))
@@ -356,18 +355,18 @@ func applyRuleTag(
 		return fmt.Errorf("create rule tag: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO entry_tags (entry_id, tag_id, origin, rule_id)
+		INSERT INTO story_tags (story_id, tag_id, origin, rule_id)
 		VALUES ($1, $2, 'rule', $3)
 		ON CONFLICT DO NOTHING
-	`, entryID, tagID, definition.ID); err != nil {
-		return fmt.Errorf("link rule tag: %w", err)
+	`, storyID, tagID, definition.ID); err != nil {
+		return fmt.Errorf("link Story rule tag: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO rule_entry_tags (rule_id, rule_version, entry_id, tag_id)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO story_rule_tags (rule_id, rule_version, entry_id, story_id, tag_id)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (rule_id, entry_id, tag_id)
 		DO UPDATE SET rule_version = EXCLUDED.rule_version
-	`, definition.ID, definition.Version, entryID, tagID); err != nil {
+	`, definition.ID, definition.Version, entryID, storyID, tagID); err != nil {
 		return fmt.Errorf("record rule tag: %w", err)
 	}
 	return nil
@@ -381,8 +380,32 @@ func applyRuleState(ctx context.Context, tx pgx.Tx, id entry.ID, kind rule.Actio
 	if column == "" {
 		return fmt.Errorf("unsupported state action %q", kind)
 	}
-	if _, err := tx.Exec(ctx, "UPDATE entries SET "+column+" = COALESCE("+column+", now()) WHERE id = $1", id); err != nil {
+	if _, err := tx.Exec(ctx, "UPDATE stories SET "+column+" = COALESCE("+column+", now()), updated_at = now() WHERE id = (SELECT story_id FROM story_entries WHERE entry_id = $1)", id); err != nil {
 		return fmt.Errorf("apply rule state %s: %w", kind, err)
+	}
+	return nil
+}
+
+func retractRuleTagsTx(ctx context.Context, tx pgx.Tx, entryID entry.ID, ruleID string) error {
+	if _, err := tx.Exec(ctx, `
+		WITH removed AS (
+			DELETE FROM story_rule_tags
+			WHERE entry_id = $1 AND rule_id = $2
+			RETURNING story_id, tag_id
+		)
+		DELETE FROM story_tags AS story_tag
+		USING removed
+		WHERE story_tag.story_id = removed.story_id
+		  AND story_tag.tag_id = removed.tag_id
+		  AND story_tag.origin = 'rule'
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM story_rule_tags AS remaining
+			WHERE remaining.story_id = removed.story_id
+			  AND remaining.tag_id = removed.tag_id
+		  )
+	`, entryID, ruleID); err != nil {
+		return fmt.Errorf("retract derived Story tags: %w", err)
 	}
 	return nil
 }

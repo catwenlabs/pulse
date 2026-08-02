@@ -31,22 +31,26 @@ type acquisitionQueue interface {
 }
 
 type entryRepository interface {
-	List(context.Context, int) ([]entry.Entry, error)
-	Search(context.Context, entry.Query) ([]entry.Entry, error)
 	Get(context.Context, entry.ID) (entry.Entry, error)
-	Update(context.Context, entry.ID, entry.Patch) (entry.Entry, error)
-	MarkRead(context.Context, source.ID) (int64, error)
-	AddTag(context.Context, entry.ID, string) (entry.Tag, error)
-	RemoveTag(context.Context, entry.ID, string) error
+	Delete(context.Context, entry.ID, bool) error
+}
+
+type sourceEntryRepository interface {
+	SearchSourceEntries(context.Context, entry.Query) ([]story.SourceEntry, error)
+	SearchSourceEntryPage(context.Context, entry.Query) (story.SourceEntryPage, error)
 }
 
 type storyRepository interface {
 	Search(context.Context, story.Query) ([]story.Story, error)
+	SearchPage(context.Context, story.Query) (story.Page, error)
 	Get(context.Context, story.ID) (story.Story, error)
 	Update(context.Context, story.ID, story.Patch) (story.Story, error)
+	SetRepresentative(context.Context, story.ID, entry.ID) (story.Story, error)
 	MarkRead(context.Context, string) (int64, error)
-	MergeManual(context.Context, story.ID, story.ID) error
-	Split(context.Context, story.ID, entry.ID) (story.ID, error)
+	MergeManual(context.Context, story.ID, story.ID, story.MergeOptions) error
+	Split(context.Context, story.ID, entry.ID, story.SplitOptions) (story.ID, error)
+	AddTag(context.Context, story.ID, string) (entry.Tag, error)
+	RemoveTag(context.Context, story.ID, string) error
 }
 
 // storyReclusterer runs an on-demand Story aggregation pass. It is optional: when
@@ -95,7 +99,7 @@ type backend struct {
 	organization organizationRepository
 	rules        ruleRepository
 	stories      storyRepository
-	reclusterer   storyReclusterer
+	reclusterer  storyReclusterer
 }
 
 func NewBackend(
@@ -117,7 +121,7 @@ func NewBackend(
 		previewer:    previewer,
 		organization: organizationStore,
 		stories:      storyStore,
-		reclusterer:   reclusterer,
+		reclusterer:  reclusterer,
 	}
 	if len(ruleStores) > 0 {
 		service.rules = ruleStores[0]
@@ -127,6 +131,10 @@ func NewBackend(
 
 func (service *backend) ListStories(ctx context.Context, query story.Query) ([]story.Story, error) {
 	return service.stories.Search(ctx, query)
+}
+
+func (service *backend) ListStoryPage(ctx context.Context, query story.Query) (story.Page, error) {
+	return service.stories.SearchPage(ctx, query)
 }
 
 func (service *backend) GetStory(ctx context.Context, id story.ID) (story.Story, error) {
@@ -141,6 +149,10 @@ func (service *backend) UpdateStory(
 	return service.stories.Update(ctx, id, patch)
 }
 
+func (service *backend) SetStoryRepresentative(ctx context.Context, storyID story.ID, entryID entry.ID) (story.Story, error) {
+	return service.stories.SetRepresentative(ctx, storyID, entryID)
+}
+
 func (service *backend) MarkStoriesRead(ctx context.Context, sourceID string) (int64, error) {
 	return service.stories.MarkRead(ctx, sourceID)
 }
@@ -149,8 +161,9 @@ func (service *backend) MergeStories(
 	ctx context.Context,
 	from story.ID,
 	into story.ID,
+	options story.MergeOptions,
 ) (story.Story, error) {
-	if err := service.stories.MergeManual(ctx, from, into); err != nil {
+	if err := service.stories.MergeManual(ctx, from, into, options); err != nil {
 		return story.Story{}, err
 	}
 	return service.stories.Get(ctx, into)
@@ -160,8 +173,9 @@ func (service *backend) SplitStory(
 	ctx context.Context,
 	storyID story.ID,
 	entryID entry.ID,
+	options story.SplitOptions,
 ) (story.Story, error) {
-	newID, err := service.stories.Split(ctx, storyID, entryID)
+	newID, err := service.stories.Split(ctx, storyID, entryID, options)
 	if err != nil {
 		return story.Story{}, err
 	}
@@ -333,30 +347,44 @@ func (service *backend) Enqueue(
 	return service.acquisitions.Enqueue(ctx, request)
 }
 
-func (service *backend) ListEntries(ctx context.Context, limit int) ([]entry.Entry, error) {
-	return service.entries.List(ctx, limit)
+func (service *backend) ListSourceEntries(
+	ctx context.Context,
+	sourceID source.ID,
+	query entry.Query,
+) ([]story.SourceEntry, error) {
+	query.SourceID = sourceID
+	repository, ok := service.entries.(sourceEntryRepository)
+	if !ok {
+		return nil, fmt.Errorf("source Entry browsing is unavailable")
+	}
+	return repository.SearchSourceEntries(ctx, query)
 }
 
-func (service *backend) SearchEntries(ctx context.Context, query entry.Query) ([]entry.Entry, error) {
-	return service.entries.Search(ctx, query)
+func (service *backend) ListSourceEntryPage(
+	ctx context.Context,
+	sourceID source.ID,
+	query entry.Query,
+) (story.SourceEntryPage, error) {
+	query.SourceID = sourceID
+	repository, ok := service.entries.(sourceEntryRepository)
+	if !ok {
+		return story.SourceEntryPage{}, fmt.Errorf("source Entry browsing is unavailable")
+	}
+	return repository.SearchSourceEntryPage(ctx, query)
 }
 
 func (service *backend) GetEntry(ctx context.Context, id entry.ID) (entry.Entry, error) {
 	return service.entries.Get(ctx, id)
 }
 
-func (service *backend) UpdateEntry(ctx context.Context, id entry.ID, patch entry.Patch) (entry.Entry, error) {
-	return service.entries.Update(ctx, id, patch)
+func (service *backend) DeleteEntry(ctx context.Context, id entry.ID, confirmed bool) error {
+	return service.entries.Delete(ctx, id, confirmed)
 }
 
-func (service *backend) MarkEntriesRead(ctx context.Context, sourceID source.ID) (int64, error) {
-	return service.entries.MarkRead(ctx, sourceID)
+func (service *backend) AddStoryTag(ctx context.Context, id story.ID, name string) (entry.Tag, error) {
+	return service.stories.AddTag(ctx, id, name)
 }
 
-func (service *backend) AddEntryTag(ctx context.Context, id entry.ID, name string) (entry.Tag, error) {
-	return service.entries.AddTag(ctx, id, name)
-}
-
-func (service *backend) RemoveEntryTag(ctx context.Context, id entry.ID, tagID string) error {
-	return service.entries.RemoveTag(ctx, id, tagID)
+func (service *backend) RemoveStoryTag(ctx context.Context, id story.ID, tagID string) error {
+	return service.stories.RemoveTag(ctx, id, tagID)
 }

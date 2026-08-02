@@ -15,14 +15,16 @@ func TestProcessorMergesExactContentStory(t *testing.T) {
 	now := time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC)
 	repository := &fakeRepository{
 		pending: []Candidate{{
-			StoryID:  "new-story",
-			Entry:    entry.Entry{ID: "new-entry", SourceTitle: "OpenAI 发布模型", DiscoveredAt: now},
-			Features: BuildFeatures("OpenAI 发布模型", "相同的新闻正文"),
+			StoryID:    "new-story",
+			Entry:      entry.Entry{ID: "new-entry", SourceTitle: "OpenAI 发布模型", DiscoveredAt: now},
+			Features:   BuildFeatures("OpenAI 发布模型", "相同的新闻正文"),
+			EntryCount: 1,
 		}},
 		candidates: []Candidate{{
-			StoryID:  "existing-story",
-			Entry:    entry.Entry{ID: "existing-entry", SourceTitle: "OpenAI正式发布模型", DiscoveredAt: now},
-			Features: BuildFeatures("OpenAI正式发布模型", "相同的新闻正文"),
+			StoryID:    "existing-story",
+			Entry:      entry.Entry{ID: "existing-entry", SourceTitle: "OpenAI正式发布模型", DiscoveredAt: now},
+			Features:   BuildFeatures("OpenAI正式发布模型", "相同的新闻正文"),
+			EntryCount: 1,
 		}},
 	}
 	processor := NewProcessor(repository, nil)
@@ -37,6 +39,35 @@ func TestProcessorMergesExactContentStory(t *testing.T) {
 	}
 	if repository.match.Method != MatchContentHash {
 		t.Errorf("match = %+v", repository.match)
+	}
+}
+
+func TestProcessorDoesNotAutomaticallyMergeEstablishedStory(t *testing.T) {
+	now := time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC)
+	repository := &fakeRepository{
+		pending: []Candidate{{
+			StoryID:    "established-story",
+			Entry:      entry.Entry{ID: "representative-entry", SourceTitle: "OpenAI 发布模型", DiscoveredAt: now},
+			Features:   BuildFeatures("OpenAI 发布模型", "相同的新闻正文"),
+			EntryCount: 2,
+		}},
+		candidates: []Candidate{{
+			StoryID:    "other-story",
+			Entry:      entry.Entry{ID: "other-entry", SourceTitle: "OpenAI正式发布模型", DiscoveredAt: now},
+			Features:   BuildFeatures("OpenAI正式发布模型", "相同的新闻正文"),
+			EntryCount: 2,
+		}},
+	}
+	processor := NewProcessor(repository, nil)
+
+	if _, err := processor.RunOnce(context.Background(), 10); err != nil {
+		t.Fatalf("RunOnce() error = %v", err)
+	}
+	if repository.mergedInto != "" {
+		t.Fatalf("mergedInto = %q, want no automatic merge", repository.mergedInto)
+	}
+	if repository.marked != "established-story" {
+		t.Fatalf("marked = %q, want established-story", repository.marked)
 	}
 }
 

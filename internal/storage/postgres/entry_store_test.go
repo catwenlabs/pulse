@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/ingestion"
 	"github.com/catwenlabs/pulse/internal/source"
+	"github.com/catwenlabs/pulse/internal/story"
 )
 
 func TestEntryStoreCommitBatchIsAtomicAndUpdatesExistingEntry(t *testing.T) {
@@ -124,6 +126,53 @@ func TestEntryStoreCommitsAnnotationDetailWithEntry(t *testing.T) {
 	}
 }
 
+func TestEntryStoreFinalDeletionRequiresConfirmationAndWritesTombstone(t *testing.T) {
+	pool := testPool(t)
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	entryStore := NewEntryStore(pool)
+	storyStore := NewStoryStore(pool)
+	ctx := context.Background()
+	src := createTestSource(t, sourceStore, "final-entry-delete")
+	acquisition := claimTestAcquisition(t, acquisitionStore, src.ID, "final-entry-delete")
+	if err := entryStore.CommitBatch(ctx, acquisition, "worker", []ingestion.Candidate{{
+		ExternalID: "final", Title: "Final Entry", ContentHTML: "<p>body</p>",
+	}}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("CommitBatch() error = %v", err)
+	}
+	items, err := storyStore.Search(ctx, story.Query{Limit: 10})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("Search() = %+v, %v", items, err)
+	}
+	displayTitle, note := "A Story title", "A Story note"
+	if _, err := storyStore.Update(ctx, items[0].ID, story.Patch{DisplayTitle: &displayTitle, Note: &note}); err != nil {
+		t.Fatalf("set Story metadata: %v", err)
+	}
+	entryID := items[0].Representative.ID
+	err = entryStore.Delete(ctx, entryID, false)
+	var confirmation *entry.DeletionConfirmationError
+	if !errors.As(err, &confirmation) || confirmation.StoryID != string(items[0].ID) ||
+		confirmation.DisplayTitle != displayTitle || confirmation.Note != note {
+		t.Fatalf("Delete() error = %v, confirmation = %+v", err, confirmation)
+	}
+	if err := entryStore.Delete(ctx, entryID, true); err != nil {
+		t.Fatalf("confirmed Delete() error = %v", err)
+	}
+	var entries, stories, tombstones int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM entries").Scan(&entries); err != nil {
+		t.Fatalf("count entries: %v", err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM stories").Scan(&stories); err != nil {
+		t.Fatalf("count stories: %v", err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM entry_tombstones WHERE source_id = $1", src.ID).Scan(&tombstones); err != nil {
+		t.Fatalf("count tombstones: %v", err)
+	}
+	if entries != 0 || stories != 0 || tombstones != 1 {
+		t.Fatalf("after deletion entries=%d stories=%d tombstones=%d", entries, stories, tombstones)
+	}
+}
+
 func TestEntryStoreRollbackDoesNotWriteEntryOrCheckpoint(t *testing.T) {
 	pool := testPool(t)
 	sourceStore := NewSourceStore(pool)
@@ -158,6 +207,7 @@ func TestEntryStoreSearchStatePatchAndTags(t *testing.T) {
 	sourceStore := NewSourceStore(pool)
 	acquisitionStore := NewAcquisitionStore(pool)
 	store := NewEntryStore(pool)
+	storyStore := NewStoryStore(pool)
 	ctx := context.Background()
 	src := createTestSource(t, sourceStore, "reader-source")
 	acquisition := claimTestAcquisition(t, acquisitionStore, src.ID, "reader")
@@ -190,7 +240,11 @@ func TestEntryStoreSearchStatePatchAndTags(t *testing.T) {
 	displayTitle := "My Go note"
 	note := "Read again"
 	yes := true
-	updated, err := store.Update(ctx, id, entry.Patch{
+	var storyID story.ID
+	if err := pool.QueryRow(ctx, "SELECT story_id FROM story_entries WHERE entry_id = $1", id).Scan(&storyID); err != nil {
+		t.Fatalf("find owning Story: %v", err)
+	}
+	updated, err := storyStore.Update(ctx, storyID, story.Patch{
 		Read: &yes, Starred: &yes, Later: &yes, DisplayTitle: &displayTitle, Note: &note,
 	})
 	if err != nil {
@@ -200,19 +254,19 @@ func TestEntryStoreSearchStatePatchAndTags(t *testing.T) {
 		updated.DisplayTitle != displayTitle || updated.Note != note {
 		t.Errorf("updated = %+v", updated)
 	}
-	starred, err := store.Search(ctx, entry.Query{Limit: 10, State: "starred"})
+	starred, err := storyStore.Search(ctx, story.Query{Limit: 10, State: "starred"})
 	if err != nil || len(starred) != 1 {
 		t.Fatalf("starred Search() = %+v, %v", starred, err)
 	}
-	tag, err := store.AddTag(ctx, id, " Go ")
+	tag, err := storyStore.AddTag(ctx, storyID, " Go ")
 	if err != nil || tag.Name != "Go" {
 		t.Fatalf("AddTag() = %+v, %v", tag, err)
 	}
-	tagged, err := store.Search(ctx, entry.Query{Limit: 10, Tag: "go"})
+	tagged, err := storyStore.Search(ctx, story.Query{Limit: 10, Tag: "go"})
 	if err != nil || len(tagged) != 1 {
 		t.Fatalf("tag Search() = %+v, %v", tagged, err)
 	}
-	if err := store.RemoveTag(ctx, id, tag.ID); err != nil {
+	if err := storyStore.RemoveTag(ctx, storyID, tag.ID); err != nil {
 		t.Fatalf("RemoveTag() error = %v", err)
 	}
 }
@@ -222,6 +276,7 @@ func TestEntryStoreMarkReadCanBeScopedToSource(t *testing.T) {
 	sourceStore := NewSourceStore(pool)
 	acquisitionStore := NewAcquisitionStore(pool)
 	store := NewEntryStore(pool)
+	storyStore := NewStoryStore(pool)
 	ctx := context.Background()
 	first := createTestSource(t, sourceStore, "mark-read-first")
 	second := createTestSource(t, sourceStore, "mark-read-second")
@@ -241,62 +296,21 @@ func TestEntryStoreMarkReadCanBeScopedToSource(t *testing.T) {
 		}
 	}
 
-	updated, err := store.MarkRead(ctx, first.ID)
+	updated, err := storyStore.MarkRead(ctx, string(first.ID))
 	if err != nil || updated != 1 {
 		t.Fatalf("MarkRead() = %d, %v", updated, err)
 	}
-	firstUnread, err := store.Search(ctx, entry.Query{
-		Limit: 10, State: "unread", SourceID: first.ID,
+	firstUnread, err := storyStore.Search(ctx, story.Query{
+		Limit: 10, State: "unread", SourceID: string(first.ID),
 	})
 	if err != nil || len(firstUnread) != 0 {
 		t.Fatalf("first unread = %+v, %v", firstUnread, err)
 	}
-	secondUnread, err := store.Search(ctx, entry.Query{
-		Limit: 10, State: "unread", SourceID: second.ID,
+	secondUnread, err := storyStore.Search(ctx, story.Query{
+		Limit: 10, State: "unread", SourceID: string(second.ID),
 	})
 	if err != nil || len(secondUnread) != 1 {
 		t.Fatalf("second unread = %+v, %v", secondUnread, err)
-	}
-}
-
-func TestEntryStoreSearchSurfacesUnreadBeforeRead(t *testing.T) {
-	pool := testPool(t)
-	sourceStore := NewSourceStore(pool)
-	acquisitionStore := NewAcquisitionStore(pool)
-	store := NewEntryStore(pool)
-	ctx := context.Background()
-
-	src := createTestSource(t, sourceStore, "entry-order")
-	acquisition := claimTestAcquisition(t, acquisitionStore, src.ID, "entry-order")
-	if err := store.CommitBatch(ctx, acquisition, "worker", []ingestion.Candidate{
-		{ExternalID: "alpha", Title: "Alpha", ContentHTML: "<p>alpha body</p>"},
-		{ExternalID: "beta", Title: "Beta", ContentHTML: "<p>beta body</p>"},
-	}, json.RawMessage(`{}`)); err != nil {
-		t.Fatalf("CommitBatch() error = %v", err)
-	}
-
-	initial, err := store.Search(ctx, entry.Query{Limit: 10, SourceID: src.ID})
-	if err != nil {
-		t.Fatalf("Search() error = %v", err)
-	}
-	if len(initial) != 2 {
-		t.Fatalf("expected 2 entries, got %d: %+v", len(initial), initial)
-	}
-	first, second := initial[0], initial[1]
-
-	yes := true
-	if _, err := store.Update(ctx, first.ID, entry.Patch{Read: &yes}); err != nil {
-		t.Fatalf("mark read Update() error = %v", err)
-	}
-
-	results, err := store.Search(ctx, entry.Query{Limit: 10, SourceID: src.ID})
-	if err != nil {
-		t.Fatalf("Search() after mark-read error = %v", err)
-	}
-	// The entry that naturally sorts first was marked read; the unread entry
-	// must now sort ahead of it.
-	if results[0].ID != second.ID {
-		t.Errorf("first entry ID = %v, want %v (unread before read)", results[0].ID, second.ID)
 	}
 }
 
