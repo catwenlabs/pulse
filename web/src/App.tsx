@@ -119,6 +119,18 @@ function reorderItems<T extends { id: string }>(items: T[], ids: string[]) {
   })
 }
 
+function NavigationDropIndicator({ active }: { active: boolean }) {
+  if (!active) return null
+  return (
+    <div
+      role="separator"
+      aria-label="放置于此"
+      aria-orientation="horizontal"
+      className="pointer-events-none mx-1 my-1 h-0 border-t-2 border-primary shadow-[0_0_0_1px_hsl(var(--primary)/.12)]"
+    />
+  )
+}
+
 function UnreadBadge({ count, className }: { count: number; className?: string }) {
   if (!count) return null
   return (
@@ -179,6 +191,7 @@ function AppContent() {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const [showBookmarklet, setShowBookmarklet] = useState(false)
   const [saveRequest, setSaveRequest] = useState<SaveRequest | null>(() => readSaveRequest())
+  const [navigationDropTarget, setNavigationDropTarget] = useState<NavigationDragItem | null>(null)
   const isMobile = useMediaQuery('(max-width: 767px)')
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
   const mobileDrawerCloseRef = useRef<HTMLButtonElement>(null)
@@ -199,6 +212,7 @@ function AppContent() {
 
   function beginNavigationDrag(item: NavigationDragItem, event: DragEvent<HTMLElement>) {
     navigationDragItemRef.current = item
+    setNavigationDropTarget(null)
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move'
       event.dataTransfer.setData('text/plain', item.id)
@@ -208,7 +222,12 @@ function AppContent() {
   function allowNavigationDrop(item: NavigationDragItem, event: DragEvent<HTMLElement>) {
     const dragged = navigationDragItemRef.current
     if (!dragged || !sameNavigationScope(dragged, item)) return
+    if (dragged.id === item.id) {
+      setNavigationDropTarget(null)
+      return
+    }
     event.preventDefault()
+    setNavigationDropTarget(item)
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
   }
 
@@ -216,6 +235,7 @@ function AppContent() {
     event.preventDefault()
     const dragged = navigationDragItemRef.current
     navigationDragItemRef.current = null
+    setNavigationDropTarget(null)
     if (!dragged || !sameNavigationScope(dragged, item) || dragged.id === item.id) return
 
     try {
@@ -275,6 +295,13 @@ function AppContent() {
 
   function endNavigationDrag() {
     navigationDragItemRef.current = null
+    setNavigationDropTarget(null)
+  }
+
+  function isNavigationDropTarget(item: NavigationDragItem) {
+    return navigationDropTarget !== null
+      && sameNavigationScope(navigationDropTarget, item)
+      && navigationDropTarget.id === item.id
   }
 
   useEffect(() => {
@@ -584,6 +611,7 @@ function AppContent() {
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {folders.map((folder) => (
               <div key={folder.id}>
+                <NavigationDropIndicator active={isNavigationDropTarget({ scope: 'folders', id: folder.id })} />
                 <Button
                   unstyled
                   draggable
@@ -612,22 +640,24 @@ function AppContent() {
                       const source = sources.find((candidate) => candidate.id === sourceID)
                       if (!source) return null
                       return (
-                        <Button
-                          unstyled
-                          draggable
-                          className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full cursor-grab py-1 text-sm active:cursor-grabbing max-md:min-h-11')}
-                          key={`${folder.id}-${source.id}`}
-                          title={source.name}
-                          onDragStart={(event) => beginNavigationDrag({ scope: 'folder-sources', folderID: folder.id, id: source.id }, event)}
-                          onDragOver={(event) => allowNavigationDrop({ scope: 'folder-sources', folderID: folder.id, id: source.id }, event)}
-                          onDrop={(event) => void handleNavigationDrop({ scope: 'folder-sources', folderID: folder.id, id: source.id }, event)}
-                          onDragEnd={endNavigationDrag}
-                          onClick={() => showStream('inbox', source.id)}
-                        >
-                          <span className={cn('size-2 shrink-0 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
-                          <span className="min-w-0 flex-1 truncate text-left">{source.name}</span>
-                          <UnreadBadge count={source.unread_count} />
-                        </Button>
+                        <div key={`${folder.id}-${source.id}`}>
+                          <NavigationDropIndicator active={isNavigationDropTarget({ scope: 'folder-sources', folderID: folder.id, id: source.id })} />
+                          <Button
+                            unstyled
+                            draggable
+                            className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full cursor-grab py-1 text-sm active:cursor-grabbing max-md:min-h-11')}
+                            title={source.name}
+                            onDragStart={(event) => beginNavigationDrag({ scope: 'folder-sources', folderID: folder.id, id: source.id }, event)}
+                            onDragOver={(event) => allowNavigationDrop({ scope: 'folder-sources', folderID: folder.id, id: source.id }, event)}
+                            onDrop={(event) => void handleNavigationDrop({ scope: 'folder-sources', folderID: folder.id, id: source.id }, event)}
+                            onDragEnd={endNavigationDrag}
+                            onClick={() => showStream('inbox', source.id)}
+                          >
+                            <span className={cn('size-2 shrink-0 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
+                            <span className="min-w-0 flex-1 truncate text-left">{source.name}</span>
+                            <UnreadBadge count={source.unread_count} />
+                          </Button>
+                        </div>
                       )
                     })}
                   </div>
@@ -635,21 +665,24 @@ function AppContent() {
               </div>
             ))}
             {rootSources.map((source) => (
-              <Button unstyled
-                draggable
-                className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full cursor-grab py-1 text-sm active:cursor-grabbing max-md:min-h-11')}
-                key={source.id}
-                title={source.name}
-                onDragStart={(event) => beginNavigationDrag({ scope: 'root-sources', id: source.id }, event)}
-                onDragOver={(event) => allowNavigationDrop({ scope: 'root-sources', id: source.id }, event)}
-                onDrop={(event) => void handleNavigationDrop({ scope: 'root-sources', id: source.id }, event)}
-                onDragEnd={endNavigationDrag}
-                onClick={() => showStream('inbox', source.id)}
-              >
-                <span className={cn('size-2 shrink-0 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
-                <span className="min-w-0 flex-1 truncate text-left">{source.name}</span>
-                <UnreadBadge count={source.unread_count} />
-              </Button>
+              <div key={source.id}>
+                <NavigationDropIndicator active={isNavigationDropTarget({ scope: 'root-sources', id: source.id })} />
+                <Button
+                  unstyled
+                  draggable
+                  className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full cursor-grab py-1 text-sm active:cursor-grabbing max-md:min-h-11')}
+                  title={source.name}
+                  onDragStart={(event) => beginNavigationDrag({ scope: 'root-sources', id: source.id }, event)}
+                  onDragOver={(event) => allowNavigationDrop({ scope: 'root-sources', id: source.id }, event)}
+                  onDrop={(event) => void handleNavigationDrop({ scope: 'root-sources', id: source.id }, event)}
+                  onDragEnd={endNavigationDrag}
+                  onClick={() => showStream('inbox', source.id)}
+                >
+                  <span className={cn('size-2 shrink-0 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
+                  <span className="min-w-0 flex-1 truncate text-left">{source.name}</span>
+                  <UnreadBadge count={source.unread_count} />
+                </Button>
+              </div>
             ))}
           </div>
         </section>

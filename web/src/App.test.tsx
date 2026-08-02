@@ -387,7 +387,9 @@ describe('App', () => {
     const dragBefore = (dragged: HTMLElement, target: HTMLElement) => {
       fireEvent.dragStart(dragged, { dataTransfer })
       fireEvent.dragOver(target, { dataTransfer })
+      expect(screen.getByRole('separator', { name: '放置于此' })).toBeVisible()
       fireEvent.drop(target, { dataTransfer })
+      expect(screen.queryByRole('separator', { name: '放置于此' })).not.toBeInTheDocument()
     }
 
     dragBefore(
