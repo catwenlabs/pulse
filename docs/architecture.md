@@ -201,14 +201,18 @@ type Candidate struct {
 4. `source_id + content_fingerprint`
 
 跨 Source 的近似去重由 Story 模块完成。每个 Entry 必须且只能属于一个 Story；
-未匹配内容形成单 Entry Story。Story 只聚合展示和阅读状态，不合并或删除底层 Entry，
-避免把转载、修订或不同媒体版本误判为同一记录。
+未匹配内容形成单 Entry Story。Story 是 Reader 的聚合根，拥有阅读状态、用户显示标题、Note 和标签；Story 不合并或删除底层 Entry，
+避免把转载、修订或不同媒体版本误判为同一记录。聚合列表展示 Story，按 Source 浏览展示 Entry，
+但 Entry 行显式携带所属真实 Story 的身份与阅读状态。
 
 Story 聚合使用传统文本特征与 embedding 候选集合的并集。URL、正文哈希、标题、
 SimHash 和时间提供确定性及可解释信号，embedding 负责发现大幅改写和跨语言候选；
-日期、数字、型号和事件方向冲突可以否决自动聚合。
+日期、数字、型号和事件方向冲突可以否决自动聚合。自动聚类只允许把待处理的单 Entry Story 吸收到已有 Story，
+不会合并两个已经形成的多 Entry Story；后者只能通过带冲突处理的人工合并完成。Story 的成员数量、
+Source 数量和首末发布时间从成员关系实时计算，不在 Story 行缓存。Story 使用创建时固定的排序时间，
+后续加入新 Entry 不会让已读 Story 静默回到列表顶部。合并删除的 Story ID 记录为指向存活 Story 的扁平别名。
 
-相同身份的 Candidate 更新原 Entry，不保留正文历史版本。来源标题和正文与用户的显示标题、笔记分别保存，来源更新不得覆盖用户内容。来源中暂时缺失的 Entry 不删除；明确删除事件只设置 `source_deleted`。
+相同身份的 Candidate 更新原 Entry，不保留正文历史版本。来源标题和正文保存在 Entry；用户的显示标题和 Note 保存在 Story，来源更新不得覆盖用户内容。来源中暂时缺失的 Entry 不删除；明确删除事件只设置 `source_deleted`。
 
 用户删除 Entry 时进入回收站，并留下 `source_id + identity_key` Tombstone，防止来源再次返回时复活。删除 Source 默认停止摄取并归档 Source，历史 Entry 保留；批量删除内容必须显式选择。
 
@@ -277,8 +281,9 @@ diagnostic_snapshots
 
 - `sources(driver_kind, normalized_locator)` 唯一。
 - `entries(source_id, identity_key)` 唯一。
-- `story_entries(entry_id)` 唯一；每个 Entry 只能属于一个 Story。
-- `entry_annotations(entry_id)` 唯一，Annotation 与 Entry 同一事务提交；来源批注不得覆盖 Entry 上由用户维护的 Note。
+- `story_entries(entry_id)` 唯一，并由可延迟约束在事务提交时保证每个 Entry 恰属一个 Story；每个 Story 非空，代表 Entry 非空且必须属于该 Story。
+- `story_aliases(alias_id)` 唯一并直接指向规范 Story，合并时压平别名链。
+- `entry_annotations(entry_id)` 唯一，Annotation 与 Entry 同一事务提交；来源 Annotation 不得覆盖 Story 上由用户维护的 Note。
 - `rule_executions(rule_id, rule_version, entry_id)` 唯一。
 - `effects(idempotency_key)` 唯一。
 - Source 配置与 Checkpoint 分开保存，修改显示名称不会重置摄取进度。
@@ -286,7 +291,7 @@ diagnostic_snapshots
 
 搜索第一阶段留在 PostgreSQL：英文使用 `tsvector`，中文使用规范化文本和 `pg_trgm` 进行关键词与模糊匹配。搜索模块拥有独立接口，未来可以接入 Meilisearch 或 OpenSearch Adapter。
 
-规则使用结构化条件和动作，不执行 JavaScript、Python 或 Shell。Entry 更新后重新求值；规则生成的标签等派生状态在不再匹配时撤销，用户手动状态不撤销。通知和 Webhook Effect 对同一规则、版本和 Entry 默认只成功执行一次。
+规则使用结构化条件和动作，不执行 JavaScript、Python 或 Shell。Entry 更新后重新求值；Reader 状态和标签动作应用到命中 Entry 所属的 Story，Entry 仍保留规则命中来源与 Effect 幂等身份。规则生成的标签等派生状态在没有任何有效规则命中时撤销，用户手动状态不撤销。通知和 Webhook Effect 仍按规则、版本和 Entry 执行，不在 Story 级去重。
 
 新建或修改规则默认只影响后续新增或更新的 Entry。历史回放必须显式选择，执行前预览匹配数量和样本，且默认禁用通知和 Webhook。
 
@@ -402,7 +407,7 @@ File Source 只能读取显式挂载的只读 `/data/imports`，导出写入独�
 
 ## 16. Reader Model
 
-所有新 Entry 默认进入统一收件箱并保持未读。Folder 只组织 Source；标签和 View 组织 Entry。一个 Source 可以属于多个一级 Folder，一个 Entry 可以出现在多个 View。
+每个新 Entry 在写入事务中先获得一个单 Entry Story；Story 默认进入统一收件箱并保持未读。Folder 只组织 Source，标签组织 Story。聚合 Reader 列表以 Story 为行，按 Source 浏览以 Entry 为行但复用所属 Story 的阅读状态。View 的 Story 查询迁移与用户界面暂缓到后续工作。一个 Source 可以属于多个一级 Folder。
 
 RSS 仅含摘要时，每个 Source 可选择仅使用来源内容、自动提取全文或按需提取，默认仅使用来源内容。全文提取失败不得阻塞 Entry 入库。
 

@@ -25,15 +25,15 @@ Driver 取得但尚未完成统一化和去重的内容。
 _Avoid_: Raw Entry、Article
 
 **Entry**:
-完成统一化并进入阅读库的内容记录，是搜索、规则和阅读操作的共同对象。
+完成统一化的单个 Source 内容记录，是来源归属、规则匹配和 Story 聚合的基础对象；Entry 保留各来源的独立内容和出处，并作为按 Source 浏览时的列表对象。
 _Avoid_: Item、Post、Article
 
 **Story**:
-一个用于阅读和检索的新闻事件聚合，由一条或多条不同 Source 的 Entry 组成；每个 Entry 必须且只能属于一个 Story，单独出现的 Entry 组成单 Entry Story。
+由一条或多条 Entry 组成的阅读对象，是 Reader 中组织、统计和阅读状态操作的最小单元；聚合阅读列表展示 Story，按 Source 浏览展示该 Source 的 Entry，但 Entry 的阅读状态由所属 Story 决定；包括按 Source 筛选的未读数量在内，所有 Reader 统计均按 Story 去重；聚合搜索检查所有成员 Entry 并将命中的 Story 只返回一次。用户维护的显示标题、Note 和标签属于 Story，来源标题和内容仍属于各 Entry。后加入已有 Story 的 Entry 继承该 Story 的阅读状态，不会使已读 Story 重新变为未读；两个 Story 合并时保留任一侧已经发生的阅读状态操作。每个 Entry 必须且只能属于一个 Story，单独出现的 Entry 组成单 Entry Story。
 _Avoid_: Duplicate Entry、Merged Entry、Topic
 
 **Annotation**:
-用户在外部阅读器中产生的一条阅读批注，由高亮原文、个人批注、书籍身份和阅读位置组成；摄取后成为一个 Entry，来源批注与用户在 Pulse 中追加的 Note 分开保存。
+用户在外部阅读器中产生的一条阅读批注，由高亮原文、个人批注、书籍身份和阅读位置组成；摄取后成为一个 Entry，来源批注与用户在 Pulse 中为 Story 追加的 Note 分开保存。
 _Avoid_: Highlight Entry、Book Note
 
 **Checkpoint**:
@@ -49,11 +49,11 @@ Entry 被用户删除后保留的最小身份记录，用于阻止来源再次�
 _Avoid_: Deleted Entry、Archive
 
 **Rule**:
-Entry 进入阅读库时执行的条件与动作定义。
+Entry 进入阅读库时求值的条件与动作定义；阅读状态、用户标签等 Reader 动作作用于命中 Entry 所属的 Story，Entry 级动作必须具有独立且明确的语义。
 _Avoid_: Filter、Automation
 
 **View**:
-针对阅读库的持久化查询，只选择内容而不修改内容。
+可命名并重复使用的持久化 Reader 查询，只选择阅读对象而不修改对象。
 _Avoid_: Smart Folder、Rule
 
 **Folder**:

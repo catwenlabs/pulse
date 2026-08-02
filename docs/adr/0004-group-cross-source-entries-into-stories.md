@@ -22,7 +22,7 @@ Introduce Story as a read and discovery projection over Entries:
 - an unmatched Entry starts in a single-Entry Story;
 - aggregation moves Entry membership but never merges or deletes Entry content;
 - the main inbox lists Stories, while Source-specific browsing continues to list Entries;
-- Story reader state is synchronized to all member Entries.
+- Story is the sole owner of reader state; Source-specific Entry rows project state from their owning Story (as amended by ADR 0005).
 
 New Entries receive their single-Entry Story in the same transaction as the Entry. Similarity
 aggregation runs after that transaction and never delays Checkpoint movement.
