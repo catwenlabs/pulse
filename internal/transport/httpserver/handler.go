@@ -46,6 +46,9 @@ type Backend interface {
 	DeleteFolder(context.Context, string) error
 	AddSourceToFolder(context.Context, string, source.ID) error
 	RemoveSourceFromFolder(context.Context, string, source.ID) error
+	ReorderRootSources(context.Context, []source.ID) error
+	ReorderFolders(context.Context, []string) error
+	ReorderFolderSources(context.Context, string, []source.ID) error
 	CreateView(context.Context, organization.View) (organization.View, error)
 	UpdateView(context.Context, organization.View) (organization.View, error)
 	ListViews(context.Context) ([]organization.View, error)
@@ -110,6 +113,7 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("POST /api/v1/sources", createSource(backend))
 	mux.HandleFunc("POST /api/v1/sources/preview", previewSource(backend))
 	mux.HandleFunc("GET /api/v1/sources", listSources(backend))
+	mux.HandleFunc("PUT /api/v1/sources/order", reorderRootSources(backend))
 	mux.HandleFunc("GET /api/v1/sources/{id}", getSource(backend))
 	mux.HandleFunc("PATCH /api/v1/sources/{id}", updateSource(backend))
 	mux.HandleFunc("DELETE /api/v1/sources/{id}", archiveSource(backend))
@@ -137,7 +141,9 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("GET /api/v1/opml/export", exportOPML(backend))
 	mux.HandleFunc("GET /api/v1/folders", listFolders(backend))
 	mux.HandleFunc("POST /api/v1/folders", createFolder(backend))
+	mux.HandleFunc("PUT /api/v1/folders/order", reorderFolders(backend))
 	mux.HandleFunc("DELETE /api/v1/folders/{id}", deleteFolder(backend))
+	mux.HandleFunc("PUT /api/v1/folders/{id}/sources/order", reorderFolderSources(backend))
 	mux.HandleFunc("PUT /api/v1/folders/{id}/sources/{sourceID}", addSourceToFolder(backend))
 	mux.HandleFunc("DELETE /api/v1/folders/{id}/sources/{sourceID}", removeSourceFromFolder(backend))
 	mux.HandleFunc("GET /api/v1/views", listViews(backend))
@@ -653,6 +659,57 @@ func addSourceToFolder(backend Backend) http.HandlerFunc {
 func removeSourceFromFolder(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
 		if err := backend.RemoveSourceFromFolder(request.Context(), request.PathValue("id"), source.ID(request.PathValue("sourceID"))); err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func reorderRootSources(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			SourceIDs []source.ID `json:"source_ids"`
+		}
+		if err := decodeJSONBody(w, request, &body); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		if err := backend.ReorderRootSources(request.Context(), body.SourceIDs); err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func reorderFolders(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			FolderIDs []string `json:"folder_ids"`
+		}
+		if err := decodeJSONBody(w, request, &body); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		if err := backend.ReorderFolders(request.Context(), body.FolderIDs); err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func reorderFolderSources(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			SourceIDs []source.ID `json:"source_ids"`
+		}
+		if err := decodeJSONBody(w, request, &body); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		if err := backend.ReorderFolderSources(request.Context(), request.PathValue("id"), body.SourceIDs); err != nil {
 			writeDomainError(w, err)
 			return
 		}
@@ -1203,9 +1260,12 @@ func deleteEntry(backend Backend) http.HandlerFunc {
 
 func writeDomainError(w http.ResponseWriter, err error) {
 	var validationErr *source.ValidationError
+	var orderValidationErr *organization.OrderValidationError
 	switch {
 	case errors.As(err, &validationErr):
 		writeProblem(w, http.StatusUnprocessableEntity, "validation_error", validationErr.Message, validationErr.Field)
+	case errors.As(err, &orderValidationErr):
+		writeProblem(w, http.StatusUnprocessableEntity, "validation_error", orderValidationErr.Message, orderValidationErr.Field)
 	case errors.Is(err, source.ErrDuplicate):
 		writeProblem(w, http.StatusConflict, "source_exists", err.Error(), "")
 	case errors.Is(err, source.ErrNotFound):

@@ -58,9 +58,13 @@ func (store *SourceStore) Create(ctx context.Context, spec source.Spec) (source.
 
 	row := store.pool.QueryRow(ctx, `
 		INSERT INTO sources (
-			name, driver_kind, locator, normalized_locator, config, secret_ref
+			name, driver_kind, locator, normalized_locator, config, secret_ref,
+			navigation_position
 		)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		VALUES (
+			$1, $2, $3, $4, $5, $6,
+			(SELECT COALESCE(MAX(navigation_position) + 1, 0) FROM sources)
+		)
 		RETURNING
 		`+sourceColumns+`
 	`,
@@ -107,7 +111,7 @@ func (store *SourceStore) List(ctx context.Context) ([]source.Source, error) {
 		`+sourceColumns+`
 		FROM sources
 		WHERE archived_at IS NULL
-		ORDER BY name, id
+		ORDER BY navigation_position, lower(name), id
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("list sources: %w", err)

@@ -6,6 +6,7 @@ Pulse 是单用户的信息摄取与阅读中枢。它从不同类型的信息�
 
 **Source**:
 一项持久化的信息来源配置，描述内容来自哪里以及应使用哪种 Driver。
+未归入 Folder 的 Source 在 root 导航中保持独立的用户展示顺序。
 _Avoid_: Feed、Subscription、Channel
 
 **Driver**:
@@ -57,7 +58,7 @@ _Avoid_: Filter、Automation
 _Avoid_: Smart Folder、Rule
 
 **Folder**:
-用于组织 Source 的一级集合；一个 Source 可以属于多个 Folder。
+用于组织 Source 的一级集合；Folder 列表和每个 Folder 内的 Source 都有独立的用户展示顺序，一个 Source 可以属于多个 Folder 且在不同 Folder 中可以有不同位置。
 _Avoid_: Category、View
 
 **Effect**:

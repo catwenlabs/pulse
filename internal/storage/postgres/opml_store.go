@@ -68,9 +68,13 @@ func (store *OPMLStore) Import(
 		var sourceID source.ID
 		err = tx.QueryRow(ctx, `
 			INSERT INTO sources (
-				name, driver_kind, locator, normalized_locator, config
+				name, driver_kind, locator, normalized_locator, config,
+				navigation_position
 			)
-			VALUES ($1, $2, $3, $4, $5)
+			VALUES (
+				$1, $2, $3, $4, $5,
+				(SELECT COALESCE(MAX(navigation_position) + 1, 0) FROM sources)
+			)
 			ON CONFLICT (driver_kind, normalized_locator) DO NOTHING
 			RETURNING id
 		`,
@@ -105,8 +109,10 @@ func (store *OPMLStore) Import(
 				result.CreatedFolders++
 			}
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO source_folders (source_id, folder_id)
-				VALUES ($1, $2)
+				INSERT INTO source_folders (source_id, folder_id, navigation_position)
+				SELECT $1, $2, COALESCE(MAX(navigation_position) + 1, 0)
+				FROM source_folders
+				WHERE folder_id = $2
 				ON CONFLICT DO NOTHING
 			`, sourceID, folderID); err != nil {
 				return opml.ImportResult{}, fmt.Errorf("link OPML source to folder: %w", err)
@@ -171,8 +177,11 @@ func upsertFolder(
 	name string,
 ) (id string, created bool, err error) {
 	err = tx.QueryRow(ctx, `
-		INSERT INTO folders (name)
-		VALUES ($1)
+		INSERT INTO folders (name, navigation_position)
+		VALUES (
+			$1,
+			(SELECT COALESCE(MAX(navigation_position) + 1, 0) FROM folders)
+		)
 		ON CONFLICT (lower(name)) DO NOTHING
 		RETURNING id
 	`, name).Scan(&id)

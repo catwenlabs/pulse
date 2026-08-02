@@ -288,6 +288,7 @@ diagnostic_snapshots
 重要约束：
 
 - `sources(driver_kind, normalized_locator)` 唯一。
+- `sources.navigation_position` 保存 Source 的 root 导航位置；`folders.navigation_position` 保存 Folder 列表位置；`source_folders.navigation_position` 保存每个 Folder 内独立的 Source 位置。root 展示只包含没有任何 Folder membership 的 Source。
 - `entries(source_id, identity_key)` 唯一。
 - `story_entries(entry_id)` 唯一，并由可延迟约束在事务提交时保证每个 Entry 恰属一个 Story；每个 Story 非空，代表 Entry 非空且必须属于该 Story。
 - `story_aliases(alias_id)` 唯一并直接指向规范 Story，合并时压平别名链。

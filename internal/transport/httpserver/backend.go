@@ -74,6 +74,9 @@ type organizationRepository interface {
 	DeleteFolder(context.Context, string) error
 	AddSourceToFolder(context.Context, string, source.ID) error
 	RemoveSourceFromFolder(context.Context, string, source.ID) error
+	ReorderRootSources(context.Context, []source.ID) error
+	ReorderFolders(context.Context, []string) error
+	ReorderFolderSources(context.Context, string, []source.ID) error
 	CreateView(context.Context, organization.View) (organization.View, error)
 	UpdateView(context.Context, organization.View) (organization.View, error)
 	ListViews(context.Context) ([]organization.View, error)
@@ -329,6 +332,27 @@ func (service *backend) RemoveSourceFromFolder(ctx context.Context, folderID str
 	err := service.organization.RemoveSourceFromFolder(ctx, folderID, sourceID)
 	if err == nil {
 		service.publishLibraryChange(string(sourceID))
+	}
+	return err
+}
+func (service *backend) ReorderRootSources(ctx context.Context, ids []source.ID) error {
+	err := service.organization.ReorderRootSources(ctx, ids)
+	if err == nil {
+		service.publishLibraryChange("")
+	}
+	return err
+}
+func (service *backend) ReorderFolders(ctx context.Context, ids []string) error {
+	err := service.organization.ReorderFolders(ctx, ids)
+	if err == nil {
+		service.publishLibraryChange("")
+	}
+	return err
+}
+func (service *backend) ReorderFolderSources(ctx context.Context, folderID string, ids []source.ID) error {
+	err := service.organization.ReorderFolderSources(ctx, folderID, ids)
+	if err == nil {
+		service.publishLibraryChange("")
 	}
 	return err
 }
