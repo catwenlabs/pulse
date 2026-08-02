@@ -2,6 +2,10 @@
 
 > 返回 [README](../README.md)。
 
+## 阅读器地址
+
+Web 界面使用 TanStack Router 的文件优先路由。`/` 和 `/inbox` 打开全部文章，`/sources/{sourceID}` 打开指定 Source，`/starred` 打开收藏，`/later` 打开稍后阅读，`/annotations` 打开阅读笔记，`/sources` 打开信息源管理。可以直接收藏这些地址；Bookmarklet 的 `#save?...` 保存入口仍然可用。
+
 ## 首次使用
 
 根据目标选择其中一条路径。

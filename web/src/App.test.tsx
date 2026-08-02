@@ -1,7 +1,19 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render as renderTestingLibrary, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router'
 
-import { App } from './App'
+import { routeTree } from './routeTree.gen'
+
+function renderApp() {
+  const initialEntry = `${window.location.pathname}${window.location.search}${window.location.hash}`
+  const router = createRouter({
+    routeTree,
+    history: createMemoryHistory({ initialEntries: [initialEntry] }),
+    defaultPreload: 'intent',
+    scrollRestoration: false,
+  })
+  return renderTestingLibrary(<RouterProvider router={router} />)
+}
 
 const source = {
   id: 'source-1',
@@ -95,6 +107,7 @@ describe('App', () => {
     window.history.replaceState(null, '', '/')
     scrollIntoView.mockClear()
     scrollTo.mockClear()
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
     Object.defineProperty(Element.prototype, 'scrollIntoView', {
       configurable: true,
       value: scrollIntoView,
@@ -343,10 +356,32 @@ describe('App', () => {
     delete (Element.prototype as { scrollTo?: unknown }).scrollTo
   })
 
-  it('shows folders, subscriptions, and an expandable article stream', async () => {
-    render(<App />)
+  it('shows the Source sync indicator during the initial Source load', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    let releaseSources: (() => void) | undefined
+    const pendingSources = new Promise<Response>((resolve) => {
+      releaseSources = () => resolve(new Response(JSON.stringify([source]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+    })
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/api/v1/sources') && !init?.method) return pendingSources
+      return defaultFetch(input, init)
+    })
 
-    expect(screen.getByText('正在同步信息源…')).toBeInTheDocument()
+    renderApp()
+    expect(await screen.findByText('正在同步信息源…')).toBeInTheDocument()
+
+    releaseSources?.()
+    await pendingSources
+    expect(await screen.findByRole('button', { name: 'Example Feed' })).toBeInTheDocument()
+  })
+
+  it('shows folders, subscriptions, and an expandable article stream', async () => {
+    renderApp()
+
     expect(await screen.findByRole('heading', { name: '全部文章' })).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: 'Example Feed' })).toHaveAttribute('title', 'Example Feed')
     const folder = screen.getByRole('button', { name: 'Tech，1 个订阅源' })
@@ -374,7 +409,7 @@ describe('App', () => {
       { id: 'folder-1', name: 'Tech', source_count: 2, source_ids: ['source-1', 'source-2'] },
       { id: 'folder-2', name: 'Reading', source_count: 1, source_ids: ['source-1'] },
     ]
-    render(<App />)
+    renderApp()
     await screen.findByRole('button', { name: 'Tech，2 个订阅源' })
     expect(screen.getAllByTitle('Folder One')).toHaveLength(2)
     const healthRequestCount = () => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith('/health')).length
@@ -430,11 +465,11 @@ describe('App', () => {
   })
 
   it('organizes a source into existing and newly created folders', async () => {
-    render(<App />)
+    renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })
 
     fireEvent.click(screen.getByRole('button', { name: '管理信息源' }))
-    fireEvent.click(screen.getByRole('button', { name: '整理 Example Feed 到文件夹' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理 Example Feed 到文件夹' }))
 
     const tech = screen.getByRole('checkbox', { name: /Tech/ })
     expect(tech).toBeChecked()
@@ -459,7 +494,7 @@ describe('App', () => {
   })
 
   it('debounces article search and highlights visible matches', async () => {
-    render(<App />)
+    renderApp()
     await screen.findByText('Reader article')
 
     fireEvent.change(screen.getByLabelText('搜索文章'), { target: { value: 'Reader' } })
@@ -472,7 +507,7 @@ describe('App', () => {
   })
 
   it('creates an RSS source from the dialog', async () => {
-    render(<App />)
+    renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })
 
     fireEvent.click(screen.getByRole('button', { name: '添加信息源' }))
@@ -495,7 +530,7 @@ describe('App', () => {
   })
 
   it('keeps a newly assigned source in its folder when folder refresh fails', async () => {
-    render(<App />)
+    renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })
     const baseFetch = vi.mocked(fetch).getMockImplementation()!
     vi.mocked(fetch).mockImplementation(async (input, init) => {
@@ -521,7 +556,7 @@ describe('App', () => {
   })
 
   it('previews a JSON API mapping with cursor pagination', async () => {
-    render(<App />)
+    renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })
 
     fireEvent.click(screen.getByRole('button', { name: '添加信息源' }))
@@ -551,7 +586,7 @@ describe('App', () => {
   })
 
   it('previews a static HTML collection mapping', async () => {
-    render(<App />)
+    renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })
 
     fireEvent.click(screen.getByRole('button', { name: '添加信息源' }))
@@ -581,11 +616,11 @@ describe('App', () => {
   })
 
   it('triggers a manual refresh', async () => {
-    render(<App />)
+    renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })
     fireEvent.click(screen.getByRole('button', { name: '管理信息源' }))
 
-    fireEvent.click(screen.getByRole('button', { name: '刷新 Example Feed' }))
+    fireEvent.click(await screen.findByRole('button', { name: '刷新 Example Feed' }))
 
     await waitFor(() => {
       expect(screen.getByText('抓取任务已进入队列')).toBeInTheDocument()
@@ -593,11 +628,11 @@ describe('App', () => {
   })
 
   it('pauses an enabled source', async () => {
-    render(<App />)
+    renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })
     fireEvent.click(screen.getByRole('button', { name: '管理信息源' }))
 
-    fireEvent.click(screen.getByRole('button', { name: '暂停 Example Feed' }))
+    fireEvent.click(await screen.findByRole('button', { name: '暂停 Example Feed' }))
 
     expect(await screen.findByText('已暂停 Example Feed')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '恢复 Example Feed' })).toBeInTheDocument()
@@ -605,11 +640,11 @@ describe('App', () => {
   })
 
   it('edits a source name and locator', async () => {
-    render(<App />)
+    renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })
     fireEvent.click(screen.getByRole('button', { name: '管理信息源' }))
 
-    fireEvent.click(screen.getByRole('button', { name: '编辑 Example Feed' }))
+    fireEvent.click(await screen.findByRole('button', { name: '编辑 Example Feed' }))
     const dialog = screen.getByRole('dialog', { name: '编辑信息源' })
     fireEvent.change(within(dialog).getByLabelText('名称'), { target: { value: 'Renamed Feed' } })
     fireEvent.change(within(dialog).getByLabelText('Feed 地址'), { target: { value: 'https://example.com/new.xml' } })
@@ -624,11 +659,11 @@ describe('App', () => {
   })
 
   it('confirms and archives a source while preserving its entries', async () => {
-    render(<App />)
+    renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })
     fireEvent.click(screen.getByRole('button', { name: '管理信息源' }))
 
-    fireEvent.click(screen.getByRole('button', { name: '删除 Example Feed' }))
+    fireEvent.click(await screen.findByRole('button', { name: '删除 Example Feed' }))
     expect(screen.getByRole('dialog', { name: '删除信息源？' })).toBeInTheDocument()
     expect(screen.getByText('已经抓取的文章、收藏和笔记都会保留。')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '取消删除' }))
@@ -645,7 +680,7 @@ describe('App', () => {
   })
 
   it('scrolls the reading area to the top and marks an unread entry as read when expanded', async () => {
-    render(<App />)
+    renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })
 
     expect(await screen.findByText('Reader article')).toBeInTheDocument()
@@ -703,6 +738,186 @@ describe('App', () => {
     })
   })
 
+  it('resets the article stream to the top when switching Sources', async () => {
+    const secondSource = { ...source, id: 'source-2', name: 'Second Feed' }
+    sourceState = [source, secondSource]
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/v1/sources/source-2/entries')) {
+        return new Response(JSON.stringify({
+          entries: [{
+            entry: {
+              id: 'entry-2',
+              source_id: 'source-2',
+              identity_key: 'external:entry-2',
+              source_title: 'Second article',
+              content_html: '<p>Second article body</p>',
+              discovered_at: '2026-07-24T00:00:00Z',
+            },
+            story: { id: 'story-2' },
+          }],
+          total_entries: 1,
+          reader_counts: {
+            inbox_stories: 1,
+            unread_stories: 1,
+            starred_stories: 0,
+            later_stories: 0,
+            hidden_stories: 0,
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return defaultFetch(input, init)
+    })
+
+    renderApp()
+    fireEvent.click(await screen.findByRole('button', { name: 'Example Feed' }))
+    await screen.findByRole('heading', { name: 'Example Feed' })
+    scrollTo.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Second Feed' }))
+    expect(await screen.findByText('Second article')).toBeInTheDocument()
+
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 0 }))
+    expect(scrollTo.mock.contexts.at(-1)).toHaveAttribute('aria-label', '文章列表')
+  })
+
+  it('keeps unread Source Entries ahead of read Entries across cached pages', async () => {
+    const secondSource = { ...source, id: 'source-2', name: 'Second Feed' }
+    sourceState = [source, secondSource]
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    const makeEntry = (id: string, title: string, readAt?: string, sourceID = 'source-1') => ({
+      entry: {
+        id,
+        source_id: sourceID,
+        identity_key: `external:${id}`,
+        source_title: title,
+        content_html: `<p>${title} body</p>`,
+        discovered_at: '2026-07-25T00:00:00Z',
+      },
+      story: { id: `story-${id}`, read_at: readAt },
+    })
+    const page = (entries: ReturnType<typeof makeEntry>[], nextCursor?: string) => ({
+      entries,
+      total_entries: 4,
+      reader_counts: {
+        inbox_stories: 4,
+        unread_stories: 2,
+        starred_stories: 0,
+        later_stories: 0,
+        hidden_stories: 0,
+      },
+      ...(nextCursor ? { next_cursor: nextCursor } : {}),
+    })
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/v1/sources/source-1/entries')) {
+        return new Response(JSON.stringify(url.includes('cursor=')
+          ? page([
+              makeEntry('entry-read-2', 'Read second', '2026-07-25T02:00:00Z'),
+              makeEntry('entry-unread-2', 'Unread second'),
+            ])
+          : page([
+              makeEntry('entry-read-1', 'Read first', '2026-07-25T01:00:00Z'),
+              makeEntry('entry-unread-1', 'Unread first'),
+            ], 'cursor-1')),
+        { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (url.includes('/api/v1/sources/source-2/entries')) {
+        return new Response(JSON.stringify(page([
+          makeEntry('entry-other', 'Other Source article', undefined, 'source-2'),
+        ])), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return defaultFetch(input, init)
+    })
+
+    const rowTitles = () => [...document.querySelectorAll<HTMLElement>('[data-entry-row] strong')]
+      .map((element) => element.textContent)
+
+    renderApp()
+    fireEvent.click(await screen.findByRole('button', { name: 'Example Feed' }))
+    await screen.findByText('Unread first')
+    expect(rowTitles()).toEqual(['Unread first', 'Read first'])
+
+    fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
+    await screen.findByText('Unread second')
+    expect(rowTitles()).toEqual(['Unread first', 'Unread second', 'Read first', 'Read second'])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Second Feed' }))
+    await screen.findByText('Other Source article')
+    fireEvent.click(screen.getByRole('button', { name: 'Example Feed' }))
+    await screen.findByText('Unread first')
+    expect(rowTitles()).toEqual(['Unread first', 'Unread second', 'Read first', 'Read second'])
+  })
+
+  it('orders initial reader data without moving the article while reading', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    const makeStory = (id: string, title: string, readAt?: string) => {
+      const entry = {
+        id: `entry-${id}`,
+        source_id: 'source-1',
+        identity_key: `external:${id}`,
+        source_title: title,
+        content_html: `<p>${title} body</p>`,
+        discovered_at: '2026-07-25T00:00:00Z',
+      }
+      return {
+        id: `story-${id}`,
+        display_title: title,
+        note: '',
+        read_at: readAt,
+        representative: entry,
+        entry_count: 1,
+        source_count: 1,
+      }
+    }
+    const initialStories = [
+      makeStory('read', 'Read first', '2026-07-25T03:00:00Z'),
+      makeStory('unread-first', 'Unread first'),
+      makeStory('unread-second', 'Unread second'),
+    ]
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/v1/stories?') && !init?.method) {
+        return new Response(JSON.stringify({
+          stories: initialStories,
+          total_stories: initialStories.length,
+          reader_counts: {
+            inbox_stories: 3,
+            unread_stories: 2,
+            starred_stories: 0,
+            later_stories: 0,
+            hidden_stories: 0,
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (url.includes('/api/v1/stories/') && init?.method === 'PATCH') {
+        const storyID = url.split('/').at(-1)!
+        const story = initialStories.find((item) => item.id === storyID)!
+        return new Response(JSON.stringify({
+          ...story,
+          read_at: '2026-07-25T04:00:00Z',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return defaultFetch(input, init)
+    })
+
+    const rowTitles = () => [...document.querySelectorAll<HTMLElement>('[data-entry-row] strong')]
+      .map((element) => element.textContent)
+
+    renderApp()
+    await screen.findByText('Unread first')
+    expect(rowTitles()).toEqual(['Unread first', 'Unread second', 'Read first'])
+
+    fireEvent.click(screen.getByText('Unread first'))
+    expect(screen.getByText('Unread first body')).toBeInTheDocument()
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url, init]) =>
+      String(url).endsWith('/api/v1/stories/story-unread-first') && init?.method === 'PATCH')).toBe(true))
+
+    expect(rowTitles()).toEqual(['Unread first', 'Unread second', 'Read first'])
+    expect(screen.getByText('Unread first body')).toBeInTheDocument()
+  })
+
   it('splits a member entry out of a story and merges the story into another', async () => {
     const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
       status,
@@ -755,7 +970,7 @@ describe('App', () => {
       return json([])
     }))
 
-    render(<App />)
+    renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })
     await screen.findByText('First story')
 
@@ -827,7 +1042,7 @@ describe('App', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    render(<App />)
+    renderApp()
     await screen.findByText('Reader article')
     fireEvent.click(screen.getByText('Reader article'))
     fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }), { button: 0 })
@@ -845,7 +1060,7 @@ describe('App', () => {
   })
 
   it('collapses the expanded entry when Escape is pressed', async () => {
-    render(<App />)
+    renderApp()
     await screen.findByText('Reader article')
 
     fireEvent.click(screen.getByText('Reader article'))
@@ -861,7 +1076,7 @@ describe('App', () => {
   })
 
   it('closes the expanded entry with the visible close button', async () => {
-    render(<App />)
+    renderApp()
     await screen.findByText('Reader article')
 
     fireEvent.click(screen.getByText('Reader article'))
@@ -875,7 +1090,7 @@ describe('App', () => {
   })
 
   it('filters the stream when a subscription is selected', async () => {
-    render(<App />)
+    renderApp()
 
     fireEvent.click(await screen.findByRole('button', { name: 'Example Feed' }))
 
@@ -895,7 +1110,7 @@ describe('App', () => {
       removeEventListener: vi.fn(),
     })))
 
-    render(<App />)
+    renderApp()
     await screen.findByText('Reader article')
 
     const menuButton = screen.getByRole('button', { name: '打开导航' })
@@ -924,12 +1139,12 @@ describe('App', () => {
     fireEvent.click(menuButton)
     fireEvent.click(screen.getByRole('button', { name: 'Example Feed' }))
     expect(document.getElementById('mobile-navigation')).toBeNull()
-    await waitFor(() => expect(menuButton).toHaveFocus())
+    await waitFor(() => expect(screen.getByRole('button', { name: '打开导航' })).toHaveFocus())
     expect(await screen.findByRole('heading', { name: 'Example Feed' })).toBeInTheDocument()
   })
 
   it('shows an installable bookmarklet from the navigation', async () => {
-    render(<App />)
+    renderApp()
     await screen.findByText('Reader article')
 
     const installButton = screen.getByRole('button', { name: '安装保存书签' })
@@ -971,7 +1186,7 @@ describe('App', () => {
       removeEventListener: vi.fn(),
     })))
 
-    render(<App />)
+    renderApp()
     await screen.findByText('Reader article')
 
     const menuButton = screen.getByRole('button', { name: '打开导航' })
@@ -994,7 +1209,7 @@ describe('App', () => {
       removeEventListener: vi.fn(),
     })))
 
-    render(<App />)
+    renderApp()
     await screen.findByText('Reader article')
     const menuButton = screen.getByRole('button', { name: '打开导航' })
     fireEvent.click(menuButton)
@@ -1010,10 +1225,10 @@ describe('App', () => {
     fireEvent.keyDown(more, { key: 'ArrowDown' })
     fireEvent.click(await screen.findByRole('menuitem', { name: '收藏' }))
     expect(document.getElementById('mobile-navigation')).toBeNull()
-    await waitFor(() => expect(menuButton).toHaveFocus())
+    await waitFor(() => expect(screen.getByRole('button', { name: '打开导航' })).toHaveFocus())
     expect(await screen.findByRole('heading', { name: '收藏' })).toBeInTheDocument()
-    fireEvent.click(menuButton)
-    fireEvent.pointerDown(screen.getByRole('button', { name: '更多导航' }), { button: 0 })
+    fireEvent.click(await screen.findByRole('button', { name: '打开导航' }))
+    fireEvent.pointerDown(await screen.findByRole('button', { name: '更多导航' }), { button: 0 })
     expect(screen.getByRole('menuitem', { name: '收藏' })).toHaveAttribute('aria-current', 'page')
   })
 
@@ -1081,7 +1296,7 @@ describe('App', () => {
       return defaultFetch(input, init)
     })
 
-    render(<App />)
+    renderApp()
     await screen.findByText('Reader article')
     fireEvent.click(screen.getByRole('link', { name: '阅读笔记' }))
 
@@ -1129,7 +1344,7 @@ describe('App', () => {
     })
     window.history.replaceState(null, '', '/#save?url=https%3A%2F%2Fexample.com%2Fstory&title=Saved%20Story')
 
-    render(<App />)
+    renderApp()
 
     expect(await screen.findByRole('heading', { name: '保存到 Pulse' })).toBeInTheDocument()
     await waitFor(() => expect(window.location.hash).toBe(''))
@@ -1154,7 +1369,7 @@ describe('App', () => {
   it('explicitly creates a Manual Source before saving when none exists', async () => {
     window.history.replaceState(null, '', '/#save?url=https%3A%2F%2Fexample.com%2Fnew&title=New')
 
-    render(<App />)
+    renderApp()
     await screen.findByRole('heading', { name: '保存到 Pulse' })
     fireEvent.click(screen.getByRole('button', { name: '创建“网页收藏”并保存' }))
 
@@ -1196,7 +1411,7 @@ describe('App', () => {
     })
     window.history.replaceState(null, '', '/#save?url=https%3A%2F%2Fexample.com%2Fpaused&title=Paused')
 
-    render(<App />)
+    renderApp()
     await screen.findByRole('heading', { name: '保存到 Pulse' })
     expect(screen.getByLabelText('保存到')).toHaveValue('manual-paused')
     fireEvent.click(screen.getByRole('button', { name: '保存网页' }))
@@ -1215,7 +1430,7 @@ describe('App', () => {
 
   it('refreshes the save form when a reused popup receives another page', async () => {
     window.history.replaceState(null, '', '/#save?url=https%3A%2F%2Fexample.com%2Ffirst&title=First')
-    render(<App />)
+    renderApp()
     await screen.findByRole('heading', { name: '保存到 Pulse' })
 
     window.location.hash = '#save?url=https%3A%2F%2Fexample.com%2Fsecond&title=Second'
@@ -1230,7 +1445,7 @@ describe('App', () => {
   it('rejects unsafe bookmarklet URLs before submitting', async () => {
     window.history.replaceState(null, '', '/#save?url=javascript%3Aalert(1)&title=Unsafe')
 
-    render(<App />)
+    renderApp()
     await screen.findByRole('heading', { name: '保存到 Pulse' })
     fireEvent.click(screen.getByRole('button', { name: '创建“网页收藏”并保存' }))
 
@@ -1239,7 +1454,7 @@ describe('App', () => {
   })
 
   it('marks all entries or only the selected source as read from the reader toolbar', async () => {
-    render(<App />)
+    renderApp()
     await screen.findByText('Reader article')
 
     fireEvent.click(screen.getByRole('button', { name: '将全部文章标记为已读' }))
@@ -1261,6 +1476,78 @@ describe('App', () => {
     })
   })
 
+  it('dismisses a successful batch-read notice without clearing a later error', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      let markReadAttempts = 0
+      const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+      vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url.endsWith('/api/v1/stories') && init?.method === 'PATCH') {
+          markReadAttempts += 1
+          if (markReadAttempts === 2) {
+            return new Response(JSON.stringify({ detail: '批量标记失败' }), {
+              status: 503,
+              headers: { 'Content-Type': 'application/json' },
+            })
+          }
+        }
+        return defaultFetch(input, init)
+      })
+
+      renderApp()
+      await screen.findByText('Reader article')
+
+      fireEvent.click(screen.getByRole('button', { name: '将全部文章标记为已读' }))
+      await screen.findByText('已将 1 篇文章标记为已读')
+      await vi.advanceTimersByTimeAsync(4_000)
+      expect(screen.queryByText('已将 1 篇文章标记为已读')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: '将全部文章标记为已读' }))
+      await screen.findByText('批量标记失败')
+      vi.advanceTimersByTime(4_000)
+
+      expect(screen.getByText('批量标记失败')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not let an earlier success timer clear a later reader error', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      let markReadAttempts = 0
+      const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+      vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url.endsWith('/api/v1/stories') && init?.method === 'PATCH') {
+          markReadAttempts += 1
+          if (markReadAttempts === 2) {
+            return new Response(JSON.stringify({ detail: '第二次批量标记失败' }), {
+              status: 503,
+              headers: { 'Content-Type': 'application/json' },
+            })
+          }
+        }
+        return defaultFetch(input, init)
+      })
+
+      renderApp()
+      await screen.findByText('Reader article')
+      fireEvent.click(screen.getByRole('button', { name: '将全部文章标记为已读' }))
+      await screen.findByText('已将 1 篇文章标记为已读')
+      await vi.advanceTimersByTimeAsync(1_000)
+
+      fireEvent.click(screen.getByRole('button', { name: '将全部文章标记为已读' }))
+      await screen.findByText('第二次批量标记失败')
+      await vi.advanceTimersByTimeAsync(3_000)
+
+      expect(screen.getByText('第二次批量标记失败')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('shows an empty state and reloads sources', async () => {
     let sourceLoads = 0
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
@@ -1278,7 +1565,7 @@ describe('App', () => {
       throw new Error(`unexpected request: ${url}`)
     })
 
-    render(<App />)
+    renderApp()
     fireEvent.click(await screen.findByRole('button', { name: '管理信息源' }))
     expect(await screen.findByText('还没有信息源')).toBeInTheDocument()
 
@@ -1310,7 +1597,7 @@ describe('App', () => {
       throw new Error(`unexpected request: ${url}`)
     })
 
-    render(<App />)
+    renderApp()
 
     expect(await screen.findByRole('button', { name: 'Example Feed' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Tech，1 个订阅源' })).not.toBeInTheDocument()
@@ -1340,9 +1627,9 @@ describe('App', () => {
       throw new Error(`unexpected request: ${url}`)
     })
 
-    render(<App />)
-    fireEvent.click(await screen.findByRole('button', { name: '管理信息源' }))
-    expect(await screen.findByText('数据库暂时不可用')).toBeInTheDocument()
+    window.history.replaceState(null, '', '/sources')
+    renderApp()
+    expect(await screen.findByText('暂时无法加载')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
     await screen.findByText('还没有信息源')
@@ -1373,8 +1660,8 @@ describe('App', () => {
       return defaultFetch(input, init)
     })
 
-    render(<App />)
-    const sidebar = document.querySelector('aside')!
+    renderApp()
+    const sidebar = await screen.findByRole('navigation', { name: '移动导航抽屉' })
     const feed = await within(sidebar).findByRole('button', { name: /Example Feed/ })
     expect(within(feed).getByText('7')).toBeInTheDocument()
     const quiet = within(sidebar).getByRole('button', { name: /Quiet Feed/ })
@@ -1394,8 +1681,8 @@ describe('App', () => {
       return defaultFetch(input, init)
     })
 
-    render(<App />)
-    const sidebar = document.querySelector('aside')!
+    renderApp()
+    const sidebar = await screen.findByRole('navigation', { name: '移动导航抽屉' })
     const allArticles = await within(sidebar).findByRole('link', { name: /全部文章/ })
     expect(within(allArticles).getByText('7')).toBeInTheDocument()
     await waitFor(() => expect(document.title).toBe('(7) Pulse'))
@@ -1416,7 +1703,7 @@ describe('App', () => {
     const sourcesGets = () => vi.mocked(fetch).mock.calls.filter(([url, init]) =>
       String(url).endsWith('/api/v1/sources') && !init?.method).length
 
-    render(<App />)
+    renderApp()
     await screen.findByText('Reader article')
     expect(sourcesGets()).toBe(1)
 
@@ -1426,6 +1713,39 @@ describe('App', () => {
         String(url).endsWith('/api/v1/stories/story-1') && init?.method === 'PATCH')).toBe(true)
     })
     await waitFor(() => expect(sourcesGets()).toBeGreaterThanOrEqual(2))
+  })
+
+  it('does not show the Source sync indicator during reader activity', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    let sourceReads = 0
+    let releaseRefresh: (() => void) | undefined
+    const pendingRefresh = new Promise<Response>((resolve) => {
+      releaseRefresh = () => resolve(new Response(JSON.stringify([source]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+    })
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/api/v1/sources') && !init?.method) {
+        sourceReads += 1
+        return sourceReads === 1
+          ? new Response(JSON.stringify([source]), { status: 200, headers: { 'Content-Type': 'application/json' } })
+          : pendingRefresh
+      }
+      return defaultFetch(input, init)
+    })
+
+    renderApp()
+    await screen.findByText('Reader article')
+    expect(screen.queryByText('正在同步信息源…')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Reader article'))
+    await waitFor(() => expect(sourceReads).toBe(2))
+    expect(screen.queryByText('正在同步信息源…')).not.toBeInTheDocument()
+
+    releaseRefresh?.()
+    await pendingRefresh
   })
 
   it('applies a visible library change without showing a prompt when the list is at the top', async () => {
@@ -1446,7 +1766,7 @@ describe('App', () => {
       return defaultFetch(input, init)
     })
 
-    render(<App />)
+    renderApp()
     expect(await screen.findByText('Existing article')).toBeInTheDocument()
     const eventSource = FakeEventSource.instances.at(-1)!
     eventSource.open()
@@ -1493,7 +1813,7 @@ describe('App', () => {
       return defaultFetch(input, init)
     })
 
-    render(<App />)
+    renderApp()
     fireEvent.click(await screen.findByRole('button', { name: 'Example Feed' }))
     expect(await screen.findByText('Existing article')).toBeInTheDocument()
     const eventSource = FakeEventSource.instances.at(-1)!
@@ -1523,7 +1843,7 @@ describe('App', () => {
       return defaultFetch(input, init)
     })
 
-    render(<App />)
+    renderApp()
     expect(await screen.findByText('Existing article')).toBeInTheDocument()
     const eventSource = FakeEventSource.instances.at(-1)!
     eventSource.open()
@@ -1557,7 +1877,7 @@ describe('App', () => {
       return defaultFetch(input, init)
     })
 
-    render(<App />)
+    renderApp()
     fireEvent.click(await screen.findByText('Existing article'))
     expect(screen.getByText('Existing article body')).toBeInTheDocument()
     const eventSource = FakeEventSource.instances.at(-1)!
