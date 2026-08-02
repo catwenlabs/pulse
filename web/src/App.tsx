@@ -1,5 +1,6 @@
-import { FormEvent, useEffect, useRef, useState, type DragEvent, type SetStateAction } from 'react'
+import { createContext, FormEvent, useCallback, useContext, useEffect, useRef, useState, type DragEvent, type ReactNode, type SetStateAction } from 'react'
 import { QueryClientProvider, useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query'
+import { Link, useNavigate } from '@tanstack/react-router'
 import {
   BookOpen,
   Bookmark,
@@ -34,7 +35,7 @@ import { useLibraryRealtime, type LibraryRealtimeSignal, type RealtimeConnection
 import { toast } from 'sonner'
 import './styles.css'
 
-type View = 'sources' | 'inbox' | 'starred' | 'later' | 'annotations'
+export type View = 'sources' | 'inbox' | 'starred' | 'later' | 'annotations'
 type SaveRequest = { url: string; title: string }
 type ReaderEntry = Entry & {
   display_title: string
@@ -56,6 +57,14 @@ type NavigationDragItem =
   | { scope: 'folder-sources'; folderID: string; id: string }
 const EMPTY_SOURCES: Source[] = []
 const EMPTY_FOLDERS: Folder[] = []
+type NavigationFocusContextValue = {
+  requestMobileMenuFocus: () => void
+  consumeMobileMenuFocus: () => boolean
+}
+const NavigationFocusContext = createContext<NavigationFocusContextValue>({
+  requestMobileMenuFocus: () => {},
+  consumeMobileMenuFocus: () => false,
+})
 
 function projectReaderEntry(item: Entry, owner: Pick<ReaderStory, 'display_title' | 'note' | 'read_at' | 'starred_at' | 'hidden_at' | 'later_at'>): ReaderEntry {
   return {
@@ -67,6 +76,13 @@ function projectReaderEntry(item: Entry, owner: Pick<ReaderStory, 'display_title
     hidden_at: owner.hidden_at,
     later_at: owner.later_at,
   }
+}
+
+function orderReaderEntries(items: ReaderEntry[]): ReaderEntry[] {
+  return [
+    ...items.filter((item) => !item.read_at),
+    ...items.filter((item) => Boolean(item.read_at)),
+  ]
 }
 
 function readerStoryFromStory(item: Story): ReaderStory {
@@ -144,21 +160,43 @@ function UnreadBadge({ count, className }: { count: number; className?: string }
   )
 }
 
-export function App() {
+export function AppProvider({ children }: { children: ReactNode }) {
   const [queryClient] = useState(createQueryClient)
+  const focusOnNextRoute = useRef(false)
+  const requestMobileMenuFocus = useCallback(() => {
+    focusOnNextRoute.current = true
+  }, [])
+  const consumeMobileMenuFocus = useCallback(() => {
+    const shouldFocus = focusOnNextRoute.current
+    focusOnNextRoute.current = false
+    return shouldFocus
+  }, [])
   return (
     <QueryClientProvider client={queryClient}>
-      <AppContent />
+      <NavigationFocusContext.Provider value={{ requestMobileMenuFocus, consumeMobileMenuFocus }}>
+        {children}
+      </NavigationFocusContext.Provider>
     </QueryClientProvider>
   )
 }
 
-function AppContent() {
+export function App() {
+  return (
+    <AppProvider>
+      <AppContent view="inbox" sourceID="" />
+    </AppProvider>
+  )
+}
+
+export function AppContent({ view, sourceID: selectedSourceID }: { view: View; sourceID: string }) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const { requestMobileMenuFocus, consumeMobileMenuFocus } = useContext(NavigationFocusContext)
   const { connectionState, signal } = useLibraryRealtime(queryClient)
   const sourcesQuery = useQuery({
     queryKey: queryKeys.sources,
     queryFn: api.listSources,
+    refetchOnMount: false,
   })
   const foldersQuery = useQuery({
     queryKey: queryKeys.folders,
@@ -178,7 +216,7 @@ function AppContent() {
     ))
   }
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set())
-  const loading = sourcesQuery.isPending || sourcesQuery.isFetching
+  const loading = sourcesQuery.isPending
   const loadError = sourcesQuery.error instanceof Error
     ? sourcesQuery.error.message
     : foldersQuery.error instanceof Error
@@ -189,8 +227,6 @@ function AppContent() {
   const [sourceToEdit, setSourceToEdit] = useState<Source | null>(null)
   const [sourceToOrganize, setSourceToOrganize] = useState<Source | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [activeView, setActiveView] = useState<View>('inbox')
-  const [selectedSourceID, setSelectedSourceID] = useState('')
   const [health, setHealth] = useState<Record<string, SourceHealth>>({})
   const [serviceConnected, setServiceConnected] = useState<boolean | null>(null)
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
@@ -317,6 +353,13 @@ function AppContent() {
   }, [folders])
 
   useEffect(() => {
+    if (!consumeMobileMenuFocus()) return
+    window.setTimeout(() => {
+      document.querySelector<HTMLButtonElement>('button[aria-label="打开导航"]')?.focus()
+    }, 0)
+  }, [consumeMobileMenuFocus, selectedSourceID, view])
+
+  useEffect(() => {
     let active = true
     const refreshHealth = async () => {
       const snapshots = await Promise.all(sources.map(async (item) => {
@@ -434,7 +477,7 @@ function AppContent() {
       setHealth((current) => Object.fromEntries(
         Object.entries(current).filter(([id]) => id !== source.id),
       ))
-      setSelectedSourceID((current) => current === source.id ? '' : current)
+      if (selectedSourceID === source.id) void navigate({ to: '/' })
       setFolders(await api.listFolders().catch(() => folders))
       setSourceToDelete(null)
       toast.success(`已删除 ${source.name}`, { duration: 3500 })
@@ -481,8 +524,11 @@ function AppContent() {
   }
 
   function showStream(view: Exclude<View, 'sources'>, sourceID = '') {
-    setActiveView(view)
-    setSelectedSourceID(sourceID)
+    if (view === 'starred') void navigate({ to: '/starred' })
+    else if (view === 'later') void navigate({ to: '/later' })
+    else if (view === 'annotations') void navigate({ to: '/annotations' })
+    else if (sourceID) void navigate({ to: '/sources/$sourceID', params: { sourceID } })
+    else void navigate({ to: '/' })
     closeMobileNavigation()
   }
 
@@ -490,10 +536,16 @@ function AppContent() {
     if (!mobileNavigationOpen) return
     setMobileNavigationOpen(false)
     if (restoreFocus) {
-      window.requestAnimationFrame(() => mobileMenuButtonRef.current?.focus())
+      if (isMobile) requestMobileMenuFocus()
+      window.setTimeout(() => {
+        const menuButton = mobileMenuButtonRef.current
+          ?? document.querySelector<HTMLButtonElement>('button[aria-label="打开导航"]')
+        menuButton?.focus()
+      }, 0)
     }
   }
 
+  const activeView = view
   const activeSourceName = sources.find((source) => source.id === selectedSourceID)?.name
   const assignedSourceIDs = new Set(folders.flatMap((folder) => folder.source_ids))
   const rootSources = sources.filter((source) => !assignedSourceIDs.has(source.id))
@@ -567,10 +619,10 @@ function AppContent() {
         inert={isMobile && !mobileNavigationOpen ? true : undefined}
       >
         <div className="flex items-center justify-between px-1.5 pb-1 md:col-start-1 md:row-start-1 md:flex-col md:gap-3 md:px-2 md:pb-2 md:pt-4 max-md:px-1">
-          <a className="flex min-h-11 items-center gap-2 font-serif text-xl font-semibold leading-none text-foreground no-underline md:min-h-0 md:gap-3 md:text-2xl" href="/" aria-label="Pulse 首页" onClick={() => showStream('inbox')}>
+          <Link className="flex min-h-11 items-center gap-2 font-serif text-xl font-semibold leading-none text-foreground no-underline md:min-h-0 md:gap-3 md:text-2xl" to="/" aria-label="Pulse 首页" onClick={() => closeMobileNavigation(false)}>
             <span className="grid size-8 shrink-0 place-items-center rounded-[9px_9px_9px_3px] bg-primary font-sans text-sm font-bold text-white md:size-10 md:rounded-[12px_12px_12px_4px] md:text-lg" aria-hidden="true">P</span>
             <span className="md:hidden">Pulse</span>
-          </a>
+          </Link>
           <div className="flex items-center gap-1.5">
             <Button unstyled className="group grid size-11 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-white md:size-10 md:bg-primary md:hover:bg-primary-hover" aria-label="添加信息源" onClick={() => {
               closeMobileNavigation(false)
@@ -602,14 +654,14 @@ function AppContent() {
             <span>{sources.length}</span>
           </div>
           <div className="mb-3 border-b border-border/70 pb-3">
-            <a
+            <Link
               className={navItemClass(activeView === 'inbox' && !selectedSourceID, 'min-h-10 max-md:min-h-11')}
-              href="#inbox"
-              onClick={() => showStream('inbox')}
+              to="/"
+              onClick={() => closeMobileNavigation()}
             >
               <NavIcon name="inbox" />全部文章
               <UnreadBadge count={totalUnread} className="ml-auto" />
-            </a>
+            </Link>
           </div>
           {loading && <p className="border-0 bg-transparent px-2 py-1 text-left text-xs text-muted-foreground">正在同步信息源…</p>}
           {!loading && loadError && <Button unstyled className="border-0 bg-transparent px-2 py-1 text-left text-xs text-destructive" onClick={() => void load()}>重试加载</Button>}
@@ -715,7 +767,7 @@ function AppContent() {
                   setShowBookmarklet(true)
                 }}><NavIcon name="bookmark" />安装保存书签</DropdownMenuItem>
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'sources' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'sources' ? 'page' : undefined} onSelect={() => {
-                  setActiveView('sources')
+                  void navigate({ to: '/sources' })
                   closeMobileNavigation()
                 }}><NavIcon name="source" />管理信息源</DropdownMenuItem>
                 <div className="mt-1 flex min-h-11 items-center gap-3 border-t px-3 pt-1 text-xs text-muted-foreground" role="status">
@@ -736,15 +788,15 @@ function AppContent() {
         ) : (
           <>
             <nav className="grid min-h-0 content-start gap-1 overflow-y-auto px-2 py-3 md:col-start-1 md:row-start-2" aria-label="主导航">
-              <a className={navItemClass(activeView === 'starred', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} href="#starred" onClick={() => showStream('starred')}><NavIcon name="star" />收藏</a>
-              <a className={navItemClass(activeView === 'later', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} href="#later" onClick={() => showStream('later')}><NavIcon name="clock" />稍后阅读</a>
-              <a className={navItemClass(activeView === 'annotations', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} href="#annotations" onClick={() => showStream('annotations')}><NavIcon name="book" />阅读笔记</a>
+              <Link className={navItemClass(activeView === 'starred', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/starred" onClick={() => closeMobileNavigation()}><NavIcon name="star" />收藏</Link>
+              <Link className={navItemClass(activeView === 'later', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/later" onClick={() => closeMobileNavigation()}><NavIcon name="clock" />稍后阅读</Link>
+              <Link className={navItemClass(activeView === 'annotations', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/annotations" onClick={() => closeMobileNavigation()}><NavIcon name="book" />阅读笔记</Link>
             </nav>
             <div className="m-0 grid gap-2 border-t border-[#d8d4ca] px-2 pb-4 pt-2 text-xs leading-5 text-muted-foreground md:col-start-1 md:row-start-3">
               <Button unstyled className={navItemClass(false, 'min-h-[54px] w-full flex-col justify-center gap-1 px-1 text-center text-[10px] leading-none')} ref={bookmarkletButtonRef} aria-label="安装保存书签" onClick={() => setShowBookmarklet(true)}>
                 <NavIcon name="bookmark" />书签
               </Button>
-              <Button unstyled className={navItemClass(activeView === 'sources', 'min-h-[54px] w-full flex-col justify-center gap-1 px-1 text-center text-[10px] leading-none')} aria-label="管理信息源" onClick={() => setActiveView('sources')}>
+              <Button unstyled className={navItemClass(activeView === 'sources', 'min-h-[54px] w-full flex-col justify-center gap-1 px-1 text-center text-[10px] leading-none')} aria-label="管理信息源" onClick={() => void navigate({ to: '/sources' })}>
                 <NavIcon name="source" />管理
               </Button>
               <span
@@ -1707,6 +1759,8 @@ function Reader({
   const [highlightedEntryIDs, setHighlightedEntryIDs] = useState<Set<string>>(() => new Set())
   const selectedEntryElement = useRef<HTMLElement | null>(null)
   const entryStreamElement = useRef<HTMLElement | null>(null)
+  const readerNoticeTimeout = useRef<number | undefined>(undefined)
+  const readerNoticeVersion = useRef(0)
   const readingAreaToScroll = useRef('')
   const knownStoryIDs = useRef<Set<string>>(new Set())
   const pendingStoryIDs = useRef<Set<string>>(new Set())
@@ -1755,6 +1809,35 @@ function Reader({
     enabled: Boolean(selectedStory && selectedStory.entry_count > 1 && !selectedStory.entries),
   })
 
+  function clearReaderNoticeTimer() {
+    if (readerNoticeTimeout.current !== undefined) {
+      window.clearTimeout(readerNoticeTimeout.current)
+      readerNoticeTimeout.current = undefined
+    }
+    readerNoticeVersion.current += 1
+  }
+
+  function clearReaderNotice() {
+    clearReaderNoticeTimer()
+    setReaderNotice('')
+  }
+
+  function showReaderNotice(message: string, duration?: number) {
+    clearReaderNoticeTimer()
+    setReaderNotice(message)
+    if (duration === undefined) return
+    const version = readerNoticeVersion.current
+    readerNoticeTimeout.current = window.setTimeout(() => {
+      if (readerNoticeVersion.current !== version) return
+      readerNoticeTimeout.current = undefined
+      setReaderNotice('')
+    }, duration)
+  }
+
+  useEffect(() => () => {
+    if (readerNoticeTimeout.current !== undefined) window.clearTimeout(readerNoticeTimeout.current)
+  }, [])
+
   function closeSelectedEntry() {
     const element = selectedEntryElement.current
     const trigger = element?.querySelector<HTMLElement>('button[aria-expanded]') ?? null
@@ -1787,7 +1870,11 @@ function Reader({
     knownStoryIDs.current = new Set()
     pendingStoryIDs.current = new Set()
     hasRenderedServerData.current = false
+    setEntries([])
+    setStoriesByEntry({})
     setSelected(null)
+    clearReaderNotice()
+    entryStreamElement.current?.scrollTo({ top: 0 })
   }, [debouncedSearch, sourceID, view])
 
   useEffect(() => {
@@ -1829,7 +1916,7 @@ function Reader({
     try {
       await readerQuery.fetchNextPage()
     } catch (cause) {
-      setReaderNotice(cause instanceof Error ? cause.message : '加载更多文章失败')
+      showReaderNotice(cause instanceof Error ? cause.message : '加载更多文章失败')
     }
   }
 
@@ -1891,7 +1978,7 @@ function Reader({
       await readerQuery.refetch()
       entryStreamElement.current?.scrollTo({ top: 0, behavior: 'smooth' })
     } catch {
-      setReaderNotice('加载新内容失败，请稍后重试')
+      showReaderNotice('加载新内容失败，请稍后重试')
     }
   }
 
@@ -1951,7 +2038,7 @@ function Reader({
         }
       })
     } catch (cause) {
-      setReaderNotice(cause instanceof Error ? cause.message : '拆分报道失败')
+      showReaderNotice(cause instanceof Error ? cause.message : '拆分报道失败')
     }
   }
 
@@ -1996,9 +2083,9 @@ function Reader({
         const owner = storiesByEntry[candidate.id]
         return owner?.id === updatedStory.id ? projectReaderEntry(candidate, updatedStory) : candidate
       }))
-      setReaderNotice('已更新默认来源')
+      showReaderNotice('已更新默认来源')
     } catch (cause) {
-      setReaderNotice(cause instanceof Error ? cause.message : '设置默认来源失败')
+      showReaderNotice(cause instanceof Error ? cause.message : '设置默认来源失败')
     }
   }
 
@@ -2026,7 +2113,7 @@ function Reader({
           return
         }
       }
-      setReaderNotice(cause instanceof Error ? cause.message : '合并 Story 失败')
+      showReaderNotice(cause instanceof Error ? cause.message : '合并 Story 失败')
     }
   }
 
@@ -2041,7 +2128,7 @@ function Reader({
       setEntries((current) => current.filter((candidate) => candidate.id !== selected.id))
       closeSelectedEntry()
     } catch (cause) {
-      setReaderNotice(cause instanceof Error ? cause.message : '合并 Story 失败')
+      showReaderNotice(cause instanceof Error ? cause.message : '合并 Story 失败')
     }
   }
 
@@ -2066,7 +2153,7 @@ function Reader({
         setDeleteRequest((current) => current ? { ...current, confirmation: cause.problem } : current)
         return
       }
-      setReaderNotice(cause instanceof Error ? cause.message : '删除来源内容失败')
+      showReaderNotice(cause instanceof Error ? cause.message : '删除来源内容失败')
     }
   }
 
@@ -2090,16 +2177,25 @@ function Reader({
 
   async function markAllRead() {
     setMarkingAllRead(true)
-    setReaderNotice('')
+    clearReaderNotice()
     try {
       const result = await api.markStoriesRead(sourceID || undefined)
       const readAt = new Date().toISOString()
       setEntries((current) => current.map((item) => item.read_at ? item : { ...item, read_at: readAt }))
+      setStoriesByEntry((current) => Object.fromEntries(
+        Object.entries(current).map(([entryID, story]) => [
+          entryID,
+          story.read_at ? story : { ...story, read_at: readAt },
+        ]),
+      ))
       setSelected((current) => current && !current.read_at ? { ...current, read_at: readAt } : current)
-      setReaderNotice(result.updated_count > 0 ? `已将 ${result.updated_count} 篇文章标记为已读` : '没有未读文章')
-    void refreshSources()
+      showReaderNotice(
+        result.updated_count > 0 ? `已将 ${result.updated_count} 篇文章标记为已读` : '没有未读文章',
+        3500,
+      )
+      void refreshSources()
     } catch (cause) {
-      setReaderNotice(cause instanceof Error ? cause.message : '全部标记为已读失败')
+      showReaderNotice(cause instanceof Error ? cause.message : '全部标记为已读失败')
     } finally {
       setMarkingAllRead(false)
     }
@@ -2107,9 +2203,10 @@ function Reader({
 
   const title = sourceName || (view === 'starred' ? '收藏' : view === 'later' ? '稍后阅读' : '全部文章')
   const sourceNames = Object.fromEntries(sources.map((source) => [source.id, source.name]))
+  const orderedEntries = orderReaderEntries(entries)
   const currentStory = selected ? storiesByEntry[selected.id] : undefined
   const mergeTargets = currentStory
-    ? entries
+    ? orderedEntries
         .map((candidate) => storiesByEntry[candidate.id])
         .filter((story): story is ReaderStory => Boolean(story) && story.id !== currentStory.id)
     : []
@@ -2177,7 +2274,7 @@ function Reader({
           {loading && <p className="p-8 text-center text-sm text-muted-foreground">正在加载文章…</p>}
           {error && <p className="p-8 text-center text-sm text-muted-foreground text-destructive">{error}</p>}
           {!loading && !error && entries.length === 0 && <p className="p-8 text-center text-sm text-muted-foreground">这里还没有文章。</p>}
-          {entries.map((item) => (
+          {orderedEntries.map((item) => (
             <article
               data-entry-row={item.id}
               className={cn(
