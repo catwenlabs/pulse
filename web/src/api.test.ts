@@ -9,6 +9,9 @@ import {
   listSourceEntries,
   listStories,
   listSources,
+  reorderFolderSources,
+  reorderFolders,
+  reorderRootSources,
   getStory,
   mergeStory,
   previewSource,
@@ -212,6 +215,33 @@ describe('source API', () => {
     expect(result.processed).toBe(7)
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/stories/recluster', {
       method: 'POST',
+    })
+  })
+})
+
+describe('navigation order API', () => {
+  it('persists each navigation scope through its dedicated endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await reorderRootSources(['source-2', 'source-1'])
+    await reorderFolders(['folder-2', 'folder-1'])
+    await reorderFolderSources('folder-1', ['source-2', 'source-1'])
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/sources/order', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_ids: ['source-2', 'source-1'] }),
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/folders/order', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder_ids: ['folder-2', 'folder-1'] }),
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/folders/folder-1/sources/order', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_ids: ['source-2', 'source-1'] }),
     })
   })
 })

@@ -56,6 +56,29 @@ paths:
                 $ref: "#/components/schemas/Source"
         "422":
           $ref: "#/components/responses/Problem"
+  /sources/order:
+    put:
+      operationId: reorderRootSources
+      summary: Persist the order of unfiled root Sources
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source_ids]
+              additionalProperties: false
+              properties:
+                source_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        "204":
+          description: Root Source order persisted
+        "422":
+          $ref: "#/components/responses/Problem"
   /sources/preview:
     post:
       operationId: previewSource
@@ -650,6 +673,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Folder"
+  /folders/order:
+    put:
+      operationId: reorderFolders
+      summary: Persist the Folder navigation order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [folder_ids]
+              additionalProperties: false
+              properties:
+                folder_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        "204":
+          description: Folder order persisted
+        "422":
+          $ref: "#/components/responses/Problem"
   /folders/{folderId}:
     parameters:
       - $ref: "#/components/parameters/FolderId"
@@ -658,6 +704,31 @@ paths:
       responses:
         "204":
           description: Folder deleted
+  /folders/{folderId}/sources/order:
+    parameters:
+      - $ref: "#/components/parameters/FolderId"
+    put:
+      operationId: reorderFolderSources
+      summary: Persist the Source order within one Folder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source_ids]
+              additionalProperties: false
+              properties:
+                source_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        "204":
+          description: Folder Source order persisted
+        "422":
+          $ref: "#/components/responses/Problem"
   /folders/{folderId}/sources/{sourceId}:
     parameters:
       - $ref: "#/components/parameters/FolderId"

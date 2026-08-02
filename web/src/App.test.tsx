@@ -14,6 +14,13 @@ const source = {
   created_at: '2026-07-25T00:00:00Z',
   updated_at: '2026-07-25T00:00:00Z',
 }
+let sourceState = [source]
+let folderState = [{
+  id: 'folder-1',
+  name: 'Tech',
+  source_count: 1,
+  source_ids: ['source-1'],
+}]
 const scrollIntoView = vi.fn()
 const scrollTo = vi.fn()
 
@@ -78,7 +85,8 @@ function realtimePage(stories: ReturnType<typeof realtimeStory>[]) {
 describe('App', () => {
   beforeEach(() => {
     FakeEventSource.instances = []
-    let folderState = [{
+    sourceState = [source]
+    folderState = [{
       id: 'folder-1',
       name: 'Tech',
       source_count: 1,
@@ -306,7 +314,7 @@ describe('App', () => {
         })
       }
       if (url.endsWith('/api/v1/sources')) {
-        return new Response(JSON.stringify([source]), {
+        return new Response(JSON.stringify(sourceState), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
@@ -353,6 +361,72 @@ describe('App', () => {
     expect(screen.getByRole('img', { name: 'Cover' })).toHaveAttribute('loading', 'lazy')
     expect(document.querySelector('.entry-prose script')).toBeNull()
     expect(screen.getByRole('button', { name: '更多操作' })).toBeInTheDocument()
+  })
+
+  it('persists independent drag order for folders, root Sources, and Folder Sources', async () => {
+    sourceState = [
+      { ...source, id: 'source-1', name: 'Folder One' },
+      { ...source, id: 'source-2', name: 'Folder Two' },
+      { ...source, id: 'source-3', name: 'Root One' },
+      { ...source, id: 'source-4', name: 'Root Two' },
+    ]
+    folderState = [
+      { id: 'folder-1', name: 'Tech', source_count: 2, source_ids: ['source-1', 'source-2'] },
+      { id: 'folder-2', name: 'Reading', source_count: 1, source_ids: ['source-1'] },
+    ]
+    render(<App />)
+    await screen.findByRole('button', { name: 'Tech，2 个订阅源' })
+    expect(screen.getAllByTitle('Folder One')).toHaveLength(2)
+    const healthRequestCount = () => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith('/health')).length
+    await waitFor(() => expect(healthRequestCount()).toBe(4))
+
+    const dataTransfer = {
+      effectAllowed: '',
+      dropEffect: '',
+      setData: vi.fn(),
+      getData: vi.fn(),
+    }
+    const dragBefore = (dragged: HTMLElement, target: HTMLElement) => {
+      fireEvent.dragStart(dragged, { dataTransfer })
+      fireEvent.dragOver(target, { dataTransfer })
+      expect(screen.getByRole('separator', { name: '放置于此' })).toBeVisible()
+      fireEvent.drop(target, { dataTransfer })
+      expect(screen.queryByRole('separator', { name: '放置于此' })).not.toBeInTheDocument()
+    }
+
+    dragBefore(
+      screen.getByRole('button', { name: 'Reading，1 个订阅源' }),
+      screen.getByRole('button', { name: 'Tech，2 个订阅源' }),
+    )
+    await waitFor(() => {
+      expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/folders/order', expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ folder_ids: ['folder-2', 'folder-1'] }),
+      }))
+    })
+
+    dragBefore(
+      screen.getAllByTitle('Folder Two')[0],
+      screen.getAllByTitle('Folder One')[0],
+    )
+    await waitFor(() => {
+      expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/folders/folder-1/sources/order', expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ source_ids: ['source-2', 'source-1'] }),
+      }))
+    })
+
+    dragBefore(
+      screen.getByTitle('Root Two'),
+      screen.getByTitle('Root One'),
+    )
+    await waitFor(() => {
+      expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/sources/order', expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ source_ids: ['source-4', 'source-3'] }),
+      }))
+    })
+    expect(healthRequestCount()).toBe(4)
   })
 
   it('organizes a source into existing and newly created folders', async () => {

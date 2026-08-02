@@ -136,6 +136,11 @@ func (fakeOrganization) AddSourceToFolder(context.Context, string, source.ID) er
 func (fakeOrganization) RemoveSourceFromFolder(context.Context, string, source.ID) error {
 	return nil
 }
+func (fakeOrganization) ReorderRootSources(context.Context, []source.ID) error { return nil }
+func (fakeOrganization) ReorderFolders(context.Context, []string) error        { return nil }
+func (fakeOrganization) ReorderFolderSources(context.Context, string, []source.ID) error {
+	return nil
+}
 func (fakeOrganization) CreateView(context.Context, organization.View) (organization.View, error) {
 	return organization.View{ID: "view"}, nil
 }

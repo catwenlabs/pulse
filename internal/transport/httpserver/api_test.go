@@ -21,33 +21,36 @@ import (
 )
 
 type fakeBackend struct {
-	createSource        func(context.Context, source.Spec) (source.Source, error)
-	listSources         func(context.Context) ([]source.Source, error)
-	getSource           func(context.Context, source.ID) (source.Source, error)
-	updateSource        func(context.Context, source.ID, string, string) (source.Source, error)
-	setEnabled          func(context.Context, source.ID, bool) (source.Source, error)
-	archiveSource       func(context.Context, source.ID) error
-	setSecret           func(context.Context, source.ID, string) error
-	getSourceHealth     func(context.Context, source.ID) (source.Health, error)
-	listFolders         func(context.Context) ([]organization.Folder, error)
-	enqueue             func(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error)
-	listSourceEntries   func(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
-	listSourceEntryPage func(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
-	getEntry            func(context.Context, entry.ID) (entry.Entry, error)
-	deleteEntry         func(context.Context, entry.ID, bool) error
-	listStories         func(context.Context, story.Query) ([]story.Story, error)
-	listStoryPage       func(context.Context, story.Query) (story.Page, error)
-	getStory            func(context.Context, story.ID) (story.Story, error)
-	updateStory         func(context.Context, story.ID, story.Patch) (story.Story, error)
-	setRepresentative   func(context.Context, story.ID, entry.ID) (story.Story, error)
-	markStoriesRead     func(context.Context, string) (int64, error)
-	mergeStories        func(context.Context, story.ID, story.ID) (story.Story, error)
-	splitStory          func(context.Context, story.ID, entry.ID) (story.Story, error)
-	recluster           func(context.Context) (int, error)
-	importOPML          func(context.Context, []opml.Subscription) (opml.ImportResult, error)
-	exportOPML          func(context.Context) ([]opml.Subscription, error)
-	previewSource       func(context.Context, source.Spec) (preview.Result, error)
-	replayRule          func(context.Context, string, bool) (rule.ReplayResult, error)
+	createSource         func(context.Context, source.Spec) (source.Source, error)
+	listSources          func(context.Context) ([]source.Source, error)
+	getSource            func(context.Context, source.ID) (source.Source, error)
+	updateSource         func(context.Context, source.ID, string, string) (source.Source, error)
+	setEnabled           func(context.Context, source.ID, bool) (source.Source, error)
+	archiveSource        func(context.Context, source.ID) error
+	setSecret            func(context.Context, source.ID, string) error
+	getSourceHealth      func(context.Context, source.ID) (source.Health, error)
+	listFolders          func(context.Context) ([]organization.Folder, error)
+	reorderRootSources   func(context.Context, []source.ID) error
+	reorderFolders       func(context.Context, []string) error
+	reorderFolderSources func(context.Context, string, []source.ID) error
+	enqueue              func(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error)
+	listSourceEntries    func(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
+	listSourceEntryPage  func(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
+	getEntry             func(context.Context, entry.ID) (entry.Entry, error)
+	deleteEntry          func(context.Context, entry.ID, bool) error
+	listStories          func(context.Context, story.Query) ([]story.Story, error)
+	listStoryPage        func(context.Context, story.Query) (story.Page, error)
+	getStory             func(context.Context, story.ID) (story.Story, error)
+	updateStory          func(context.Context, story.ID, story.Patch) (story.Story, error)
+	setRepresentative    func(context.Context, story.ID, entry.ID) (story.Story, error)
+	markStoriesRead      func(context.Context, string) (int64, error)
+	mergeStories         func(context.Context, story.ID, story.ID) (story.Story, error)
+	splitStory           func(context.Context, story.ID, entry.ID) (story.Story, error)
+	recluster            func(context.Context) (int, error)
+	importOPML           func(context.Context, []opml.Subscription) (opml.ImportResult, error)
+	exportOPML           func(context.Context) ([]opml.Subscription, error)
+	previewSource        func(context.Context, source.Spec) (preview.Result, error)
+	replayRule           func(context.Context, string, bool) (rule.ReplayResult, error)
 }
 
 func (fake fakeBackend) CreateSource(ctx context.Context, spec source.Spec) (source.Source, error) {
@@ -94,6 +97,24 @@ func (fake fakeBackend) ListFolders(ctx context.Context) ([]organization.Folder,
 func (fake fakeBackend) DeleteFolder(context.Context, string) error                      { return nil }
 func (fake fakeBackend) AddSourceToFolder(context.Context, string, source.ID) error      { return nil }
 func (fake fakeBackend) RemoveSourceFromFolder(context.Context, string, source.ID) error { return nil }
+func (fake fakeBackend) ReorderRootSources(ctx context.Context, ids []source.ID) error {
+	if fake.reorderRootSources != nil {
+		return fake.reorderRootSources(ctx, ids)
+	}
+	return nil
+}
+func (fake fakeBackend) ReorderFolders(ctx context.Context, ids []string) error {
+	if fake.reorderFolders != nil {
+		return fake.reorderFolders(ctx, ids)
+	}
+	return nil
+}
+func (fake fakeBackend) ReorderFolderSources(ctx context.Context, folderID string, ids []source.ID) error {
+	if fake.reorderFolderSources != nil {
+		return fake.reorderFolderSources(ctx, folderID, ids)
+	}
+	return nil
+}
 func (fake fakeBackend) CreateView(_ context.Context, view organization.View) (organization.View, error) {
 	view.ID = "view"
 	return view, nil
@@ -270,6 +291,64 @@ func TestListFoldersEncodesEmptyArrayForNilResult(t *testing.T) {
 	}
 	if response.Body.String() != "[]\n" {
 		t.Errorf("body = %q, want an empty JSON array", response.Body.String())
+	}
+}
+
+func TestReorderNavigation(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.reorderRootSources = func(_ context.Context, ids []source.ID) error {
+		if got := []source.ID{"source-2", "source-1"}; len(ids) != len(got) || ids[0] != got[0] || ids[1] != got[1] {
+			t.Errorf("root Source IDs = %v, want %v", ids, got)
+		}
+		return nil
+	}
+	backend.reorderFolders = func(_ context.Context, ids []string) error {
+		if got := []string{"folder-2", "folder-1"}; len(ids) != len(got) || ids[0] != got[0] || ids[1] != got[1] {
+			t.Errorf("Folder IDs = %v, want %v", ids, got)
+		}
+		return nil
+	}
+	backend.reorderFolderSources = func(_ context.Context, folderID string, ids []source.ID) error {
+		if folderID != "folder-1" {
+			t.Errorf("folder ID = %q, want folder-1", folderID)
+		}
+		if got := []source.ID{"source-2", "source-1"}; len(ids) != len(got) || ids[0] != got[0] || ids[1] != got[1] {
+			t.Errorf("Folder Source IDs = %v, want %v", ids, got)
+		}
+		return nil
+	}
+
+	requests := []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodPut, "/api/v1/sources/order", `{"source_ids":["source-2","source-1"]}`},
+		{http.MethodPut, "/api/v1/folders/order", `{"folder_ids":["folder-2","folder-1"]}`},
+		{http.MethodPut, "/api/v1/folders/folder-1/sources/order", `{"source_ids":["source-2","source-1"]}`},
+	}
+	for _, test := range requests {
+		response := httptest.NewRecorder()
+		NewHandler(backend).ServeHTTP(response, httptest.NewRequest(test.method, test.path, strings.NewReader(test.body)))
+		if response.Code != http.StatusNoContent {
+			t.Errorf("%s %s status = %d, body = %s", test.method, test.path, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestReorderNavigationMapsValidationErrors(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.reorderRootSources = func(context.Context, []source.ID) error {
+		return &organization.OrderValidationError{Field: "source_ids", Message: "must contain every root Source exactly once"}
+	}
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(response, httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/sources/order",
+		strings.NewReader(`{"source_ids":["source-1"]}`),
+	))
+	if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), `"field":"source_ids"`) {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
 

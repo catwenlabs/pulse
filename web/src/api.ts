@@ -268,6 +268,30 @@ export function listFolders(): Promise<Folder[]> {
   return requestList<Folder>('/api/v1/folders')
 }
 
+export function reorderRootSources(sourceIDs: string[]): Promise<void> {
+  return request<void>('/api/v1/sources/order', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source_ids: sourceIDs }),
+  })
+}
+
+export function reorderFolders(folderIDs: string[]): Promise<void> {
+  return request<void>('/api/v1/folders/order', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folder_ids: folderIDs }),
+  })
+}
+
+export function reorderFolderSources(folderID: string, sourceIDs: string[]): Promise<void> {
+  return request<void>(`/api/v1/folders/${folderID}/sources/order`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source_ids: sourceIDs }),
+  })
+}
+
 export function createFolder(name: string): Promise<Folder> {
   return request<Folder>('/api/v1/folders', {
     method: 'POST',

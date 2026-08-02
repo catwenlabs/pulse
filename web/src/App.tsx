@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState, type SetStateAction } from 'react'
+import { FormEvent, useEffect, useRef, useState, type DragEvent, type SetStateAction } from 'react'
 import { QueryClientProvider, useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import {
   BookOpen,
@@ -50,6 +50,10 @@ type ReaderStory = Pick<Story, 'id' | 'display_title' | 'note' | 'tags' | 'entry
   entries?: Entry[]
 }
 type ReaderPage = api.StoryPage | api.SourceEntryPage
+type NavigationDragItem =
+  | { scope: 'folders'; id: string }
+  | { scope: 'root-sources'; id: string }
+  | { scope: 'folder-sources'; folderID: string; id: string }
 const EMPTY_SOURCES: Source[] = []
 const EMPTY_FOLDERS: Folder[] = []
 
@@ -87,9 +91,47 @@ function readerStoryFromSourceEntry(item: api.SourceEntry): ReaderStory {
 
 function navItemClass(active: boolean, className?: string) {
   return cn(
-    'flex min-h-10 items-center gap-3 rounded-lg px-3 text-sm font-medium leading-5 text-muted-foreground no-underline transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+    'flex min-h-10 cursor-pointer items-center gap-3 rounded-lg px-3 text-sm font-medium leading-5 text-muted-foreground no-underline transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
     active && 'bg-sidebar-accent text-sidebar-accent-foreground',
     className,
+  )
+}
+
+function sameNavigationScope(left: NavigationDragItem, right: NavigationDragItem) {
+  if (left.scope !== right.scope) return false
+  return left.scope !== 'folder-sources' || right.scope !== 'folder-sources' || left.folderID === right.folderID
+}
+
+function moveNavigationItem(ids: string[], draggedID: string, targetID: string) {
+  if (draggedID === targetID) return ids
+  const remaining = ids.filter((id) => id !== draggedID)
+  const targetIndex = remaining.indexOf(targetID)
+  if (targetIndex < 0) return ids
+  remaining.splice(targetIndex, 0, draggedID)
+  return remaining
+}
+
+function reorderItems<T extends { id: string }>(items: T[], ids: string[]) {
+  const byID = new Map(items.map((item) => [item.id, item]))
+  return ids.flatMap((id) => {
+    const item = byID.get(id)
+    return item ? [item] : []
+  })
+}
+
+function sourceHealthRefreshKey(items: Source[]) {
+  return items.map((item) => JSON.stringify(item)).sort().join('\u0000')
+}
+
+function NavigationDropIndicator({ active }: { active: boolean }) {
+  if (!active) return null
+  return (
+    <div
+      role="separator"
+      aria-label="放置于此"
+      aria-orientation="horizontal"
+      className="pointer-events-none mx-1 my-1 h-0 border-t-2 border-primary shadow-[0_0_0_1px_hsl(var(--primary)/.12)]"
+    />
   )
 }
 
@@ -124,6 +166,7 @@ function AppContent() {
   })
   const sources = sourcesQuery.data ?? EMPTY_SOURCES
   const folders = foldersQuery.data ?? EMPTY_FOLDERS
+  const healthRefreshKey = sourceHealthRefreshKey(sources)
   const setSources = (updater: SetStateAction<Source[]>) => {
     queryClient.setQueryData<Source[]>(queryKeys.sources, (current) => (
       typeof updater === 'function' ? updater(current ?? []) : updater
@@ -153,10 +196,12 @@ function AppContent() {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const [showBookmarklet, setShowBookmarklet] = useState(false)
   const [saveRequest, setSaveRequest] = useState<SaveRequest | null>(() => readSaveRequest())
+  const [navigationDropTarget, setNavigationDropTarget] = useState<NavigationDragItem | null>(null)
   const isMobile = useMediaQuery('(max-width: 767px)')
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
   const mobileDrawerCloseRef = useRef<HTMLButtonElement>(null)
   const bookmarkletButtonRef = useRef<HTMLButtonElement>(null)
+  const navigationDragItemRef = useRef<NavigationDragItem | null>(null)
 
   async function load() {
     await Promise.all([sourcesQuery.refetch(), foldersQuery.refetch()])
@@ -168,6 +213,100 @@ function AppContent() {
     } catch {
       // unread counts refresh on the next navigation if this fails
     }
+  }
+
+  function beginNavigationDrag(item: NavigationDragItem, event: DragEvent<HTMLElement>) {
+    navigationDragItemRef.current = item
+    setNavigationDropTarget(null)
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move'
+      event.dataTransfer.setData('text/plain', item.id)
+    }
+  }
+
+  function allowNavigationDrop(item: NavigationDragItem, event: DragEvent<HTMLElement>) {
+    const dragged = navigationDragItemRef.current
+    if (!dragged || !sameNavigationScope(dragged, item)) return
+    if (dragged.id === item.id) {
+      setNavigationDropTarget(null)
+      return
+    }
+    event.preventDefault()
+    setNavigationDropTarget(item)
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  }
+
+  async function handleNavigationDrop(item: NavigationDragItem, event: DragEvent<HTMLElement>) {
+    event.preventDefault()
+    const dragged = navigationDragItemRef.current
+    navigationDragItemRef.current = null
+    setNavigationDropTarget(null)
+    if (!dragged || !sameNavigationScope(dragged, item) || dragged.id === item.id) return
+
+    try {
+      if (item.scope === 'folders' && dragged.scope === 'folders') {
+        const ids = moveNavigationItem(folders.map((folder) => folder.id), dragged.id, item.id)
+        const previous = folders
+        setFolders(reorderItems(folders, ids))
+        try {
+          await api.reorderFolders(ids)
+        } catch (error) {
+          setFolders(previous)
+          throw error
+        }
+        return
+      }
+
+      if (item.scope === 'root-sources' && dragged.scope === 'root-sources') {
+        const ids = moveNavigationItem(rootSources.map((source) => source.id), dragged.id, item.id)
+        const previous = sources
+        const nextRootSources = reorderItems(rootSources, ids)
+        let nextRootIndex = 0
+        const assigned = new Set(folders.flatMap((folder) => folder.source_ids))
+        setSources(sources.map((source) => {
+          if (assigned.has(source.id)) return source
+          const next = nextRootSources[nextRootIndex]
+          nextRootIndex += 1
+          return next ?? source
+        }))
+        try {
+          await api.reorderRootSources(ids)
+        } catch (error) {
+          setSources(previous)
+          throw error
+        }
+        return
+      }
+
+      if (item.scope === 'folder-sources' && dragged.scope === 'folder-sources') {
+        const folder = folders.find((candidate) => candidate.id === item.folderID)
+        if (!folder) return
+        const ids = moveNavigationItem(folder.source_ids, dragged.id, item.id)
+        const previous = folders
+        setFolders(folders.map((candidate) => candidate.id === folder.id
+          ? { ...candidate, source_ids: ids }
+          : candidate))
+        try {
+          await api.reorderFolderSources(folder.id, ids)
+        } catch (error) {
+          setFolders(previous)
+          throw error
+        }
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '无法保存导航顺序', { duration: 6000 })
+    }
+  }
+
+  function endNavigationDrag() {
+    navigationDragItemRef.current = null
+    setNavigationDropTarget(null)
+  }
+
+  function isNavigationDropTarget(item: NavigationDragItem) {
+    return navigationDropTarget !== null
+      && sameNavigationScope(navigationDropTarget, item)
+      && navigationDropTarget.id === item.id
   }
 
   useEffect(() => {
@@ -195,7 +334,7 @@ function AppContent() {
     return () => {
       active = false
     }
-  }, [sources])
+  }, [healthRefreshKey])
 
   useEffect(() => {
     let active = true
@@ -233,7 +372,7 @@ function AppContent() {
 
   async function handleCreate(input: CreateSourceInput, selectedFolderIDs: Set<string>) {
     const created = await api.createSource(input)
-    setSources((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)))
+    setSources((current) => [...current, created])
     const folderIDs = [...selectedFolderIDs]
     const results = await Promise.allSettled(
       folderIDs.map((folderID) => api.addSourceToFolder(folderID, created.id)),
@@ -282,8 +421,7 @@ function AppContent() {
   async function handleEdit(source: Source, name: string, locator: string) {
     const updated = await api.updateSource(source.id, { name, locator })
     setSources((current) => current
-      .map((item) => item.id === updated.id ? updated : item)
-      .sort((a, b) => a.name.localeCompare(b.name)))
+      .map((item) => item.id === updated.id ? updated : item))
     setSourceToEdit(null)
     toast.success(`已更新 ${updated.name}`, { duration: 3500 })
   }
@@ -478,11 +616,17 @@ function AppContent() {
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {folders.map((folder) => (
               <div key={folder.id}>
+                <NavigationDropIndicator active={isNavigationDropTarget({ scope: 'folders', id: folder.id })} />
                 <Button
                   unstyled
-                  className="flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground max-md:min-h-11"
+                  draggable
+                  className="flex min-h-9 w-full cursor-grab items-center gap-2 rounded-md px-2 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:cursor-grabbing max-md:min-h-11"
                   aria-label={`${folder.name}，${folder.source_count} 个订阅源`}
                   aria-expanded={expandedFolders.has(folder.id)}
+                  onDragStart={(event) => beginNavigationDrag({ scope: 'folders', id: folder.id }, event)}
+                  onDragOver={(event) => allowNavigationDrop({ scope: 'folders', id: folder.id }, event)}
+                  onDrop={(event) => void handleNavigationDrop({ scope: 'folders', id: folder.id }, event)}
+                  onDragEnd={endNavigationDrag}
                   onClick={() => setExpandedFolders((current) => {
                     const next = new Set(current)
                     if (next.has(folder.id)) next.delete(folder.id)
@@ -501,17 +645,24 @@ function AppContent() {
                       const source = sources.find((candidate) => candidate.id === sourceID)
                       if (!source) return null
                       return (
-                        <Button
-                          unstyled
-                          className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full py-1 text-sm max-md:min-h-11')}
-                          key={`${folder.id}-${source.id}`}
-                          title={source.name}
-                          onClick={() => showStream('inbox', source.id)}
-                        >
-                          <span className={cn('size-2 shrink-0 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
-                          <span className="min-w-0 flex-1 truncate text-left">{source.name}</span>
-                          <UnreadBadge count={source.unread_count} />
-                        </Button>
+                        <div key={`${folder.id}-${source.id}`}>
+                          <NavigationDropIndicator active={isNavigationDropTarget({ scope: 'folder-sources', folderID: folder.id, id: source.id })} />
+                          <Button
+                            unstyled
+                            draggable
+                            className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full cursor-grab py-1 text-sm active:cursor-grabbing max-md:min-h-11')}
+                            title={source.name}
+                            onDragStart={(event) => beginNavigationDrag({ scope: 'folder-sources', folderID: folder.id, id: source.id }, event)}
+                            onDragOver={(event) => allowNavigationDrop({ scope: 'folder-sources', folderID: folder.id, id: source.id }, event)}
+                            onDrop={(event) => void handleNavigationDrop({ scope: 'folder-sources', folderID: folder.id, id: source.id }, event)}
+                            onDragEnd={endNavigationDrag}
+                            onClick={() => showStream('inbox', source.id)}
+                          >
+                            <span className={cn('size-2 shrink-0 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
+                            <span className="min-w-0 flex-1 truncate text-left">{source.name}</span>
+                            <UnreadBadge count={source.unread_count} />
+                          </Button>
+                        </div>
                       )
                     })}
                   </div>
@@ -519,16 +670,24 @@ function AppContent() {
               </div>
             ))}
             {rootSources.map((source) => (
-              <Button unstyled
-                className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full py-1 text-sm max-md:min-h-11')}
-                key={source.id}
-                title={source.name}
-                onClick={() => showStream('inbox', source.id)}
-              >
-                <span className={cn('size-2 shrink-0 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
-                <span className="min-w-0 flex-1 truncate text-left">{source.name}</span>
-                <UnreadBadge count={source.unread_count} />
-              </Button>
+              <div key={source.id}>
+                <NavigationDropIndicator active={isNavigationDropTarget({ scope: 'root-sources', id: source.id })} />
+                <Button
+                  unstyled
+                  draggable
+                  className={navItemClass(selectedSourceID === source.id && activeView === 'inbox', 'w-full cursor-grab py-1 text-sm active:cursor-grabbing max-md:min-h-11')}
+                  title={source.name}
+                  onDragStart={(event) => beginNavigationDrag({ scope: 'root-sources', id: source.id }, event)}
+                  onDragOver={(event) => allowNavigationDrop({ scope: 'root-sources', id: source.id }, event)}
+                  onDrop={(event) => void handleNavigationDrop({ scope: 'root-sources', id: source.id }, event)}
+                  onDragEnd={endNavigationDrag}
+                  onClick={() => showStream('inbox', source.id)}
+                >
+                  <span className={cn('size-2 shrink-0 rounded-full bg-muted-foreground/40', source.enabled && 'bg-emerald-500')} />
+                  <span className="min-w-0 flex-1 truncate text-left">{source.name}</span>
+                  <UnreadBadge count={source.unread_count} />
+                </Button>
+              </div>
             ))}
           </div>
         </section>
