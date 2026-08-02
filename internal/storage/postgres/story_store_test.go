@@ -277,3 +277,228 @@ func TestStoryStoreSearchSurfacesUnreadBeforeRead(t *testing.T) {
 		t.Errorf("first story ExternalID = %q, want %q (unread before read)", got, "unread-story")
 	}
 }
+
+func TestStoryStoreMarkClusteredRepairsSingletonAggregateAndPreservesSortTime(t *testing.T) {
+	pool := testPool(t)
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	entryStore := NewEntryStore(pool)
+	storyStore := NewStoryStore(pool)
+	ctx := context.Background()
+
+	src := createTestSource(t, sourceStore, "story-publication-revision")
+	initialAcquisition := claimTestAcquisition(t, acquisitionStore, src.ID, "story-publication-revision-initial")
+	future := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Microsecond)
+	if err := entryStore.CommitBatch(ctx, initialAcquisition, "worker", []ingestion.Candidate{{
+		ExternalID:  "publication-revision",
+		Title:       "发布时间会被修正的条目",
+		ContentHTML: "<p>revision body</p>",
+		PublishedAt: &future,
+	}}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("initial CommitBatch() error = %v", err)
+	}
+
+	items, err := storyStore.Search(ctx, story.Query{Limit: 10})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("initial Search() = %+v, %v", items, err)
+	}
+	storyID := items[0].ID
+	var initialSortTime, discoveredAt time.Time
+	if err := pool.QueryRow(ctx, `
+		SELECT story.sort_time, entry.discovered_at
+		FROM stories AS story
+		JOIN story_entries AS member ON member.story_id = story.id
+		JOIN entries AS entry ON entry.id = member.entry_id
+		WHERE story.id = $1
+	`, storyID).Scan(&initialSortTime, &discoveredAt); err != nil {
+		t.Fatalf("query initial Story timing: %v", err)
+	}
+	if initialSortTime.After(discoveredAt) {
+		t.Fatalf("initial sort_time = %s, discovered_at = %s; sort time must be bounded", initialSortTime, discoveredAt)
+	}
+
+	corrected := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Microsecond)
+	updatedAcquisition := claimTestAcquisition(t, acquisitionStore, src.ID, "story-publication-revision-updated")
+	if err := entryStore.CommitBatch(ctx, updatedAcquisition, "worker", []ingestion.Candidate{{
+		ExternalID:  "publication-revision",
+		Title:       "发布时间会被修正的条目",
+		ContentHTML: "<p>revision body</p>",
+		PublishedAt: &corrected,
+	}}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("updated CommitBatch() error = %v", err)
+	}
+	updatedBeforeProcessing, err := storyStore.Get(ctx, storyID)
+	if err != nil {
+		t.Fatalf("Get() before MarkClustered() error = %v", err)
+	}
+	if updatedBeforeProcessing.FirstPublishedAt == nil || !updatedBeforeProcessing.FirstPublishedAt.Equal(corrected) ||
+		updatedBeforeProcessing.LastPublishedAt == nil || !updatedBeforeProcessing.LastPublishedAt.Equal(corrected) {
+		t.Errorf("live aggregate before MarkClustered() = first=%v last=%v, want %v", updatedBeforeProcessing.FirstPublishedAt, updatedBeforeProcessing.LastPublishedAt, corrected)
+	}
+
+	if err := storyStore.MarkClustered(ctx, storyID); err != nil {
+		t.Fatalf("first MarkClustered() error = %v", err)
+	}
+	got, err := storyStore.Get(ctx, storyID)
+	if err != nil {
+		t.Fatalf("Get() after MarkClustered() error = %v", err)
+	}
+	if got.EntryCount != 1 || got.SourceCount != 1 {
+		t.Fatalf("repaired counts = %d/%d, want 1/1", got.EntryCount, got.SourceCount)
+	}
+	if got.FirstPublishedAt == nil || !got.FirstPublishedAt.Equal(corrected) {
+		t.Errorf("FirstPublishedAt = %v, want %v", got.FirstPublishedAt, corrected)
+	}
+	if got.LastPublishedAt == nil || !got.LastPublishedAt.Equal(corrected) {
+		t.Errorf("LastPublishedAt = %v, want %v", got.LastPublishedAt, corrected)
+	}
+
+	var repairedSortTime time.Time
+	if err := pool.QueryRow(ctx, "SELECT sort_time FROM stories WHERE id = $1", storyID).Scan(&repairedSortTime); err != nil {
+		t.Fatalf("query repaired sort_time: %v", err)
+	}
+	if !repairedSortTime.Equal(initialSortTime) {
+		t.Errorf("sort_time changed from %s to %s after Entry revision", initialSortTime, repairedSortTime)
+	}
+	var firstClusteredAt, firstUpdatedAt time.Time
+	if err := pool.QueryRow(ctx, "SELECT clustered_at, updated_at FROM stories WHERE id = $1", storyID).Scan(&firstClusteredAt, &firstUpdatedAt); err != nil {
+		t.Fatalf("query first clustering timestamps: %v", err)
+	}
+
+	if err := storyStore.MarkClustered(ctx, storyID); err != nil {
+		t.Fatalf("second MarkClustered() error = %v", err)
+	}
+	repeated, err := storyStore.Get(ctx, storyID)
+	if err != nil {
+		t.Fatalf("Get() after repeated MarkClustered() error = %v", err)
+	}
+	if repeated.FirstPublishedAt == nil || !repeated.FirstPublishedAt.Equal(*got.FirstPublishedAt) ||
+		repeated.LastPublishedAt == nil || !repeated.LastPublishedAt.Equal(*got.LastPublishedAt) {
+		t.Errorf("repeated MarkClustered() changed aggregate times: first=%v last=%v", repeated.FirstPublishedAt, repeated.LastPublishedAt)
+	}
+	var repeatedClusteredAt, repeatedUpdatedAt time.Time
+	if err := pool.QueryRow(ctx, "SELECT clustered_at, updated_at FROM stories WHERE id = $1", storyID).Scan(&repeatedClusteredAt, &repeatedUpdatedAt); err != nil {
+		t.Fatalf("query repeated clustering timestamps: %v", err)
+	}
+	if !repeatedClusteredAt.Equal(firstClusteredAt) || !repeatedUpdatedAt.Equal(firstUpdatedAt) {
+		t.Errorf("repeated MarkClustered() changed timestamps: first=(%s, %s), repeated=(%s, %s)", firstClusteredAt, firstUpdatedAt, repeatedClusteredAt, repeatedUpdatedAt)
+	}
+}
+
+func TestStoryStoreSearchUsesDiscoveryBoundedSortTime(t *testing.T) {
+	pool := testPool(t)
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	entryStore := NewEntryStore(pool)
+	storyStore := NewStoryStore(pool)
+	ctx := context.Background()
+
+	src := createTestSource(t, sourceStore, "story-sort-time")
+	firstAcquisition := claimTestAcquisition(t, acquisitionStore, src.ID, "story-sort-time-first")
+	firstPublished := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Microsecond)
+	if err := entryStore.CommitBatch(ctx, firstAcquisition, "worker", []ingestion.Candidate{{
+		ExternalID:  "future-older",
+		Title:       "source time is further in the future",
+		ContentHTML: "<p>first body</p>",
+		PublishedAt: &firstPublished,
+	}}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("first CommitBatch() error = %v", err)
+	}
+	if _, err := pool.Exec(ctx, "SELECT pg_sleep(0.01)"); err != nil {
+		t.Fatalf("separate discovery timestamps: %v", err)
+	}
+
+	secondAcquisition := claimTestAcquisition(t, acquisitionStore, src.ID, "story-sort-time-second")
+	secondPublished := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)
+	if err := entryStore.CommitBatch(ctx, secondAcquisition, "worker", []ingestion.Candidate{{
+		ExternalID:  "future-newer",
+		Title:       "source time is less far in the future",
+		ContentHTML: "<p>second body</p>",
+		PublishedAt: &secondPublished,
+	}}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("second CommitBatch() error = %v", err)
+	}
+
+	items, err := storyStore.Search(ctx, story.Query{Limit: 10})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("Search() returned %d stories, want 2: %+v", len(items), items)
+	}
+	if got := items[0].Representative.ExternalID; got != "future-newer" {
+		t.Errorf("first Story = %q, want discovery-newer Story %q", got, "future-newer")
+	}
+}
+
+func TestStoryStoreMarkClusteredRepairsMultiEntryAggregates(t *testing.T) {
+	pool := testPool(t)
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	entryStore := NewEntryStore(pool)
+	storyStore := NewStoryStore(pool)
+	ctx := context.Background()
+
+	firstSource := createTestSource(t, sourceStore, "story-publication-multi-first")
+	secondSource := createTestSource(t, sourceStore, "story-publication-multi-second")
+	firstPublished := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Microsecond)
+	secondPublished := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Microsecond)
+	content := "<p>same event body</p>"
+
+	firstAcquisition := claimTestAcquisition(t, acquisitionStore, firstSource.ID, "story-publication-multi-first")
+	if err := entryStore.CommitBatch(ctx, firstAcquisition, "worker", []ingestion.Candidate{{
+		ExternalID:  "multi-first",
+		Title:       "同一个事件的第一条报道",
+		ContentHTML: content,
+		PublishedAt: &firstPublished,
+	}}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("first CommitBatch() error = %v", err)
+	}
+	secondAcquisition := claimTestAcquisition(t, acquisitionStore, secondSource.ID, "story-publication-multi-second")
+	if err := entryStore.CommitBatch(ctx, secondAcquisition, "worker", []ingestion.Candidate{{
+		ExternalID:  "multi-second",
+		Title:       "同一个事件的第二条报道",
+		ContentHTML: content,
+		PublishedAt: &secondPublished,
+	}}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("second CommitBatch() error = %v", err)
+	}
+
+	processor := story.NewProcessor(storyStore, nil)
+	if _, err := processor.RunOnce(ctx, 10); err != nil {
+		t.Fatalf("RunOnce() error = %v", err)
+	}
+	items, err := storyStore.Search(ctx, story.Query{Limit: 10})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("Search() after grouping = %+v, %v", items, err)
+	}
+	storyID := items[0].ID
+
+	corrected := time.Now().UTC().Add(-72 * time.Hour).Truncate(time.Microsecond)
+	updatedAcquisition := claimTestAcquisition(t, acquisitionStore, secondSource.ID, "story-publication-multi-second-updated")
+	if err := entryStore.CommitBatch(ctx, updatedAcquisition, "worker", []ingestion.Candidate{{
+		ExternalID:  "multi-second",
+		Title:       "同一个事件的第二条报道",
+		ContentHTML: content,
+		PublishedAt: &corrected,
+	}}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("updated CommitBatch() error = %v", err)
+	}
+	if err := storyStore.MarkClustered(ctx, storyID); err != nil {
+		t.Fatalf("MarkClustered() error = %v", err)
+	}
+
+	got, err := storyStore.Get(ctx, storyID)
+	if err != nil {
+		t.Fatalf("Get() after MarkClustered() error = %v", err)
+	}
+	if got.EntryCount != 2 || got.SourceCount != 2 {
+		t.Fatalf("repaired counts = %d/%d, want 2/2", got.EntryCount, got.SourceCount)
+	}
+	if got.FirstPublishedAt == nil || !got.FirstPublishedAt.Equal(corrected) {
+		t.Errorf("FirstPublishedAt = %v, want %v", got.FirstPublishedAt, corrected)
+	}
+	if got.LastPublishedAt == nil || !got.LastPublishedAt.Equal(firstPublished) {
+		t.Errorf("LastPublishedAt = %v, want %v", got.LastPublishedAt, firstPublished)
+	}
+}

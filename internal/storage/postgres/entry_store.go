@@ -475,8 +475,7 @@ func (store *EntryStore) CommitBatch(
 			WITH created AS (
 				INSERT INTO stories (
 					representative_entry_id,
-					first_published_at,
-					last_published_at,
+					sort_time,
 					read_at,
 					starred_at,
 					hidden_at,
@@ -484,8 +483,7 @@ func (store *EntryStore) CommitBatch(
 				)
 				SELECT
 					entry.id,
-					coalesce($2::timestamptz, entry.discovered_at),
-					coalesce($2::timestamptz, entry.discovered_at),
+					least(coalesce($2::timestamptz, entry.discovered_at), entry.discovered_at),
 					entry.read_at,
 					entry.starred_at,
 					entry.hidden_at,

@@ -32,9 +32,20 @@ func (store *StoryStore) Search(ctx context.Context, query story.Query) ([]story
 		query.Offset = 0
 	}
 	rows, err := store.pool.Query(ctx, `
+		WITH aggregates AS (
+			SELECT
+				member.story_id,
+				count(*)::integer AS entry_count,
+				count(DISTINCT entry.source_id)::integer AS source_count,
+				min(coalesce(entry.published_at, entry.discovered_at)) AS first_published_at,
+				max(coalesce(entry.published_at, entry.discovered_at)) AS last_published_at
+			FROM story_entries AS member
+			JOIN entries AS entry ON entry.id = member.entry_id
+			GROUP BY member.story_id
+		)
 		SELECT
-			story.id, story.entry_count, story.source_count,
-			story.first_published_at, story.last_published_at,
+			story.id, aggregate.entry_count, aggregate.source_count,
+			aggregate.first_published_at, aggregate.last_published_at,
 			story.read_at, story.starred_at, story.hidden_at, story.later_at,
 			entry.id, entry.source_id, entry.identity_key, entry.external_id, entry.canonical_url,
 			entry.source_title, entry.display_title, entry.author, entry.summary, entry.content_html,
@@ -42,6 +53,7 @@ func (store *StoryStore) Search(ctx context.Context, query story.Query) ([]story
 			entry.hidden_at, entry.later_at, entry.note,
 			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at'
 		FROM stories AS story
+		JOIN aggregates AS aggregate ON aggregate.story_id = story.id
 		JOIN entries AS entry ON entry.id = story.representative_entry_id
 		LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entry.id
 		WHERE
@@ -80,7 +92,7 @@ func (store *StoryStore) Search(ctx context.Context, query story.Query) ([]story
 					  AND source_entry.source_id = $5::uuid
 				)
 			)
-		ORDER BY (story.read_at IS NULL) DESC, story.last_published_at DESC NULLS LAST, story.id DESC
+		ORDER BY (story.read_at IS NULL) DESC, story.sort_time DESC, story.id DESC
 		LIMIT $1 OFFSET $6
 	`,
 		query.Limit,
@@ -144,11 +156,24 @@ func (store *StoryStore) Get(ctx context.Context, id story.ID) (story.Story, err
 	var item story.Story
 	var representativeID entry.ID
 	err = store.pool.QueryRow(ctx, `
+		WITH aggregates AS (
+			SELECT
+				count(*)::integer AS entry_count,
+				count(DISTINCT entry.source_id)::integer AS source_count,
+				min(coalesce(entry.published_at, entry.discovered_at)) AS first_published_at,
+				max(coalesce(entry.published_at, entry.discovered_at)) AS last_published_at
+			FROM story_entries AS member
+			JOIN entries AS entry ON entry.id = member.entry_id
+			WHERE member.story_id = $1
+		)
 		SELECT
-			id, representative_entry_id, entry_count, source_count, first_published_at, last_published_at,
-			read_at, starred_at, hidden_at, later_at
-		FROM stories
-		WHERE id = $1
+			story.id, story.representative_entry_id,
+			aggregate.entry_count, aggregate.source_count,
+			aggregate.first_published_at, aggregate.last_published_at,
+			story.read_at, story.starred_at, story.hidden_at, story.later_at
+		FROM stories AS story
+		CROSS JOIN aggregates AS aggregate
+		WHERE story.id = $1
 	`, id).Scan(
 		&item.ID,
 		&representativeID,
@@ -392,27 +417,13 @@ func (store *StoryStore) Merge(
 	if _, err := tx.Exec(ctx, `
 		UPDATE stories AS story
 		SET
-			entry_count = aggregate.entry_count,
-			source_count = aggregate.source_count,
-			first_published_at = aggregate.first_published_at,
-			last_published_at = aggregate.last_published_at,
 			read_at = coalesce(story.read_at, source_story.read_at),
 			starred_at = coalesce(story.starred_at, source_story.starred_at),
 			hidden_at = coalesce(story.hidden_at, source_story.hidden_at),
 			later_at = coalesce(story.later_at, source_story.later_at),
 			clustered_at = now(),
 			updated_at = now()
-		FROM (
-			SELECT
-				count(*)::integer AS entry_count,
-				count(DISTINCT entry.source_id)::integer AS source_count,
-				min(coalesce(entry.published_at, entry.discovered_at)) AS first_published_at,
-				max(coalesce(entry.published_at, entry.discovered_at)) AS last_published_at
-			FROM story_entries AS member
-			JOIN entries AS entry ON entry.id = member.entry_id
-			WHERE member.story_id = $1
-		) AS aggregate,
-		stories AS source_story
+		FROM stories AS source_story
 		WHERE story.id = $1 AND source_story.id = $2
 	`, into, from); err != nil {
 		return fmt.Errorf("refresh target Story: %w", err)
@@ -484,27 +495,13 @@ func (store *StoryStore) MergeManual(ctx context.Context, from story.ID, into st
 	if _, err := tx.Exec(ctx, `
 		UPDATE stories AS story
 		SET
-			entry_count = aggregate.entry_count,
-			source_count = aggregate.source_count,
-			first_published_at = aggregate.first_published_at,
-			last_published_at = aggregate.last_published_at,
 			read_at = coalesce(story.read_at, source_story.read_at),
 			starred_at = coalesce(story.starred_at, source_story.starred_at),
 			hidden_at = coalesce(story.hidden_at, source_story.hidden_at),
 			later_at = coalesce(story.later_at, source_story.later_at),
 			clustered_at = now(),
 			updated_at = now()
-		FROM (
-			SELECT
-				count(*)::integer AS entry_count,
-				count(DISTINCT entry.source_id)::integer AS source_count,
-				min(coalesce(entry.published_at, entry.discovered_at)) AS first_published_at,
-				max(coalesce(entry.published_at, entry.discovered_at)) AS last_published_at
-			FROM story_entries AS member
-			JOIN entries AS entry ON entry.id = member.entry_id
-			WHERE member.story_id = $1
-		) AS aggregate,
-		stories AS source_story
+		FROM stories AS source_story
 		WHERE story.id = $1 AND source_story.id = $2
 	`, into, from); err != nil {
 		return fmt.Errorf("refresh target Story: %w", err)
@@ -551,10 +548,7 @@ func (store *StoryStore) Split(ctx context.Context, storyID story.ID, entryID en
 	err = tx.QueryRow(ctx, `
 		INSERT INTO stories (
 			representative_entry_id,
-			entry_count,
-			source_count,
-			first_published_at,
-			last_published_at,
+			sort_time,
 			read_at,
 			starred_at,
 			hidden_at,
@@ -563,10 +557,7 @@ func (store *StoryStore) Split(ctx context.Context, storyID story.ID, entryID en
 		)
 		SELECT
 			entry.id,
-			1,
-			1,
-			coalesce(entry.published_at, entry.discovered_at),
-			coalesce(entry.published_at, entry.discovered_at),
+			least(coalesce(entry.published_at, entry.discovered_at), entry.discovered_at),
 			entry.read_at,
 			entry.starred_at,
 			entry.hidden_at,
@@ -612,22 +603,8 @@ func (store *StoryStore) Split(ctx context.Context, storyID story.ID, entryID en
 				ORDER BY member.joined_at ASC
 				LIMIT 1
 			),
-			entry_count = aggregate.entry_count,
-			source_count = aggregate.source_count,
-			first_published_at = aggregate.first_published_at,
-			last_published_at = aggregate.last_published_at,
 			clustered_at = now(),
 			updated_at = now()
-		FROM (
-			SELECT
-				count(*)::integer AS entry_count,
-				count(DISTINCT entry.source_id)::integer AS source_count,
-				min(coalesce(entry.published_at, entry.discovered_at)) AS first_published_at,
-				max(coalesce(entry.published_at, entry.discovered_at)) AS last_published_at
-			FROM story_entries AS member
-			JOIN entries AS entry ON entry.id = member.entry_id
-			WHERE member.story_id = $1
-		) AS aggregate
 		WHERE story.id = $1
 	`, storyID); err != nil {
 		return "", fmt.Errorf("refresh original Story: %w", err)
@@ -641,7 +618,11 @@ func (store *StoryStore) Split(ctx context.Context, storyID story.ID, entryID en
 
 func (store *StoryStore) MarkClustered(ctx context.Context, id story.ID) error {
 	_, err := store.pool.Exec(ctx, `
-		UPDATE stories SET clustered_at = now(), updated_at = now() WHERE id = $1
+		UPDATE stories
+		SET
+			clustered_at = coalesce(clustered_at, now()),
+			updated_at = CASE WHEN clustered_at IS NULL THEN now() ELSE updated_at END
+		WHERE id = $1
 	`, id)
 	if err != nil {
 		return fmt.Errorf("mark Story clustered %s: %w", id, err)
