@@ -377,6 +377,8 @@ describe('App', () => {
     render(<App />)
     await screen.findByRole('button', { name: 'Tech，2 个订阅源' })
     expect(screen.getAllByTitle('Folder One')).toHaveLength(2)
+    const healthRequestCount = () => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith('/health')).length
+    await waitFor(() => expect(healthRequestCount()).toBe(4))
 
     const dataTransfer = {
       effectAllowed: '',
@@ -424,6 +426,7 @@ describe('App', () => {
         body: JSON.stringify({ source_ids: ['source-4', 'source-3'] }),
       }))
     })
+    expect(healthRequestCount()).toBe(4)
   })
 
   it('organizes a source into existing and newly created folders', async () => {

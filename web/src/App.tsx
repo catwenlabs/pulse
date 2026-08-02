@@ -119,6 +119,10 @@ function reorderItems<T extends { id: string }>(items: T[], ids: string[]) {
   })
 }
 
+function sourceHealthRefreshKey(items: Source[]) {
+  return items.map((item) => JSON.stringify(item)).sort().join('\u0000')
+}
+
 function NavigationDropIndicator({ active }: { active: boolean }) {
   if (!active) return null
   return (
@@ -162,6 +166,7 @@ function AppContent() {
   })
   const sources = sourcesQuery.data ?? EMPTY_SOURCES
   const folders = foldersQuery.data ?? EMPTY_FOLDERS
+  const healthRefreshKey = sourceHealthRefreshKey(sources)
   const setSources = (updater: SetStateAction<Source[]>) => {
     queryClient.setQueryData<Source[]>(queryKeys.sources, (current) => (
       typeof updater === 'function' ? updater(current ?? []) : updater
@@ -329,7 +334,7 @@ function AppContent() {
     return () => {
       active = false
     }
-  }, [sources])
+  }, [healthRefreshKey])
 
   useEffect(() => {
     let active = true
