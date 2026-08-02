@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useRef, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState, type SetStateAction } from 'react'
+import { QueryClientProvider, useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import {
   BookOpen,
   Bookmark,
@@ -28,6 +29,8 @@ import { Select } from './components/ui/select'
 import { Textarea } from './components/ui/textarea'
 import { Toaster } from './components/ui/sonner'
 import { cn } from './lib/utils'
+import { createQueryClient, queryKeys } from './query'
+import { useLibraryRealtime, type LibraryRealtimeSignal, type RealtimeConnectionState } from './realtime'
 import { toast } from 'sonner'
 import './styles.css'
 
@@ -46,6 +49,9 @@ type ReaderStory = Pick<Story, 'id' | 'display_title' | 'note' | 'tags' | 'entry
   representative: Entry
   entries?: Entry[]
 }
+type ReaderPage = api.StoryPage | api.SourceEntryPage
+const EMPTY_SOURCES: Source[] = []
+const EMPTY_FOLDERS: Folder[] = []
 
 function projectReaderEntry(item: Entry, owner: Pick<ReaderStory, 'display_title' | 'note' | 'read_at' | 'starred_at' | 'hidden_at' | 'later_at'>): ReaderEntry {
   return {
@@ -97,11 +103,44 @@ function UnreadBadge({ count, className }: { count: number; className?: string }
 }
 
 export function App() {
-  const [sources, setSources] = useState<Source[]>([])
-  const [folders, setFolders] = useState<Folder[]>([])
+  const [queryClient] = useState(createQueryClient)
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppContent />
+    </QueryClientProvider>
+  )
+}
+
+function AppContent() {
+  const queryClient = useQueryClient()
+  const { connectionState, signal } = useLibraryRealtime(queryClient)
+  const sourcesQuery = useQuery({
+    queryKey: queryKeys.sources,
+    queryFn: api.listSources,
+  })
+  const foldersQuery = useQuery({
+    queryKey: queryKeys.folders,
+    queryFn: api.listFolders,
+  })
+  const sources = sourcesQuery.data ?? EMPTY_SOURCES
+  const folders = foldersQuery.data ?? EMPTY_FOLDERS
+  const setSources = (updater: SetStateAction<Source[]>) => {
+    queryClient.setQueryData<Source[]>(queryKeys.sources, (current) => (
+      typeof updater === 'function' ? updater(current ?? []) : updater
+    ))
+  }
+  const setFolders = (updater: SetStateAction<Folder[]>) => {
+    queryClient.setQueryData<Folder[]>(queryKeys.folders, (current) => (
+      typeof updater === 'function' ? updater(current ?? []) : updater
+    ))
+  }
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set())
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState('')
+  const loading = sourcesQuery.isPending || sourcesQuery.isFetching
+  const loadError = sourcesQuery.error instanceof Error
+    ? sourcesQuery.error.message
+    : foldersQuery.error instanceof Error
+      ? foldersQuery.error.message
+      : ''
   const [showCreate, setShowCreate] = useState(false)
   const [sourceToDelete, setSourceToDelete] = useState<Source | null>(null)
   const [sourceToEdit, setSourceToEdit] = useState<Source | null>(null)
@@ -120,45 +159,43 @@ export function App() {
   const bookmarkletButtonRef = useRef<HTMLButtonElement>(null)
 
   async function load() {
-    setLoading(true)
-    setLoadError('')
-    try {
-      const [loaded, loadedFolders] = await Promise.all([
-        api.listSources(),
-        api.listFolders().catch(() => []),
-      ])
-      setSources(loaded)
-      setFolders(loadedFolders)
-      setExpandedFolders((current) => new Set([
-        ...current,
-        ...loadedFolders.map((folder) => folder.id),
-      ]))
-      const snapshots = await Promise.all(loaded.map(async (item) => {
-        try {
-          return [item.id, await api.getSourceHealth(item.id)] as const
-        } catch {
-          return null
-        }
-      }))
-      setHealth(Object.fromEntries(snapshots.filter((item): item is readonly [string, SourceHealth] => item !== null)))
-    } catch (error) {
-      setLoadError(error instanceof Error ? error.message : '加载信息源失败')
-    } finally {
-      setLoading(false)
-    }
+    await Promise.all([sourcesQuery.refetch(), foldersQuery.refetch()])
   }
 
   async function refreshSources() {
     try {
-      setSources(await api.listSources())
+      await sourcesQuery.refetch()
     } catch {
       // unread counts refresh on the next navigation if this fails
     }
   }
 
   useEffect(() => {
-    void load()
-  }, [])
+    setExpandedFolders((current) => new Set([
+      ...current,
+      ...folders.map((folder) => folder.id),
+    ]))
+  }, [folders])
+
+  useEffect(() => {
+    let active = true
+    const refreshHealth = async () => {
+      const snapshots = await Promise.all(sources.map(async (item) => {
+        try {
+          return [item.id, await api.getSourceHealth(item.id)] as const
+        } catch {
+          return null
+        }
+      }))
+      if (active) {
+        setHealth(Object.fromEntries(snapshots.filter((item): item is readonly [string, SourceHealth] => item !== null)))
+      }
+    }
+    void refreshHealth()
+    return () => {
+      active = false
+    }
+  }, [sources])
 
   useEffect(() => {
     let active = true
@@ -323,6 +360,12 @@ export function App() {
   const assignedSourceIDs = new Set(folders.flatMap((folder) => folder.source_ids))
   const rootSources = sources.filter((source) => !assignedSourceIDs.has(source.id))
   const totalUnread = sources.reduce((sum, source) => sum + (source.unread_count || 0), 0)
+  useEffect(() => {
+    document.title = totalUnread > 0 ? `(${totalUnread}) Pulse` : 'Pulse'
+    return () => {
+      document.title = 'Pulse'
+    }
+  }, [totalUnread])
   const mobileTitle = activeView === 'sources'
     ? '信息源'
     : activeSourceName || (
@@ -711,6 +754,8 @@ export function App() {
             sources={sources}
             mobile={isMobile}
             refreshSources={refreshSources}
+            realtimeSignal={signal}
+            realtimeConnectionState={connectionState}
           />
         )}
       </main>
@@ -1468,6 +1513,8 @@ function Reader({
   sources,
   mobile,
   refreshSources,
+  realtimeSignal,
+  realtimeConnectionState,
 }: {
   view: Exclude<View, 'sources'>
   sourceID: string
@@ -1475,6 +1522,8 @@ function Reader({
   sources: Source[]
   mobile: boolean
   refreshSources: () => void
+  realtimeSignal: LibraryRealtimeSignal | null
+  realtimeConnectionState: RealtimeConnectionState
 }) {
   const [entries, setEntries] = useState<ReaderEntry[]>([])
   const [storiesByEntry, setStoriesByEntry] = useState<Record<string, ReaderStory>>({})
@@ -1493,18 +1542,59 @@ function Reader({
   const [activeEntryId, setActiveEntryId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [hasMore, setHasMore] = useState(false)
-  const [nextCursor, setNextCursor] = useState<string | undefined>()
-  const [totalCount, setTotalCount] = useState(0)
-  const [error, setError] = useState('')
   const [markingAllRead, setMarkingAllRead] = useState(false)
   const [readerNotice, setReaderNotice] = useState('')
+  const [pendingNewCount, setPendingNewCount] = useState(0)
+  const [highlightedEntryIDs, setHighlightedEntryIDs] = useState<Set<string>>(() => new Set())
   const selectedEntryElement = useRef<HTMLElement | null>(null)
   const entryStreamElement = useRef<HTMLElement | null>(null)
   const readingAreaToScroll = useRef('')
+  const knownStoryIDs = useRef<Set<string>>(new Set())
+  const pendingStoryIDs = useRef<Set<string>>(new Set())
+  const hasRenderedServerData = useRef(false)
   const pageSize = 50
+  const queryClient = useQueryClient()
+  const state = view === 'inbox' ? 'inbox' : view
+  const readerKey = queryKeys.reader({
+    q: debouncedSearch,
+    state,
+    sourceId: sourceID || undefined,
+    view,
+    limit: pageSize,
+  })
+  const readerQuery = useInfiniteQuery<ReaderPage, Error, InfiniteData<ReaderPage, string | undefined>, typeof readerKey, string | undefined>({
+    queryKey: readerKey,
+    initialPageParam: undefined as string | undefined,
+    refetchOnMount: 'always',
+    queryFn: ({ pageParam }) => {
+      const query = {
+        q: debouncedSearch,
+        state,
+        sourceId: sourceID || undefined,
+        limit: pageSize,
+        cursor: pageParam,
+      }
+      return sourceID
+        ? api.listSourceEntries(sourceID, query)
+        : api.listStories(query)
+    },
+    getNextPageParam: (lastPage) => lastPage.next_cursor || undefined,
+  })
+  const serverPages = readerQuery.data?.pages ?? []
+  const lastPage = serverPages[serverPages.length - 1]
+  const totalCount = lastPage
+    ? ('entries' in lastPage ? lastPage.total_entries : lastPage.total_stories)
+    : 0
+  const loading = readerQuery.isPending
+  const loadingMore = readerQuery.isFetchingNextPage
+  const hasMore = Boolean(readerQuery.hasNextPage)
+  const error = readerQuery.error instanceof Error ? readerQuery.error.message : ''
+  const selectedStory = selected ? storiesByEntry[selected.id] : undefined
+  const storyDetailQuery = useQuery({
+    queryKey: queryKeys.story(selectedStory?.id || ''),
+    queryFn: () => api.getStory(selectedStory!.id),
+    enabled: Boolean(selectedStory && selectedStory.entry_count > 1 && !selectedStory.entries),
+  })
 
   function closeSelectedEntry() {
     const element = selectedEntryElement.current
@@ -1533,68 +1623,116 @@ function Reader({
   }, [search])
 
   useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    setError('')
-    const state = view === 'inbox' ? 'inbox' : view
+    setPendingNewCount(0)
+    setHighlightedEntryIDs(new Set())
+    knownStoryIDs.current = new Set()
+    pendingStoryIDs.current = new Set()
+    hasRenderedServerData.current = false
+    setSelected(null)
+  }, [debouncedSearch, sourceID, view])
+
+  useEffect(() => {
+    if (!readerQuery.data) return
+    const stories = readerQuery.data.pages.flatMap((page) => (
+      'entries' in page
+        ? page.entries.map(readerStoryFromSourceEntry)
+        : page.stories.map(readerStoryFromStory)
+    ))
+    const items = stories.map((item) => projectReaderEntry(item.representative, item))
+    const storyIDs = new Set(stories.map((item) => item.id))
+    const added = hasRenderedServerData.current
+      ? stories.filter((item) => !knownStoryIDs.current.has(item.id)).map((item) => item.representative.id)
+      : []
+    hasRenderedServerData.current = true
+    knownStoryIDs.current = storyIDs
+    if (added.length > 0) {
+      setHighlightedEntryIDs((current) => new Set([...current, ...added]))
+    }
+    setEntries(items)
+    setStoriesByEntry((current) => Object.fromEntries(stories.map((item) => {
+      const existing = current[item.representative.id]
+      return [item.representative.id, existing?.entries ? { ...item, entries: existing.entries } : item]
+    })))
+    setSelected((current) => items.find((item) => item.id === current?.id) ?? null)
+  }, [readerQuery.data])
+
+  useEffect(() => {
+    if (!storyDetailQuery.data || !selected) return
+    setStoriesByEntry((current) => Object.fromEntries(
+      Object.entries(current).map(([entryID, story]) => [
+        entryID,
+        story.id === storyDetailQuery.data!.id ? storyDetailQuery.data : story,
+      ]),
+    ))
+  }, [selected?.id, storyDetailQuery.data])
+
+  async function loadMore() {
+    try {
+      await readerQuery.fetchNextPage()
+    } catch (cause) {
+      setReaderNotice(cause instanceof Error ? cause.message : '加载更多文章失败')
+    }
+  }
+
+  function canAutoRefresh() {
+    const stream = entryStreamElement.current
+    return document.visibilityState === 'visible' &&
+      selected === null &&
+      (stream === null || stream.scrollTop <= 80)
+  }
+
+  async function probeForNewStories() {
     const query = {
       q: debouncedSearch,
       state,
       sourceId: sourceID || undefined,
       limit: pageSize,
     }
-    const request = sourceID
-      ? api.listSourceEntries(sourceID, query)
-      : api.listStories(query)
-    void request.then((page) => {
-      if (cancelled) return
-      const stories = 'entries' in page ? page.entries.map(readerStoryFromSourceEntry) : page.stories.map(readerStoryFromStory)
-      const items = stories.map((item) => projectReaderEntry(item.representative, item))
-      setEntries(items)
-      setStoriesByEntry(Object.fromEntries(stories.map((story) => [story.representative.id, story])))
-      setTotalCount('entries' in page ? page.total_entries : page.total_stories)
-      setNextCursor(page.next_cursor)
-      setHasMore(Boolean(page.next_cursor))
-      setSelected((current) => items.find((item) => item.id === current?.id) ?? null)
-    }).catch((cause: unknown) => {
-      if (!cancelled) setError(cause instanceof Error ? cause.message : '加载文章失败')
-    }).finally(() => {
-      if (!cancelled) setLoading(false)
+    const probeKey = [...readerKey, 'probe'] as const
+    const page = await queryClient.fetchQuery<ReaderPage>({
+      queryKey: probeKey,
+      queryFn: () => sourceID ? api.listSourceEntries(sourceID, query) : api.listStories(query),
+      staleTime: 0,
     })
-    return () => {
-      cancelled = true
-    }
-  }, [debouncedSearch, sourceID, view])
+    const stories = 'entries' in page
+      ? page.entries.map(readerStoryFromSourceEntry)
+      : page.stories.map(readerStoryFromStory)
+    pendingStoryIDs.current = new Set(
+      stories
+        .filter((story) => !knownStoryIDs.current.has(story.id))
+        .map((story) => story.id),
+    )
+    setPendingNewCount(pendingStoryIDs.current.size)
+  }
 
-  async function loadMore() {
-    setLoadingMore(true)
-    setError('')
-    try {
-      const state = view === 'inbox' ? 'inbox' : view
-      const query = {
-        q: debouncedSearch,
-        state,
-        sourceId: sourceID || undefined,
-        limit: pageSize,
-        cursor: nextCursor,
+  useEffect(() => {
+    if (!realtimeSignal || realtimeSignal.kind === 'reconnected' && realtimeConnectionState === 'connecting') return
+    if (sourceID && realtimeSignal.sourceId && sourceID !== realtimeSignal.sourceId) return
+    const reconcile = async () => {
+      try {
+        if (canAutoRefresh()) {
+          pendingStoryIDs.current = new Set()
+          setPendingNewCount(0)
+          await readerQuery.refetch()
+          return
+        }
+        await probeForNewStories()
+      } catch {
+        // SSE is an enhancement. A later event, visibility restoration, or
+        // reconnect will try the HTTP reconciliation again.
       }
-      if (!nextCursor) return
-      const page = sourceID
-        ? await api.listSourceEntries(sourceID, query)
-        : await api.listStories(query)
-      const stories = 'entries' in page ? page.entries.map(readerStoryFromSourceEntry) : page.stories.map(readerStoryFromStory)
-      const items = stories.map((item) => projectReaderEntry(item.representative, item))
-      setEntries((current) => [...current, ...items])
-      setStoriesByEntry((current) => ({
-        ...current,
-        ...Object.fromEntries(stories.map((story) => [story.representative.id, story])),
-      }))
-      setNextCursor(page.next_cursor)
-      setHasMore(Boolean(page.next_cursor))
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '加载更多文章失败')
-    } finally {
-      setLoadingMore(false)
+    }
+    void reconcile()
+  }, [realtimeSignal?.id])
+
+  async function acceptNewContent() {
+    pendingStoryIDs.current = new Set()
+    setPendingNewCount(0)
+    try {
+      await readerQuery.refetch()
+      entryStreamElement.current?.scrollTo({ top: 0, behavior: 'smooth' })
+    } catch {
+      setReaderNotice('加载新内容失败，请稍后重试')
     }
   }
 
@@ -1789,14 +1927,6 @@ function Reader({
     if (!item.read_at) {
       void patch(item, { read: true })
     }
-    const story = storiesByEntry[item.id]
-    if (story && story.entry_count > 1 && !story.entries) {
-      void api.getStory(story.id).then((detail) => {
-        setStoriesByEntry((current) => ({ ...current, [item.id]: detail }))
-      }).catch(() => {
-        // The representative Entry remains readable when Story detail loading fails.
-      })
-    }
   }
 
   async function markAllRead() {
@@ -1862,6 +1992,23 @@ function Reader({
           </label>
         </div>
       </header>
+      {pendingNewCount > 0 && (
+        <div className="border-b bg-amber-50 px-4 py-2 text-sm text-amber-950" role="status" aria-live="polite">
+          <Button
+            unstyled
+            className="w-full cursor-pointer text-left font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={`加载 ${pendingNewCount} 条新内容`}
+            onClick={() => void acceptNewContent()}
+          >
+            有 {pendingNewCount} 条新内容
+          </Button>
+        </div>
+      )}
+      {realtimeConnectionState === 'degraded' && (
+        <div className="border-b bg-muted/60 px-4 py-1.5 text-xs text-muted-foreground" aria-live="polite">
+          实时更新已断开，正在重连…
+        </div>
+      )}
       {readerNotice && <div className="absolute right-4 top-[72px] z-[5] rounded-lg border border-[#dce1e5] bg-white/95 px-3 py-2 text-sm text-[#55606b] shadow-[0_8px_24px_rgba(45,51,60,.1)]" role="status">{readerNotice}</div>}
       <section
         className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain border-0 bg-card shadow-none [scrollbar-gutter:stable] max-md:[-webkit-overflow-scrolling:touch] max-md:[scrollbar-gutter:auto]"
@@ -1877,6 +2024,7 @@ function Reader({
               className={cn(
                 'border-b last:border-b-0',
                 selected?.id === item.id && 'bg-card shadow-[inset_3px_0_hsl(var(--border))]',
+                highlightedEntryIDs.has(item.id) && 'new-content-highlight',
               )}
               key={item.id}
             >

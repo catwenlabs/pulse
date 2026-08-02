@@ -23,6 +23,7 @@ import (
 	"github.com/catwenlabs/pulse/internal/drivers/push"
 	"github.com/catwenlabs/pulse/internal/effect"
 	"github.com/catwenlabs/pulse/internal/embedding"
+	"github.com/catwenlabs/pulse/internal/events"
 	"github.com/catwenlabs/pulse/internal/ingestion"
 	"github.com/catwenlabs/pulse/internal/platform/httpclient"
 	"github.com/catwenlabs/pulse/internal/preview"
@@ -67,6 +68,7 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 	if err := migrate.Run(ctx, pool); err != nil {
 		return fmt.Errorf("migrate PostgreSQL: %w", err)
 	}
+	changeHub := events.NewLibraryChangeHub()
 
 	credentialCipher, err := security.NewCredentialCipher(cfg.MasterKey)
 	if err != nil {
@@ -74,7 +76,7 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 	}
 	sourceStore := postgresstore.NewSourceStore(pool, credentialCipher)
 	acquisitionStore := postgresstore.NewAcquisitionStore(pool)
-	entryStore := postgresstore.NewEntryStore(pool)
+	entryStore := postgresstore.NewEntryStore(pool, changeHub.PublishSource)
 	storyStore := postgresstore.NewStoryStore(pool)
 	opmlStore := postgresstore.NewOPMLStore(pool)
 	organizationStore := postgresstore.NewOrganizationStore(pool)
@@ -103,8 +105,8 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 			return fmt.Errorf("configure embedding provider: %w", err)
 		}
 	}
-	storyProcessor := story.NewProcessor(storyStore, embeddingProvider)
-	backend := httpserver.NewBackend(
+	storyProcessor := story.NewProcessor(storyStore, embeddingProvider, changeHub.PublishSource)
+	backend := httpserver.NewBackendWithEvents(
 		sourceStore,
 		acquisitionStore,
 		entryStore,
@@ -113,6 +115,7 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 		organizationStore,
 		storyStore,
 		storyProcessor,
+		changeHub.PublishSource,
 		ruleStore,
 	)
 
@@ -165,7 +168,7 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpserver.NewHandlerWithWeb(backend, os.DirFS(cfg.WebDir)),
+		Handler:           httpserver.NewHandlerWithWebAndEvents(backend, os.DirFS(cfg.WebDir), changeHub),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

@@ -42,6 +42,33 @@ func TestProcessorMergesExactContentStory(t *testing.T) {
 	}
 }
 
+func TestProcessorPublishesSourceAfterStoryMerge(t *testing.T) {
+	now := time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC)
+	repository := &fakeRepository{
+		pending: []Candidate{{
+			StoryID:    "new-story",
+			Entry:      entry.Entry{ID: "new-entry", SourceID: "source-1", SourceTitle: "OpenAI 发布模型", DiscoveredAt: now},
+			Features:   BuildFeatures("OpenAI 发布模型", "相同的新闻正文"),
+			EntryCount: 1,
+		}},
+		candidates: []Candidate{{
+			StoryID:    "existing-story",
+			Entry:      entry.Entry{ID: "existing-entry", SourceID: "source-2", SourceTitle: "OpenAI正式发布模型", DiscoveredAt: now},
+			Features:   BuildFeatures("OpenAI正式发布模型", "相同的新闻正文"),
+			EntryCount: 1,
+		}},
+	}
+	var publishedSource string
+	processor := NewProcessor(repository, nil, func(sourceID string) { publishedSource = sourceID })
+
+	if _, err := processor.RunOnce(context.Background(), 10); err != nil {
+		t.Fatalf("RunOnce() error = %v", err)
+	}
+	if publishedSource != "source-1" {
+		t.Fatalf("published source = %q, want source-1", publishedSource)
+	}
+}
+
 func TestProcessorDoesNotAutomaticallyMergeEstablishedStory(t *testing.T) {
 	now := time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC)
 	repository := &fakeRepository{

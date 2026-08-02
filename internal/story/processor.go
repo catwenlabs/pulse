@@ -28,17 +28,23 @@ type Processor struct {
 	repository Repository
 	embedder   embedding.Provider
 	now        func() time.Time
+	publish    func(string)
 
 	mu                  sync.Mutex
 	runMu               sync.Mutex
 	embeddingRetryAfter time.Time
 }
 
-func NewProcessor(repository Repository, embedder embedding.Provider) *Processor {
+func NewProcessor(repository Repository, embedder embedding.Provider, publishers ...func(string)) *Processor {
+	var publish func(string)
+	if len(publishers) > 0 {
+		publish = publishers[0]
+	}
 	return &Processor{
 		repository: repository,
 		embedder:   embedder,
 		now:        time.Now,
+		publish:    publish,
 	}
 }
 
@@ -55,8 +61,12 @@ func (processor *Processor) RunOnce(ctx context.Context, limit int) (int, error)
 		return 0, fmt.Errorf("list pending stories: %w", err)
 	}
 	for index, item := range items {
-		if err := processor.process(ctx, item); err != nil {
+		changed, err := processor.process(ctx, item)
+		if err != nil {
 			return index, err
+		}
+		if changed && processor.publish != nil {
+			processor.publish(string(item.Entry.SourceID))
 		}
 	}
 	return len(items), nil
@@ -78,7 +88,7 @@ func (processor *Processor) Run(ctx context.Context) error {
 	}
 }
 
-func (processor *Processor) process(ctx context.Context, item Candidate) error {
+func (processor *Processor) process(ctx context.Context, item Candidate) (bool, error) {
 	model := ""
 	if processor.embedder != nil {
 		model = processor.embedder.Model()
@@ -93,7 +103,7 @@ func (processor *Processor) process(ctx context.Context, item Candidate) error {
 		item.Features = BuildFeatures(item.Entry.SourceTitle, content)
 		item.Features.CanonicalURL = item.Entry.CanonicalURL
 		if err := processor.repository.SaveFeatures(ctx, item.Entry.ID, item.Features); err != nil {
-			return fmt.Errorf("save features for Entry %s: %w", item.Entry.ID, err)
+			return false, fmt.Errorf("save features for Entry %s: %w", item.Entry.ID, err)
 		}
 	}
 	if (len(item.Features.Embedding) == 0 || item.Features.EmbeddingModel != model) &&
@@ -106,7 +116,7 @@ func (processor *Processor) process(ctx context.Context, item Candidate) error {
 
 	candidates, err := processor.repository.Candidates(ctx, item, candidateLimit)
 	if err != nil {
-		return fmt.Errorf("list candidates for story %s: %w", item.StoryID, err)
+		return false, fmt.Errorf("list candidates for story %s: %w", item.StoryID, err)
 	}
 	bestScore := -1.0
 	var best Candidate
@@ -134,14 +144,14 @@ func (processor *Processor) process(ctx context.Context, item Candidate) error {
 			best.StoryID,
 			bestMatch,
 		); err != nil {
-			return fmt.Errorf("merge story %s into %s: %w", item.StoryID, best.StoryID, err)
+			return false, fmt.Errorf("merge story %s into %s: %w", item.StoryID, best.StoryID, err)
 		}
-		return nil
+		return true, nil
 	}
 	if err := processor.repository.MarkClustered(ctx, item.StoryID); err != nil {
-		return fmt.Errorf("mark story %s clustered: %w", item.StoryID, err)
+		return false, fmt.Errorf("mark story %s clustered: %w", item.StoryID, err)
 	}
-	return nil
+	return false, nil
 }
 
 func (processor *Processor) addEmbedding(ctx context.Context, item *Candidate) error {

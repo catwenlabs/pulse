@@ -17,8 +17,67 @@ const source = {
 const scrollIntoView = vi.fn()
 const scrollTo = vi.fn()
 
+class FakeEventSource {
+  static instances: FakeEventSource[] = []
+  readonly listeners = new Map<string, Array<(event: MessageEvent<string>) => void>>()
+  onopen: (() => void) | null = null
+  onerror: (() => void) | null = null
+  readonly close = vi.fn()
+
+  constructor(readonly url: string) {
+    FakeEventSource.instances.push(this)
+  }
+
+  addEventListener(type: string, listener: (event: MessageEvent<string>) => void) {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener])
+  }
+
+  open() {
+    this.onopen?.()
+  }
+
+  emit(type: string, data: string) {
+    const event = new MessageEvent<string>(type, { data })
+    for (const listener of this.listeners.get(type) ?? []) listener(event)
+  }
+}
+
+function realtimeStory(id: string, title: string) {
+  const entryID = `entry-${id}`
+  return {
+    id,
+    display_title: title,
+    representative: {
+      id: entryID,
+      source_id: 'source-1',
+      identity_key: `external:${entryID}`,
+      source_title: title,
+      summary: `${title} summary`,
+      content_html: `<p>${title} body</p>`,
+      discovered_at: '2026-07-25T00:00:00Z',
+    },
+    entry_count: 1,
+    source_count: 1,
+  }
+}
+
+function realtimePage(stories: ReturnType<typeof realtimeStory>[]) {
+  return {
+    stories,
+    total_stories: stories.length,
+    reader_counts: {
+      inbox_stories: stories.length,
+      unread_stories: stories.length,
+      starred_stories: 0,
+      later_stories: 0,
+      hidden_stories: 0,
+    },
+  }
+}
+
 describe('App', () => {
   beforeEach(() => {
+    FakeEventSource.instances = []
     let folderState = [{
       id: 'folder-1',
       name: 'Tech',
@@ -1265,6 +1324,7 @@ describe('App', () => {
     const sidebar = document.querySelector('aside')!
     const allArticles = await within(sidebar).findByRole('link', { name: /全部文章/ })
     expect(within(allArticles).getByText('7')).toBeInTheDocument()
+    await waitFor(() => expect(document.title).toBe('(7) Pulse'))
   })
 
   it('refreshes source counts after marking an entry read', async () => {
@@ -1292,5 +1352,147 @@ describe('App', () => {
         String(url).endsWith('/api/v1/stories/story-1') && init?.method === 'PATCH')).toBe(true)
     })
     await waitFor(() => expect(sourcesGets()).toBeGreaterThanOrEqual(2))
+  })
+
+  it('applies a visible library change without showing a prompt when the list is at the top', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    let includeNewStory = false
+    vi.stubGlobal('EventSource', FakeEventSource)
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/v1/stories') && !init?.method) {
+        const stories = includeNewStory
+          ? [realtimeStory('story-2', 'New article'), realtimeStory('story-1', 'Existing article')]
+          : [realtimeStory('story-1', 'Existing article')]
+        return new Response(JSON.stringify(realtimePage(stories)), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return defaultFetch(input, init)
+    })
+
+    render(<App />)
+    expect(await screen.findByText('Existing article')).toBeInTheDocument()
+    const eventSource = FakeEventSource.instances.at(-1)!
+    eventSource.open()
+    includeNewStory = true
+    eventSource.emit('library-change', JSON.stringify({ source_id: 'source-1' }))
+
+    expect(await screen.findByText('New article')).toBeInTheDocument()
+    expect(screen.queryByText('有 1 条新内容')).not.toBeInTheDocument()
+  })
+
+  it('does not count a new Source Entry joined to an existing Story as new content', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    let includeJoinedEntry = false
+    vi.stubGlobal('EventSource', FakeEventSource)
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/v1/sources/source-1/entries') && !init?.method) {
+        const makeEntry = (id: string, title: string) => ({
+          entry: {
+            id,
+            source_id: 'source-1',
+            identity_key: `external:${id}`,
+            source_title: title,
+            content_html: `<p>${title} body</p>`,
+            discovered_at: '2026-07-25T00:00:00Z',
+          },
+          story: { id: 'story-1', entry_count: includeJoinedEntry ? 2 : 1, source_count: 1 },
+        })
+        const entries = includeJoinedEntry
+          ? [makeEntry('entry-2', 'Joined version'), makeEntry('entry-1', 'Existing article')]
+          : [makeEntry('entry-1', 'Existing article')]
+        return new Response(JSON.stringify({
+          entries,
+          total_entries: entries.length,
+          reader_counts: {
+            inbox_stories: 1,
+            unread_stories: 1,
+            starred_stories: 0,
+            later_stories: 0,
+            hidden_stories: 0,
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return defaultFetch(input, init)
+    })
+
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Example Feed' }))
+    expect(await screen.findByText('Existing article')).toBeInTheDocument()
+    const eventSource = FakeEventSource.instances.at(-1)!
+    eventSource.open()
+    includeJoinedEntry = true
+    eventSource.emit('library-change', JSON.stringify({ source_id: 'source-1' }))
+
+    expect(await screen.findByText('Joined version')).toBeInTheDocument()
+    expect(screen.queryByText('有 1 条新内容')).not.toBeInTheDocument()
+  })
+
+  it('keeps the reading position stable and prompts for changes while hidden or scrolled', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    let includeNewStory = false
+    vi.stubGlobal('EventSource', FakeEventSource)
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/v1/stories') && !init?.method) {
+        const stories = includeNewStory
+          ? [realtimeStory('story-2', 'New article'), realtimeStory('story-1', 'Existing article')]
+          : [realtimeStory('story-1', 'Existing article')]
+        return new Response(JSON.stringify(realtimePage(stories)), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return defaultFetch(input, init)
+    })
+
+    render(<App />)
+    expect(await screen.findByText('Existing article')).toBeInTheDocument()
+    const eventSource = FakeEventSource.instances.at(-1)!
+    eventSource.open()
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    includeNewStory = true
+    eventSource.emit('library-change', JSON.stringify({ source_id: 'source-1' }))
+
+    expect(await screen.findByText('有 1 条新内容')).toBeInTheDocument()
+    expect(screen.queryByText('New article')).not.toBeInTheDocument()
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    fireEvent.click(screen.getByRole('button', { name: '加载 1 条新内容' }))
+    expect(await screen.findByText('New article')).toBeInTheDocument()
+  })
+
+  it('does not hot-replace an expanded Story when a new library change arrives', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    let includeNewStory = false
+    vi.stubGlobal('EventSource', FakeEventSource)
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/v1/stories') && !init?.method) {
+        const stories = includeNewStory
+          ? [realtimeStory('story-2', 'New article'), realtimeStory('story-1', 'Existing article')]
+          : [realtimeStory('story-1', 'Existing article')]
+        return new Response(JSON.stringify(realtimePage(stories)), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return defaultFetch(input, init)
+    })
+
+    render(<App />)
+    fireEvent.click(await screen.findByText('Existing article'))
+    expect(screen.getByText('Existing article body')).toBeInTheDocument()
+    const eventSource = FakeEventSource.instances.at(-1)!
+    eventSource.open()
+    includeNewStory = true
+    eventSource.emit('library-change', JSON.stringify({ source_id: 'source-1' }))
+
+    expect(await screen.findByText('有 1 条新内容')).toBeInTheDocument()
+    expect(screen.getByText('Existing article body')).toBeInTheDocument()
+    expect(screen.queryByText('New article')).not.toBeInTheDocument()
   })
 })

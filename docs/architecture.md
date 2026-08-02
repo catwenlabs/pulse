@@ -38,7 +38,13 @@ flowchart LR
     DB --> UI["Reader / Search / Views"]
 ```
 
-系统采用模块化单体。Go 后端提供 REST/OpenAPI 接口，TypeScript/React 前端通过 SSE 接收进度、未读计数和站内通知。Web、Scheduler、Acquisition Worker 和 Effect Worker 使用同一镜像并可按角色启动；默认由一个容器运行全部角色。
+系统采用模块化单体。Go 后端提供 REST/OpenAPI 接口，TypeScript/React 前端通过 SSE 接收提交后的轻量变更信号，再用 HTTP 读取权威数据。Web、Scheduler、Acquisition Worker 和 Effect Worker 使用同一镜像并可按角色启动；默认由一个容器运行全部角色。
+
+### 2.1 Reader realtime updates
+
+`GET /api/v1/events` 提供进程内 SSE 广播。Entry 批次只有在完整事务提交后才发布信号；Story 聚合成功合并、Reader 状态变化、Source/Folder/View/Rule 等管理变更也会发布信号。信号是短小的失效通知，不携带 Story 或 Entry 内容，不保证重放，也不引入 Redis、WebSocket 或其他有状态队列。连接发送标准 `EventSource` `retry` 提示和心跳注释；客户端断线超过 30 秒显示弱连接状态，并通过 HTTP 重新协调。
+
+Reader 的查询、筛选、搜索和游标分页始终由服务端执行，TanStack Query 只管理 Sources、Folders、Story 列表/详情及有限的失效与重取。当前页面可见、没有展开 Story 且文章列表滚动位置不超过 80px 时，新内容可以自动重取；否则保留“有 N 条新内容”提示，用户确认后再更新。已存在 Entry 的更新，或新 Entry 被归入已有 Story，不计为新的 Story 提示；展开的 Entry 正文不会被实时替换。未读数量同时更新侧栏和浏览器标题。跨标签页只通过 `BroadcastChannel` 传播失效，不复制内容，仍以 HTTP 重取为准。
 
 ## 3. The Stable Ingestion Seam
 
@@ -337,6 +343,7 @@ internal/
 ├── story/        跨 Source 聚合、相似度判断和 Story 生命周期
 ├── rule/         条件求值、数据库动作和 Effect 创建
 ├── effect/       Outbox Worker 与通知/Webhook Adapter
+├── events/       进程内提交后变更信号广播
 ├── search/       FTS 索引与查询
 ├── reader/       阅读状态、标签、文件夹和 View
 ├── storage/      PostgreSQL schema、事务、队列和 Outbox 实现

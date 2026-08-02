@@ -100,6 +100,7 @@ type backend struct {
 	rules        ruleRepository
 	stories      storyRepository
 	reclusterer  storyReclusterer
+	publish      func(string)
 }
 
 func NewBackend(
@@ -113,6 +114,42 @@ func NewBackend(
 	reclusterer storyReclusterer,
 	ruleStores ...ruleRepository,
 ) Backend {
+	return newBackend(
+		sources, acquisitions, entries, opmlRepository, previewer,
+		organizationStore, storyStore, reclusterer, nil, ruleStores...,
+	)
+}
+
+func NewBackendWithEvents(
+	sources sourceRepository,
+	acquisitions acquisitionQueue,
+	entries entryRepository,
+	opmlRepository opmlRepository,
+	previewer sourcePreviewer,
+	organizationStore organizationRepository,
+	storyStore storyRepository,
+	reclusterer storyReclusterer,
+	publish func(string),
+	ruleStores ...ruleRepository,
+) Backend {
+	return newBackend(
+		sources, acquisitions, entries, opmlRepository, previewer,
+		organizationStore, storyStore, reclusterer, publish, ruleStores...,
+	)
+}
+
+func newBackend(
+	sources sourceRepository,
+	acquisitions acquisitionQueue,
+	entries entryRepository,
+	opmlRepository opmlRepository,
+	previewer sourcePreviewer,
+	organizationStore organizationRepository,
+	storyStore storyRepository,
+	reclusterer storyReclusterer,
+	publish func(string),
+	ruleStores ...ruleRepository,
+) Backend {
 	service := &backend{
 		sources:      sources,
 		acquisitions: acquisitions,
@@ -122,11 +159,18 @@ func NewBackend(
 		organization: organizationStore,
 		stories:      storyStore,
 		reclusterer:  reclusterer,
+		publish:      publish,
 	}
 	if len(ruleStores) > 0 {
 		service.rules = ruleStores[0]
 	}
 	return service
+}
+
+func (service *backend) publishLibraryChange(sourceID string) {
+	if service.publish != nil {
+		service.publish(sourceID)
+	}
 }
 
 func (service *backend) ListStories(ctx context.Context, query story.Query) ([]story.Story, error) {
@@ -146,15 +190,27 @@ func (service *backend) UpdateStory(
 	id story.ID,
 	patch story.Patch,
 ) (story.Story, error) {
-	return service.stories.Update(ctx, id, patch)
+	updated, err := service.stories.Update(ctx, id, patch)
+	if err == nil {
+		service.publishLibraryChange("")
+	}
+	return updated, err
 }
 
 func (service *backend) SetStoryRepresentative(ctx context.Context, storyID story.ID, entryID entry.ID) (story.Story, error) {
-	return service.stories.SetRepresentative(ctx, storyID, entryID)
+	updated, err := service.stories.SetRepresentative(ctx, storyID, entryID)
+	if err == nil {
+		service.publishLibraryChange("")
+	}
+	return updated, err
 }
 
 func (service *backend) MarkStoriesRead(ctx context.Context, sourceID string) (int64, error) {
-	return service.stories.MarkRead(ctx, sourceID)
+	count, err := service.stories.MarkRead(ctx, sourceID)
+	if err == nil && count > 0 {
+		service.publishLibraryChange(sourceID)
+	}
+	return count, err
 }
 
 func (service *backend) MergeStories(
@@ -166,7 +222,9 @@ func (service *backend) MergeStories(
 	if err := service.stories.MergeManual(ctx, from, into, options); err != nil {
 		return story.Story{}, err
 	}
-	return service.stories.Get(ctx, into)
+	service.publishLibraryChange("")
+	merged, err := service.stories.Get(ctx, into)
+	return merged, err
 }
 
 func (service *backend) SplitStory(
@@ -179,7 +237,9 @@ func (service *backend) SplitStory(
 	if err != nil {
 		return story.Story{}, err
 	}
-	return service.stories.Get(ctx, newID)
+	service.publishLibraryChange("")
+	created, err := service.stories.Get(ctx, newID)
+	return created, err
 }
 
 // Recluster drains pending Story aggregation on demand, re-evaluating single-Entry
@@ -208,7 +268,11 @@ func (service *backend) Recluster(ctx context.Context) (int, error) {
 }
 
 func (service *backend) CreateRule(ctx context.Context, definition rule.Rule) (rule.Rule, error) {
-	return service.rules.Create(ctx, definition)
+	created, err := service.rules.Create(ctx, definition)
+	if err == nil {
+		service.publishLibraryChange("")
+	}
+	return created, err
 }
 func (service *backend) ListRules(ctx context.Context) ([]rule.Rule, error) {
 	return service.rules.List(ctx)
@@ -217,10 +281,18 @@ func (service *backend) GetRule(ctx context.Context, id string) (rule.Rule, erro
 	return service.rules.Get(ctx, id)
 }
 func (service *backend) UpdateRule(ctx context.Context, definition rule.Rule) (rule.Rule, error) {
-	return service.rules.Update(ctx, definition)
+	updated, err := service.rules.Update(ctx, definition)
+	if err == nil {
+		service.publishLibraryChange("")
+	}
+	return updated, err
 }
 func (service *backend) DeleteRule(ctx context.Context, id string) error {
-	return service.rules.Delete(ctx, id)
+	err := service.rules.Delete(ctx, id)
+	if err == nil {
+		service.publishLibraryChange("")
+	}
+	return err
 }
 func (service *backend) PreviewRule(ctx context.Context, id string) (rule.PreviewResult, error) {
 	return service.rules.Preview(ctx, id)
@@ -230,31 +302,59 @@ func (service *backend) ReplayRule(ctx context.Context, id string, effects bool)
 }
 
 func (service *backend) CreateFolder(ctx context.Context, name string) (organization.Folder, error) {
-	return service.organization.CreateFolder(ctx, name)
+	created, err := service.organization.CreateFolder(ctx, name)
+	if err == nil {
+		service.publishLibraryChange("")
+	}
+	return created, err
 }
 func (service *backend) ListFolders(ctx context.Context) ([]organization.Folder, error) {
 	return service.organization.ListFolders(ctx)
 }
 func (service *backend) DeleteFolder(ctx context.Context, id string) error {
-	return service.organization.DeleteFolder(ctx, id)
+	err := service.organization.DeleteFolder(ctx, id)
+	if err == nil {
+		service.publishLibraryChange("")
+	}
+	return err
 }
 func (service *backend) AddSourceToFolder(ctx context.Context, folderID string, sourceID source.ID) error {
-	return service.organization.AddSourceToFolder(ctx, folderID, sourceID)
+	err := service.organization.AddSourceToFolder(ctx, folderID, sourceID)
+	if err == nil {
+		service.publishLibraryChange(string(sourceID))
+	}
+	return err
 }
 func (service *backend) RemoveSourceFromFolder(ctx context.Context, folderID string, sourceID source.ID) error {
-	return service.organization.RemoveSourceFromFolder(ctx, folderID, sourceID)
+	err := service.organization.RemoveSourceFromFolder(ctx, folderID, sourceID)
+	if err == nil {
+		service.publishLibraryChange(string(sourceID))
+	}
+	return err
 }
 func (service *backend) CreateView(ctx context.Context, view organization.View) (organization.View, error) {
-	return service.organization.CreateView(ctx, view)
+	created, err := service.organization.CreateView(ctx, view)
+	if err == nil {
+		service.publishLibraryChange("")
+	}
+	return created, err
 }
 func (service *backend) UpdateView(ctx context.Context, view organization.View) (organization.View, error) {
-	return service.organization.UpdateView(ctx, view)
+	updated, err := service.organization.UpdateView(ctx, view)
+	if err == nil {
+		service.publishLibraryChange("")
+	}
+	return updated, err
 }
 func (service *backend) ListViews(ctx context.Context) ([]organization.View, error) {
 	return service.organization.ListViews(ctx)
 }
 func (service *backend) DeleteView(ctx context.Context, id string) error {
-	return service.organization.DeleteView(ctx, id)
+	err := service.organization.DeleteView(ctx, id)
+	if err == nil {
+		service.publishLibraryChange("")
+	}
+	return err
 }
 
 func (service *backend) PreviewSource(ctx context.Context, spec source.Spec) (preview.Result, error) {
@@ -273,7 +373,11 @@ func (service *backend) ExportOPML(ctx context.Context) ([]opml.Subscription, er
 }
 
 func (service *backend) CreateSource(ctx context.Context, spec source.Spec) (source.Source, error) {
-	return service.sources.Create(ctx, spec)
+	created, err := service.sources.Create(ctx, spec)
+	if err == nil {
+		service.publishLibraryChange(string(created.ID))
+	}
+	return created, err
 }
 
 func (service *backend) ListSources(ctx context.Context) ([]source.Source, error) {
@@ -299,7 +403,9 @@ func (service *backend) SetSourceEnabled(
 	if err := service.sources.SetEnabled(ctx, id, enabled); err != nil {
 		return source.Source{}, err
 	}
-	return service.sources.Get(ctx, id)
+	service.publishLibraryChange(string(id))
+	updated, err := service.sources.Get(ctx, id)
+	return updated, err
 }
 
 func (service *backend) UpdateSource(
@@ -312,17 +418,25 @@ func (service *backend) UpdateSource(
 	if err != nil {
 		return source.Source{}, err
 	}
-	return service.sources.Update(ctx, id, source.Spec{
+	updated, err := service.sources.Update(ctx, id, source.Spec{
 		Name:      name,
 		Kind:      current.Kind,
 		Locator:   locator,
 		Config:    current.Config,
 		SecretRef: current.SecretRef,
 	})
+	if err == nil {
+		service.publishLibraryChange(string(id))
+	}
+	return updated, err
 }
 
 func (service *backend) ArchiveSource(ctx context.Context, id source.ID) error {
-	return service.sources.Archive(ctx, id)
+	err := service.sources.Archive(ctx, id)
+	if err == nil {
+		service.publishLibraryChange(string(id))
+	}
+	return err
 }
 
 func (service *backend) SetSourceSecret(
@@ -330,7 +444,11 @@ func (service *backend) SetSourceSecret(
 	id source.ID,
 	secret string,
 ) error {
-	return service.sources.SetSecretRef(ctx, id, secret)
+	err := service.sources.SetSecretRef(ctx, id, secret)
+	if err == nil {
+		service.publishLibraryChange(string(id))
+	}
+	return err
 }
 
 func (service *backend) GetSourceHealth(ctx context.Context, id source.ID) (source.Health, error) {
@@ -378,13 +496,25 @@ func (service *backend) GetEntry(ctx context.Context, id entry.ID) (entry.Entry,
 }
 
 func (service *backend) DeleteEntry(ctx context.Context, id entry.ID, confirmed bool) error {
-	return service.entries.Delete(ctx, id, confirmed)
+	err := service.entries.Delete(ctx, id, confirmed)
+	if err == nil {
+		service.publishLibraryChange("")
+	}
+	return err
 }
 
 func (service *backend) AddStoryTag(ctx context.Context, id story.ID, name string) (entry.Tag, error) {
-	return service.stories.AddTag(ctx, id, name)
+	tag, err := service.stories.AddTag(ctx, id, name)
+	if err == nil {
+		service.publishLibraryChange("")
+	}
+	return tag, err
 }
 
 func (service *backend) RemoveStoryTag(ctx context.Context, id story.ID, tagID string) error {
-	return service.stories.RemoveTag(ctx, id, tagID)
+	err := service.stories.RemoveTag(ctx, id, tagID)
+	if err == nil {
+		service.publishLibraryChange("")
+	}
+	return err
 }
