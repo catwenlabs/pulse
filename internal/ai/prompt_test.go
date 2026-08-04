@@ -48,4 +48,7 @@ func TestDigestRequestDoesNotIncludeEntryBody(t *testing.T) {
 	if len(request.Messages) != 2 || strings.Contains(request.Messages[1].Content, "body-secret") {
 		t.Errorf("Digest prompt exposes content fields: %q", request.Messages[1].Content)
 	}
+	if request.MaxTokens != 4096 {
+		t.Errorf("Digest MaxTokens = %d, want 4096", request.MaxTokens)
+	}
 }
