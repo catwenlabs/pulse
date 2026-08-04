@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/catwenlabs/pulse/internal/ai"
 	"github.com/catwenlabs/pulse/internal/config"
 	annotationdriver "github.com/catwenlabs/pulse/internal/drivers/annotations"
 	"github.com/catwenlabs/pulse/internal/drivers/feed"
@@ -106,7 +107,30 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 		}
 	}
 	storyProcessor := story.NewProcessor(storyStore, embeddingProvider, changeHub.PublishSource)
-	backend := httpserver.NewBackendWithEvents(
+	var aiStore *postgresstore.AIStore
+	var aiProvider ai.Provider
+	var aiService ai.Summarization
+	if cfg.AIProvider != "" && cfg.AIProvider != "disabled" {
+		aiStore = postgresstore.NewAIStore(pool, postgresstore.AIStoreOptions{
+			MaxActiveJobs: cfg.AIMaxActiveJobs,
+		})
+		adapter, adapterErr := ai.NewOpenAICompatible(ai.OpenAICompatibleConfig{
+			ProviderName: cfg.AIProvider,
+			BaseURL:      cfg.AIBaseURL,
+			APIKey:       cfg.AIAPIKey,
+			Model:        cfg.AIModel,
+			Headers:      cfg.AIHeaders,
+			Timeout:      cfg.AITimeout,
+		})
+		if adapterErr != nil {
+			return fmt.Errorf("configure AI Provider: %w", adapterErr)
+		}
+		aiProvider = adapter
+		aiService = ai.NewService(aiStore, aiProvider, ai.ServiceOptions{
+			MaxDigestStories: cfg.AIMaxDigestStories,
+		})
+	}
+	backend := httpserver.NewBackendWithEventsAndAI(
 		sourceStore,
 		acquisitionStore,
 		entryStore,
@@ -116,6 +140,7 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 		storyStore,
 		storyProcessor,
 		changeHub.PublishSource,
+		aiService,
 		ruleStore,
 	)
 
@@ -136,6 +161,17 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 				slog.Error("worker stopped", "error", err)
 			}
 		}()
+		if aiStore != nil && aiProvider != nil {
+			aiProcessor := ai.NewProcessor(aiStore, aiProvider, ai.ProcessorOptions{
+				Lease: cfg.AITimeout + time.Minute,
+			})
+			aiRunner := worker.New(aiProcessor, owner+"-ai")
+			go func() {
+				if err := aiRunner.Run(ctx); err != nil {
+					slog.Error("AI worker stopped", "error", err)
+				}
+			}()
+		}
 	}
 	if slices.Contains(cfg.Roles, config.RoleScheduler) {
 		runner := scheduler.New(sourceStore, acquisitionStore)

@@ -17,8 +17,10 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
+	"github.com/catwenlabs/pulse/internal/ai"
 	"github.com/catwenlabs/pulse/internal/annotation"
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/events"
@@ -63,7 +65,7 @@ type Backend interface {
 	GetStory(context.Context, story.ID) (story.Story, error)
 	UpdateStory(context.Context, story.ID, story.Patch) (story.Story, error)
 	SetStoryRepresentative(context.Context, story.ID, entry.ID) (story.Story, error)
-	MarkStoriesRead(context.Context, string) (int64, error)
+	MarkStoriesRead(context.Context, string, []string) (int64, error)
 	MergeStories(context.Context, story.ID, story.ID, story.MergeOptions) (story.Story, error)
 	SplitStory(context.Context, story.ID, entry.ID, story.SplitOptions) (story.Story, error)
 	AddStoryTag(context.Context, story.ID, string) (entry.Tag, error)
@@ -79,6 +81,15 @@ type Backend interface {
 	DeleteRule(context.Context, string) error
 	PreviewRule(context.Context, string) (rule.PreviewResult, error)
 	ReplayRule(context.Context, string, bool) (rule.ReplayResult, error)
+}
+
+type aiBackend interface {
+	RequestStorySummary(context.Context, string) (ai.JobReceipt, error)
+	GetStorySummary(context.Context, string) (ai.StorySummary, error)
+	PreviewDigest(context.Context, ai.DigestScope) (ai.DigestPreview, error)
+	RequestDigest(context.Context, ai.DigestScope) (ai.JobReceipt, error)
+	ListDigests(context.Context, int) ([]ai.Digest, error)
+	GetDigest(context.Context, string) (ai.Digest, error)
 }
 
 func NewHandler(backends ...Backend) http.Handler {
@@ -130,6 +141,7 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("GET /api/v1/stories", listStories(backend))
 	mux.HandleFunc("PATCH /api/v1/stories", markStoriesRead(backend))
 	mux.HandleFunc("GET /api/v1/stories/{id}", getStory(backend))
+	mux.HandleFunc("POST /api/v1/stories/{id}/ai-summary", requestStorySummary(backend))
 	mux.HandleFunc("PATCH /api/v1/stories/{id}", updateStory(backend))
 	mux.HandleFunc("PUT /api/v1/stories/{id}/representative", setStoryRepresentative(backend))
 	mux.HandleFunc("POST /api/v1/stories/{id}/merge", mergeStory(backend))
@@ -137,6 +149,10 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("POST /api/v1/stories/{id}/tags", addStoryTag(backend))
 	mux.HandleFunc("DELETE /api/v1/stories/{id}/tags/{tagID}", removeStoryTag(backend))
 	mux.HandleFunc("POST /api/v1/stories/recluster", reclusterStories(backend))
+	mux.HandleFunc("GET /api/v1/digests", listDigests(backend))
+	mux.HandleFunc("GET /api/v1/digests/preview", previewDigest(backend))
+	mux.HandleFunc("POST /api/v1/digests", createDigest(backend))
+	mux.HandleFunc("GET /api/v1/digests/{id}", getDigest(backend))
 	mux.HandleFunc("POST /api/v1/opml/import", importOPML(backend))
 	mux.HandleFunc("GET /api/v1/opml/export", exportOPML(backend))
 	mux.HandleFunc("GET /api/v1/folders", listFolders(backend))
@@ -187,7 +203,149 @@ func listStories(backend Backend) http.HandlerFunc {
 
 func getStory(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
-		item, err := backend.GetStory(request.Context(), story.ID(request.PathValue("id")))
+		storyID := story.ID(request.PathValue("id"))
+		item, err := backend.GetStory(request.Context(), storyID)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		if service, ok := backend.(aiBackend); ok {
+			summary, summaryErr := service.GetStorySummary(request.Context(), string(storyID))
+			if summaryErr == nil {
+				writeJSON(w, http.StatusOK, struct {
+					story.Story
+					AISummary ai.StorySummary `json:"ai_summary"`
+				}{Story: item, AISummary: summary})
+				return
+			}
+			if !errors.Is(summaryErr, ai.ErrUnavailable) {
+				writeDomainError(w, summaryErr)
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, item)
+	}
+}
+
+func requestStorySummary(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		service, ok := backend.(aiBackend)
+		if !ok {
+			writeProblem(w, http.StatusServiceUnavailable, "ai_unavailable", ai.ErrUnavailable.Error(), "")
+			return
+		}
+		job, err := service.RequestStorySummary(request.Context(), request.PathValue("id"))
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, job)
+	}
+}
+
+func listDigests(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		service, ok := backend.(aiBackend)
+		if !ok {
+			writeProblem(w, http.StatusServiceUnavailable, "ai_unavailable", ai.ErrUnavailable.Error(), "")
+			return
+		}
+		limit := 50
+		if value := strings.TrimSpace(request.URL.Query().Get("limit")); value != "" {
+			parsed, err := strconv.Atoi(value)
+			if err != nil || parsed < 1 || parsed > 200 {
+				writeProblem(w, http.StatusBadRequest, "invalid_request", "limit must be between 1 and 200", "limit")
+				return
+			}
+			limit = parsed
+		}
+		items, err := service.ListDigests(request.Context(), limit)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, nonNilSlice(items))
+	}
+}
+
+func previewDigest(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		service, ok := backend.(aiBackend)
+		if !ok {
+			writeProblem(w, http.StatusServiceUnavailable, "ai_unavailable", ai.ErrUnavailable.Error(), "")
+			return
+		}
+		scope, err := digestScopeFromQuery(request)
+		if err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		preview, err := service.PreviewDigest(request.Context(), scope)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, preview)
+	}
+}
+
+func createDigest(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		service, ok := backend.(aiBackend)
+		if !ok {
+			writeProblem(w, http.StatusServiceUnavailable, "ai_unavailable", ai.ErrUnavailable.Error(), "")
+			return
+		}
+		var body ai.DigestScope
+		if request.ContentLength != 0 {
+			if err := decodeJSONBody(w, request, &body); err != nil {
+				writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+				return
+			}
+		}
+		job, err := service.RequestDigest(request.Context(), body)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, job)
+	}
+}
+
+func digestScopeFromQuery(request *http.Request) (ai.DigestScope, error) {
+	var scope ai.DigestScope
+	if value := strings.TrimSpace(request.URL.Query().Get("start_at")); value != "" {
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return ai.DigestScope{}, fmt.Errorf("start_at must be RFC3339")
+		}
+		scope.StartAt = &parsed
+	}
+	if value := strings.TrimSpace(request.URL.Query().Get("end_at")); value != "" {
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return ai.DigestScope{}, fmt.Errorf("end_at must be RFC3339")
+		}
+		scope.EndAt = &parsed
+	}
+	if value := strings.TrimSpace(request.URL.Query().Get("max_stories")); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return ai.DigestScope{}, fmt.Errorf("max_stories must be an integer")
+		}
+		scope.MaxStories = parsed
+	}
+	return scope, nil
+}
+
+func getDigest(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		service, ok := backend.(aiBackend)
+		if !ok {
+			writeProblem(w, http.StatusServiceUnavailable, "ai_unavailable", ai.ErrUnavailable.Error(), "")
+			return
+		}
+		item, err := service.GetDigest(request.Context(), request.PathValue("id"))
 		if err != nil {
 			writeDomainError(w, err)
 			return
@@ -366,7 +524,8 @@ func reclusterStories(backend Backend) http.HandlerFunc {
 func markStoriesRead(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
 		var body struct {
-			Read bool `json:"read"`
+			Read     bool      `json:"read"`
+			StoryIDs *[]string `json:"story_ids"`
 		}
 		if err := decodeJSONBody(w, request, &body); err != nil {
 			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
@@ -376,9 +535,22 @@ func markStoriesRead(backend Backend) http.HandlerFunc {
 			writeProblem(w, http.StatusBadRequest, "invalid_request", "read must be true", "read")
 			return
 		}
+		var storyIDs []string
+		if body.StoryIDs != nil {
+			if len(*body.StoryIDs) == 0 {
+				writeProblem(w, http.StatusBadRequest, "invalid_request", "story_ids must not be empty", "story_ids")
+				return
+			}
+			if len(*body.StoryIDs) > 200 {
+				writeProblem(w, http.StatusBadRequest, "invalid_request", "story_ids must contain at most 200 items", "story_ids")
+				return
+			}
+			storyIDs = *body.StoryIDs
+		}
 		count, err := backend.MarkStoriesRead(
 			request.Context(),
 			request.URL.Query().Get("source_id"),
+			storyIDs,
 		)
 		if err != nil {
 			writeDomainError(w, err)
@@ -1261,6 +1433,9 @@ func deleteEntry(backend Backend) http.HandlerFunc {
 func writeDomainError(w http.ResponseWriter, err error) {
 	var validationErr *source.ValidationError
 	var orderValidationErr *organization.OrderValidationError
+	var limitErr *ai.ScopeLimitError
+	var scopeValidationErr *ai.ScopeValidationError
+	var queueLimitErr *ai.QueueLimitError
 	switch {
 	case errors.As(err, &validationErr):
 		writeProblem(w, http.StatusUnprocessableEntity, "validation_error", validationErr.Message, validationErr.Field)
@@ -1280,6 +1455,18 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusBadRequest, "invalid_cursor", err.Error(), "cursor")
 	case errors.Is(err, story.ErrReclusterUnavailable):
 		writeProblem(w, http.StatusServiceUnavailable, "recluster_unavailable", err.Error(), "")
+	case errors.Is(err, ai.ErrUnavailable):
+		writeProblem(w, http.StatusServiceUnavailable, "ai_unavailable", err.Error(), "")
+	case errors.Is(err, ai.ErrNoStories):
+		writeProblem(w, http.StatusUnprocessableEntity, "ai_no_stories", err.Error(), "")
+	case errors.Is(err, ai.ErrNotFound):
+		writeProblem(w, http.StatusNotFound, "ai_not_found", err.Error(), "")
+	case errors.As(err, &limitErr):
+		writeProblem(w, http.StatusUnprocessableEntity, "ai_scope_too_large", err.Error(), "max_stories")
+	case errors.As(err, &scopeValidationErr):
+		writeProblem(w, http.StatusUnprocessableEntity, "validation_error", scopeValidationErr.Message, scopeValidationErr.Field)
+	case errors.As(err, &queueLimitErr):
+		writeProblem(w, http.StatusTooManyRequests, "ai_queue_full", err.Error(), "")
 	case errors.Is(err, ingestion.ErrFetch):
 		writeProblem(w, http.StatusBadGateway, "source_fetch_failed", err.Error(), "")
 	case errors.Is(err, ingestion.ErrParse):

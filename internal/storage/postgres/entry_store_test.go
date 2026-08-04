@@ -271,7 +271,7 @@ func TestEntryStoreSearchStatePatchAndTags(t *testing.T) {
 	}
 }
 
-func TestEntryStoreMarkReadCanBeScopedToSource(t *testing.T) {
+func TestEntryStoreMarkReadCanBeScopedToSourceOrStoryIDs(t *testing.T) {
 	pool := testPool(t)
 	sourceStore := NewSourceStore(pool)
 	acquisitionStore := NewAcquisitionStore(pool)
@@ -296,7 +296,7 @@ func TestEntryStoreMarkReadCanBeScopedToSource(t *testing.T) {
 		}
 	}
 
-	updated, err := storyStore.MarkRead(ctx, string(first.ID))
+	updated, err := storyStore.MarkRead(ctx, string(first.ID), nil)
 	if err != nil || updated != 1 {
 		t.Fatalf("MarkRead() = %d, %v", updated, err)
 	}
@@ -311,6 +311,15 @@ func TestEntryStoreMarkReadCanBeScopedToSource(t *testing.T) {
 	})
 	if err != nil || len(secondUnread) != 1 {
 		t.Fatalf("second unread = %+v, %v", secondUnread, err)
+	}
+
+	updated, err = storyStore.MarkRead(ctx, "", []string{string(secondUnread[0].ID)})
+	if err != nil || updated != 1 {
+		t.Fatalf("MarkRead() by Story ID = %d, %v", updated, err)
+	}
+	remainingUnread, err := storyStore.Search(ctx, story.Query{Limit: 10, State: "unread"})
+	if err != nil || len(remainingUnread) != 0 {
+		t.Fatalf("remaining unread = %+v, %v", remainingUnread, err)
 	}
 }
 

@@ -12,3 +12,6 @@ web/vite.config.d.ts
 *.tsbuildinfo
 .DS_Store
 .agents/
+.env
+.env.*
+!.env.example

@@ -1,5 +1,5 @@
 import { createContext, FormEvent, useCallback, useContext, useEffect, useRef, useState, type DragEvent, type ReactNode, type SetStateAction } from 'react'
-import { QueryClientProvider, useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query'
+import { QueryClientProvider, useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import {
   BookOpen,
@@ -16,11 +16,13 @@ import {
   Rss,
   Search,
   Star,
+  Sparkles,
   X,
   type LucideIcon,
 } from 'lucide-react'
 
 import * as api from './api'
+import { DigestPage, isStoredStorySummary, StoryDetailPage, StorySummaryCard } from './AISummarization'
 import type { AnnotationInput, CreateSourceInput, Entry, Folder, PreviewResult, Source, SourceHealth, SourceKind, Story, StoryPatch } from './api'
 import { Button, buttonVariants } from './components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, SheetContent } from './components/ui/dialog'
@@ -30,12 +32,13 @@ import { Select } from './components/ui/select'
 import { Textarea } from './components/ui/textarea'
 import { Toaster } from './components/ui/sonner'
 import { cn } from './lib/utils'
+import { sanitizeEntryHTML } from './lib/sanitizeEntryHTML'
 import { createQueryClient, queryKeys } from './query'
 import { useLibraryRealtime, type LibraryRealtimeSignal, type RealtimeConnectionState } from './realtime'
 import { toast } from 'sonner'
 import './styles.css'
 
-export type View = 'sources' | 'inbox' | 'starred' | 'later' | 'annotations'
+export type View = 'sources' | 'inbox' | 'starred' | 'later' | 'annotations' | 'ai' | 'story'
 type SaveRequest = { url: string; title: string }
 type ReaderEntry = Entry & {
   display_title: string
@@ -188,7 +191,7 @@ export function App() {
   )
 }
 
-export function AppContent({ view, sourceID: selectedSourceID }: { view: View; sourceID: string }) {
+export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: { view: View; sourceID: string; storyID?: string }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const { requestMobileMenuFocus, consumeMobileMenuFocus } = useContext(NavigationFocusContext)
@@ -523,7 +526,7 @@ export function AppContent({ view, sourceID: selectedSourceID }: { view: View; s
     }
   }
 
-  function showStream(view: Exclude<View, 'sources'>, sourceID = '') {
+  function showStream(view: Exclude<View, 'sources' | 'ai' | 'story'>, sourceID = '') {
     if (view === 'starred') void navigate({ to: '/starred' })
     else if (view === 'later') void navigate({ to: '/later' })
     else if (view === 'annotations') void navigate({ to: '/annotations' })
@@ -546,6 +549,7 @@ export function AppContent({ view, sourceID: selectedSourceID }: { view: View; s
   }
 
   const activeView = view
+  const showSourceTree = activeView === 'inbox'
   const activeSourceName = sources.find((source) => source.id === selectedSourceID)?.name
   const assignedSourceIDs = new Set(folders.flatMap((folder) => folder.source_ids))
   const rootSources = sources.filter((source) => !assignedSourceIDs.has(source.id))
@@ -565,6 +569,10 @@ export function AppContent({ view, sourceID: selectedSourceID }: { view: View; s
           ? '稍后阅读'
           : activeView === 'annotations'
             ? '阅读笔记'
+            : activeView === 'ai'
+              ? 'AI 追更'
+              : activeView === 'story'
+                ? 'Story'
             : '全部文章'
     )
 
@@ -598,7 +606,10 @@ export function AppContent({ view, sourceID: selectedSourceID }: { view: View; s
       }}
     >
     <Toaster />
-    <div className="grid h-dvh min-h-0 grid-cols-[288px_minmax(0,1fr)] overflow-hidden max-md:block max-md:w-full">
+    <div className={cn(
+      'grid h-dvh min-h-0 overflow-hidden max-md:block max-md:w-full',
+      showSourceTree ? 'grid-cols-[288px_minmax(0,1fr)]' : 'grid-cols-[72px_minmax(0,1fr)]',
+    )}>
       <SheetContent
         persistent={!isMobile}
         onOpenAutoFocus={(event) => {
@@ -611,7 +622,10 @@ export function AppContent({ view, sourceID: selectedSourceID }: { view: View; s
         }}
       >
       <aside
-        className="fixed inset-y-0 left-0 z-30 flex w-56 flex-col border-r bg-sidebar px-3 pb-0 pt-[max(0.25rem,env(safe-area-inset-top))] text-sidebar-foreground transition-transform md:grid md:w-72 md:grid-cols-[72px_216px] md:grid-rows-[auto_minmax(0,1fr)_auto] md:p-0 md:translate-x-0 max-md:w-[min(86vw,20rem)] max-md:-translate-x-full max-md:shadow-xl data-[state=open]:translate-x-0"
+        className={cn(
+          'fixed inset-y-0 left-0 z-30 flex w-56 flex-col border-r bg-sidebar px-3 pb-0 pt-[max(0.25rem,env(safe-area-inset-top))] text-sidebar-foreground transition-[width,transform] motion-reduce:transition-none md:grid md:grid-rows-[auto_minmax(0,1fr)_auto] md:p-0 md:translate-x-0 max-md:w-[min(86vw,20rem)] max-md:-translate-x-full max-md:shadow-xl data-[state=open]:translate-x-0',
+          showSourceTree ? 'md:w-72 md:grid-cols-[72px_216px]' : 'md:w-[72px] md:grid-cols-[72px]',
+        )}
         id="mobile-navigation"
         role="navigation"
         aria-label="移动导航抽屉"
@@ -648,7 +662,7 @@ export function AppContent({ view, sourceID: selectedSourceID }: { view: View; s
           </div>
         </div>
 
-        <section className="mt-6 flex min-h-0 flex-1 flex-col overflow-hidden px-2 max-md:order-2 max-md:mt-0 md:col-start-2 md:row-span-3 md:row-start-1 md:mt-0 md:border-l md:bg-[#f2f0e9] md:px-3 md:py-5" aria-labelledby="source-tree-label">
+        {showSourceTree && <section className="mt-6 flex min-h-0 flex-1 flex-col overflow-hidden px-2 max-md:order-2 max-md:mt-0 md:col-start-2 md:row-span-3 md:row-start-1 md:mt-0 md:border-l md:bg-[#f2f0e9] md:px-3 md:py-5" aria-labelledby="source-tree-label">
           <div className="mb-3 flex items-center justify-between px-1 text-xs text-muted-foreground">
             <p className="m-0 text-sm font-semibold text-foreground md:text-base" id="source-tree-label">订阅源</p>
             <span>{sources.length}</span>
@@ -742,10 +756,13 @@ export function AppContent({ view, sourceID: selectedSourceID }: { view: View; s
               </div>
             ))}
           </div>
-        </section>
+        </section>}
 
         {isMobile ? (
-          <div className="order-3 border-t border-[#d8d4ca] px-2 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-xs text-muted-foreground">
+          <div className={cn(
+            'order-3 border-t border-[#d8d4ca] px-2 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-xs text-muted-foreground',
+            !showSourceTree && 'max-md:mt-auto',
+          )}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button unstyled className={navItemClass(activeView !== 'inbox', 'min-h-11 w-full justify-between gap-3 border border-border/80 bg-card px-2.5 shadow-sm hover:border-primary/25')} aria-label="更多导航">
@@ -762,6 +779,10 @@ export function AppContent({ view, sourceID: selectedSourceID }: { view: View; s
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'starred' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'starred' ? 'page' : undefined} onSelect={() => showStream('starred')}><NavIcon name="star" />收藏</DropdownMenuItem>
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'later' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'later' ? 'page' : undefined} onSelect={() => showStream('later')}><NavIcon name="clock" />稍后阅读</DropdownMenuItem>
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'annotations' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'annotations' ? 'page' : undefined} onSelect={() => showStream('annotations')}><NavIcon name="book" />阅读笔记</DropdownMenuItem>
+                <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'ai' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'ai' ? 'page' : undefined} onSelect={() => {
+                  void navigate({ to: '/digests' })
+                  closeMobileNavigation()
+                }}><NavIcon name="ai" />AI 追更</DropdownMenuItem>
                 <DropdownMenuItem className="min-h-11 gap-3" onSelect={() => {
                   closeMobileNavigation(false)
                   setShowBookmarklet(true)
@@ -791,6 +812,7 @@ export function AppContent({ view, sourceID: selectedSourceID }: { view: View; s
               <Link className={navItemClass(activeView === 'starred', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/starred" onClick={() => closeMobileNavigation()}><NavIcon name="star" />收藏</Link>
               <Link className={navItemClass(activeView === 'later', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/later" onClick={() => closeMobileNavigation()}><NavIcon name="clock" />稍后阅读</Link>
               <Link className={navItemClass(activeView === 'annotations', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/annotations" onClick={() => closeMobileNavigation()}><NavIcon name="book" />阅读笔记</Link>
+              <Link className={navItemClass(activeView === 'ai', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/digests" onClick={() => closeMobileNavigation()}><NavIcon name="ai" />AI 追更</Link>
             </nav>
             <div className="m-0 grid gap-2 border-t border-[#d8d4ca] px-2 pb-4 pt-2 text-xs leading-5 text-muted-foreground md:col-start-1 md:row-start-3">
               <Button unstyled className={navItemClass(false, 'min-h-[54px] w-full flex-col justify-center gap-1 px-1 text-center text-[10px] leading-none')} ref={bookmarkletButtonRef} aria-label="安装保存书签" onClick={() => setShowBookmarklet(true)}>
@@ -823,8 +845,9 @@ export function AppContent({ view, sourceID: selectedSourceID }: { view: View; s
 
       <main
         className={cn(
-          'col-start-2 h-dvh min-w-0 overflow-y-auto bg-background p-0',
-          activeView !== 'sources' && 'overflow-hidden max-md:grid max-md:grid-rows-[auto_minmax(0,1fr)]',
+          'col-start-2 h-dvh min-w-0 overflow-y-auto overscroll-contain bg-background p-0 [scrollbar-gutter:stable]',
+          activeView !== 'sources' && activeView !== 'ai' && activeView !== 'story' && 'overflow-hidden max-md:grid max-md:grid-rows-[auto_minmax(0,1fr)]',
+          (activeView === 'ai' || activeView === 'story') && 'max-md:block',
           activeView === 'sources' && 'px-[clamp(24px,4vw,56px)] py-9 max-md:px-0 max-md:py-0',
         )}
         inert={isMobile && mobileNavigationOpen ? true : undefined}
@@ -957,6 +980,10 @@ export function AppContent({ view, sourceID: selectedSourceID }: { view: View; s
               current.map((source) => source.id === updated.id ? updated : source)
             ))}
           />
+        ) : activeView === 'ai' ? (
+          <DigestPage />
+        ) : activeView === 'story' ? (
+          <StoryDetailPage storyID={storyID} />
         ) : (
           <Reader
             view={activeView}
@@ -1727,7 +1754,7 @@ function Reader({
   realtimeSignal,
   realtimeConnectionState,
 }: {
-  view: Exclude<View, 'sources'>
+  view: Exclude<View, 'sources' | 'ai' | 'story'>
   sourceID: string
   sourceName?: string
   sources: Source[]
@@ -1736,9 +1763,11 @@ function Reader({
   realtimeSignal: LibraryRealtimeSignal | null
   realtimeConnectionState: RealtimeConnectionState
 }) {
+  const navigate = useNavigate()
   const [entries, setEntries] = useState<ReaderEntry[]>([])
   const [storiesByEntry, setStoriesByEntry] = useState<Record<string, ReaderStory>>({})
   const [selected, setSelected] = useState<ReaderEntry | null>(null)
+  const [inlineSummaryStoryID, setInlineSummaryStoryID] = useState('')
   const [actionMenuOpen, setActionMenuOpen] = useState(false)
   const [notesOpen, setNotesOpen] = useState(false)
   const [mergePickerOpen, setMergePickerOpen] = useState(false)
@@ -1803,11 +1832,26 @@ function Reader({
   const hasMore = Boolean(readerQuery.hasNextPage)
   const error = readerQuery.error instanceof Error ? readerQuery.error.message : ''
   const selectedStory = selected ? storiesByEntry[selected.id] : undefined
+  const selectedStoryID = selectedStory?.id || ''
   const storyDetailQuery = useQuery({
-    queryKey: queryKeys.story(selectedStory?.id || ''),
+    queryKey: queryKeys.story(selectedStoryID),
     queryFn: () => api.getStory(selectedStory!.id),
-    enabled: Boolean(selectedStory && selectedStory.entry_count > 1 && !selectedStory.entries),
+    enabled: Boolean(selectedStory),
+    refetchInterval: (query) => isActiveStorySummary(query.state.data?.ai_summary) ? 1500 : false,
   })
+  const storySummaryMutation = useMutation({
+    mutationFn: (storyID: string) => api.requestStorySummary(storyID),
+    onSuccess: (_job, storyID) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.story(storyID) })
+    },
+  })
+  const storedStorySummary = storyDetailQuery.data?.ai_summary
+  const hasStoredStorySummary = isStoredStorySummary(storedStorySummary)
+  const inlineSummaryVisible = Boolean(selectedStoryID && (
+    inlineSummaryStoryID === selectedStoryID
+    || hasStoredStorySummary
+    || storyDetailQuery.error
+  ))
 
   function clearReaderNoticeTimer() {
     if (readerNoticeTimeout.current !== undefined) {
@@ -1873,6 +1917,7 @@ function Reader({
     setEntries([])
     setStoriesByEntry({})
     setSelected(null)
+    setInlineSummaryStoryID('')
     clearReaderNotice()
     entryStreamElement.current?.scrollTo({ top: 0 })
   }, [debouncedSearch, sourceID, view])
@@ -2179,7 +2224,7 @@ function Reader({
     setMarkingAllRead(true)
     clearReaderNotice()
     try {
-      const result = await api.markStoriesRead(sourceID || undefined)
+      const result = await api.markStoriesRead({ sourceId: sourceID || undefined })
       const readAt = new Date().toISOString()
       setEntries((current) => current.map((item) => item.read_at ? item : { ...item, read_at: readAt }))
       setStoriesByEntry((current) => Object.fromEntries(
@@ -2217,6 +2262,20 @@ function Reader({
         return raw && owner ? projectReaderEntry(raw, owner) : selected
       })()
     : null
+  const inlineSummary = storyDetailQuery.data?.ai_summary
+  const summaryRequestPending = (
+    (storySummaryMutation.isPending && storySummaryMutation.variables === selectedStoryID)
+    || isActiveStorySummary(inlineSummary)
+  )
+  const summaryActionLabel = summaryRequestPending
+    ? '正在生成…'
+    : hasStoredStorySummary
+      ? '重新生成AI摘要'
+      : '生成AI摘要'
+  const displayedInlineSummary = inlineSummary
+    ?? (summaryRequestPending && selectedStoryID
+      ? { story_id: selectedStoryID, status: 'queued' as const }
+      : undefined)
   return (
     <div className="relative grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
       <header className="z-[3] flex min-h-16 items-center justify-between gap-6 border-b bg-card/95 px-5 py-2 shadow-[0_1px_3px_rgba(42,48,58,.04)] max-md:static max-md:min-h-14 max-md:px-3">
@@ -2341,9 +2400,25 @@ function Reader({
                     {activeEntry!.display_title && activeEntry!.source_title && activeEntry!.display_title !== activeEntry!.source_title && (
                       <p className="-mt-2 mb-4 text-sm text-muted-foreground">来源标题：{activeEntry!.source_title}</p>
                     )}
-                    <div className="mb-5 flex min-h-12 items-center justify-between border-b border-[#eeeae2] text-sm text-muted-foreground max-md:mb-3">
-                      <span>{activeEntry!.author || sourceNames[activeEntry!.source_id] || '未知来源'}</span>
-                      <div className="flex items-center gap-1">
+                    <div className="mb-5 flex min-h-12 flex-wrap items-center justify-between gap-2 border-b border-[#eeeae2] text-sm text-muted-foreground max-md:mb-3">
+                      <span className="min-w-0 truncate">{activeEntry!.author || sourceNames[activeEntry!.source_id] || '未知来源'}</span>
+                      <div className="flex min-w-0 shrink-0 items-center gap-1">
+                        {storiesByEntry[item.id] && (
+                          <Button
+                            unstyled
+                            className="inline-flex min-h-9 min-w-0 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:underline hover:underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                            aria-label={summaryActionLabel}
+                            disabled={summaryRequestPending || storyDetailQuery.isPending}
+                            onClick={() => {
+                              const storyID = storiesByEntry[item.id].id
+                              setInlineSummaryStoryID(storyID)
+                              storySummaryMutation.mutate(storyID)
+                            }}
+                          >
+                            <Sparkles className="size-4 shrink-0" aria-hidden="true" />
+                            <span>{summaryActionLabel}</span>
+                          </Button>
+                        )}
                         <DropdownMenu open={actionMenuOpen} onOpenChange={setActionMenuOpen}>
                           <DropdownMenuTrigger asChild>
                             <Button unstyled className="grid size-10 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="更多操作"><MoreHorizontal className="size-4" aria-hidden="true" /></Button>
@@ -2358,6 +2433,12 @@ function Reader({
                             </DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => setNotesOpen((open) => !open)}>
                               编辑标题与笔记
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => void navigate({
+                              to: '/stories/$storyID',
+                              params: { storyID: storiesByEntry[item.id].id },
+                            })}>
+                              查看 Story 与 AI 摘要
                             </DropdownMenuItem>
                             {mergeTargets.length > 0 && (
                               <DropdownMenuItem onSelect={() => setMergePickerOpen(true)}>合并到其他 Story</DropdownMenuItem>
@@ -2375,6 +2456,19 @@ function Reader({
                         </Button>
                       </div>
                     </div>
+                    {inlineSummaryVisible && (
+                      <div className="reader-inline-summary">
+                        <StorySummaryCard
+                          summary={displayedInlineSummary}
+                          loading={storyDetailQuery.isPending && !displayedInlineSummary}
+                          loadError={storyDetailQuery.error instanceof Error ? storyDetailQuery.error : null}
+                          onRetry={() => void storyDetailQuery.refetch()}
+                        />
+                        {storySummaryMutation.isError && storySummaryMutation.variables === selectedStoryID && (
+                          <p className="story-request-error" role="alert">{storySummaryMutation.error.message}</p>
+                        )}
+                      </div>
+                    )}
                     {(storiesByEntry[item.id]?.entries?.length ?? 0) > 1 && (
                       <div className="mb-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                         <span>同一则新闻 · {storiesByEntry[item.id].entries!.length} 个来源：</span>
@@ -2619,56 +2713,8 @@ function compactTime(value: string): string {
   return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(date)
 }
 
-function sanitizeEntryHTML(value: string, baseURL?: string): string {
-  const document = new DOMParser().parseFromString(value, 'text/html')
-  const blocked = 'script,style,iframe,object,embed,form,input,button,textarea,select,link,meta,base,svg,math'
-  document.body.querySelectorAll(blocked).forEach((element) => element.remove())
-
-  const allowed = new Set([
-    'A', 'B', 'BLOCKQUOTE', 'BR', 'CODE', 'DEL', 'DIV', 'EM', 'FIGCAPTION', 'FIGURE',
-    'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR', 'I', 'IMG', 'LI', 'OL', 'P', 'PRE',
-    'S', 'SPAN', 'STRONG', 'SUB', 'SUP', 'TABLE', 'TBODY', 'TD', 'TFOOT', 'TH',
-    'THEAD', 'TR', 'U', 'UL',
-  ])
-
-  Array.from(document.body.querySelectorAll('*')).forEach((element) => {
-    if (!allowed.has(element.tagName)) {
-      element.replaceWith(...Array.from(element.childNodes))
-      return
-    }
-
-    const href = element.tagName === 'A' ? safeContentURL(element.getAttribute('href'), baseURL) : ''
-    const src = element.tagName === 'IMG' ? safeContentURL(element.getAttribute('src'), baseURL) : ''
-    const alt = element.tagName === 'IMG' ? element.getAttribute('alt') || '' : ''
-    element.getAttributeNames().forEach((name) => element.removeAttribute(name))
-
-    if (element.tagName === 'A' && href) {
-      element.setAttribute('href', href)
-      element.setAttribute('target', '_blank')
-      element.setAttribute('rel', 'noopener noreferrer')
-    }
-    if (element.tagName === 'IMG' && src) {
-      element.setAttribute('src', src)
-      element.setAttribute('alt', alt)
-      element.setAttribute('loading', 'lazy')
-      element.setAttribute('decoding', 'async')
-      element.setAttribute('referrerpolicy', 'no-referrer')
-    } else if (element.tagName === 'IMG') {
-      element.remove()
-    }
-  })
-
-  return document.body.innerHTML
-}
-
-function safeContentURL(value: string | null, baseURL?: string): string {
-  if (!value) return ''
-  try {
-    const url = new URL(value, baseURL || window.location.origin)
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : ''
-  } catch {
-    return ''
-  }
+function isActiveStorySummary(summary?: api.StoryAISummary) {
+  return summary?.status === 'queued' || summary?.status === 'running'
 }
 
 function CreateSourceDialog({
@@ -2977,6 +3023,7 @@ function NavIcon({ name }: { name: string }) {
     clock: Clock3,
     bookmark: Bookmark,
     book: BookOpen,
+    ai: Sparkles,
   }
   const Icon = icons[name] ?? Inbox
   return <Icon className="size-4 shrink-0" strokeWidth={1.8} aria-hidden="true" />

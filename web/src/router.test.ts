@@ -15,5 +15,11 @@ describe('file-based router', () => {
 
     await router.navigate({ to: '/starred' })
     expect(router.state.location.pathname).toBe('/starred')
+
+    await router.navigate({ to: '/digests' })
+    expect(router.state.location.pathname).toBe('/digests')
+
+    await router.navigate({ to: '/stories/$storyID', params: { storyID: 'story-1' } })
+    expect(router.state.location.pathname).toBe('/stories/story-1')
   })
 })

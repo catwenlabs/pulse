@@ -11,12 +11,14 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AnnotationsRouteImport } from './routes/annotations'
+import { Route as DigestsRouteImport } from './routes/digests'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as LaterRouteImport } from './routes/later'
 import { Route as SourcesRouteImport } from './routes/sources'
 import { Route as StarredRouteImport } from './routes/starred'
 import { Route as SourcesIndexRouteImport } from './routes/sources.index'
 import { Route as SourcesSourceIDRouteImport } from './routes/sources.$sourceID'
+import { Route as StoriesStoryIDRouteImport } from './routes/stories.$storyID'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -26,6 +28,11 @@ const IndexRoute = IndexRouteImport.update({
 const AnnotationsRoute = AnnotationsRouteImport.update({
   id: '/annotations',
   path: '/annotations',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DigestsRoute = DigestsRouteImport.update({
+  id: '/digests',
+  path: '/digests',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InboxRoute = InboxRouteImport.update({
@@ -58,35 +65,46 @@ const SourcesSourceIDRoute = SourcesSourceIDRouteImport.update({
   path: '/$sourceID',
   getParentRoute: () => SourcesRoute,
 } as any)
+const StoriesStoryIDRoute = StoriesStoryIDRouteImport.update({
+  id: '/stories/$storyID',
+  path: '/stories/$storyID',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/annotations': typeof AnnotationsRoute
+  '/digests': typeof DigestsRoute
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
   '/sources': typeof SourcesRouteWithChildren
   '/starred': typeof StarredRoute
   '/sources/$sourceID': typeof SourcesSourceIDRoute
+  '/stories/$storyID': typeof StoriesStoryIDRoute
   '/sources/': typeof SourcesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/annotations': typeof AnnotationsRoute
+  '/digests': typeof DigestsRoute
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
   '/starred': typeof StarredRoute
   '/sources/$sourceID': typeof SourcesSourceIDRoute
+  '/stories/$storyID': typeof StoriesStoryIDRoute
   '/sources': typeof SourcesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/annotations': typeof AnnotationsRoute
+  '/digests': typeof DigestsRoute
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
   '/sources': typeof SourcesRouteWithChildren
   '/starred': typeof StarredRoute
   '/sources/$sourceID': typeof SourcesSourceIDRoute
+  '/stories/$storyID': typeof StoriesStoryIDRoute
   '/sources/': typeof SourcesIndexRoute
 }
 export interface FileRouteTypes {
@@ -94,40 +112,48 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/annotations'
+    | '/digests'
     | '/inbox'
     | '/later'
     | '/sources'
     | '/starred'
     | '/sources/$sourceID'
+    | '/stories/$storyID'
     | '/sources/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/annotations'
+    | '/digests'
     | '/inbox'
     | '/later'
     | '/starred'
     | '/sources/$sourceID'
+    | '/stories/$storyID'
     | '/sources'
   id:
     | '__root__'
     | '/'
     | '/annotations'
+    | '/digests'
     | '/inbox'
     | '/later'
     | '/sources'
     | '/starred'
     | '/sources/$sourceID'
+    | '/stories/$storyID'
     | '/sources/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnnotationsRoute: typeof AnnotationsRoute
+  DigestsRoute: typeof DigestsRoute
   InboxRoute: typeof InboxRoute
   LaterRoute: typeof LaterRoute
   SourcesRoute: typeof SourcesRouteWithChildren
   StarredRoute: typeof StarredRoute
+  StoriesStoryIDRoute: typeof StoriesStoryIDRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -144,6 +170,13 @@ declare module '@tanstack/react-router' {
       path: '/annotations'
       fullPath: '/annotations'
       preLoaderRoute: typeof AnnotationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/digests': {
+      id: '/digests'
+      path: '/digests'
+      fullPath: '/digests'
+      preLoaderRoute: typeof DigestsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/inbox': {
@@ -188,6 +221,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SourcesSourceIDRouteImport
       parentRoute: typeof SourcesRoute
     }
+    '/stories/$storyID': {
+      id: '/stories/$storyID'
+      path: '/stories/$storyID'
+      fullPath: '/stories/$storyID'
+      preLoaderRoute: typeof StoriesStoryIDRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -207,10 +247,12 @@ const SourcesRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnnotationsRoute: AnnotationsRoute,
+  DigestsRoute: DigestsRoute,
   InboxRoute: InboxRoute,
   LaterRoute: LaterRoute,
   SourcesRoute: SourcesRouteWithChildren,
   StarredRoute: StarredRoute,
+  StoriesStoryIDRoute: StoriesStoryIDRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

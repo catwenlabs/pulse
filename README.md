@@ -31,13 +31,15 @@ Pulse 是面向单用户、本机或局域网部署的信息阅读中枢。它�
 - **Ingest anything** — RSS/Atom/JSON Feed、JSON API、Static HTML、Webhook、手工条目、本地文件、阅读批注，统一为 Entry。
 - **Read on your terms** — 收件箱、Folder、标签、持久化 View；已读、收藏、隐藏、稍后读、笔记；PostgreSQL 全文与模糊搜索；OPML / 脱敏配置 / Markdown 导出。
 - **Cluster across sources** — 同一新闻的多个来源自动聚合成一条 Story；跨源合并需启用 Ollama embedding（默认关闭），配置见[部署与运维](docs/operations.md#story-语义聚合可选)。
+- **AI catch-up** — 用户主动生成 StorySummary 或标题级未读追更 Digest；支持 OpenAI-compatible Provider、DeepSeek、OpenRouter、Qwen 与 Ollama，结果保留可回到来源 Story 的引用。
 
 ## Quick Start
 
 ```sh
 git clone https://github.com/catwenlabs/pulse.git
 cd pulse
-export PULSE_MASTER_KEY="$(openssl rand -base64 32)"   # 首次生成，妥善保存
+cp .env.example .env
+# 编辑 .env，至少设置 PULSE_MASTER_KEY；需要 AI 时再设置 PULSE_AI_*。
 docker compose up -d
 curl --fail http://localhost:8080/healthz
 ```
@@ -85,16 +87,18 @@ Pulse 采用模块化单体架构，PostgreSQL 同时承载领域数据、任务
 | `PULSE_MASTER_KEY` | 空 | 来源凭据主密钥（Base64，32 字节） |
 | `PULSE_ROLES` | `web,scheduler,worker,effect-worker` | 进程启用的运行角色 |
 | `PULSE_EMBEDDING_PROVIDER` | `disabled` | Story 语义聚合；可设为 `ollama` |
+| `PULSE_AI_PROVIDER` | `disabled` | 全局 AI Provider；可设为 `openai-compatible` 或 `ollama` |
+| `PULSE_AI_MAX_ACTIVE_JOBS` | `4` | 全局 AI Provider 的排队、运行和重试 Job 上限 |
 
 ## Local Development
 
-一键启动 PostgreSQL、Go 后端和带 HMR 的 Vite 前端：
+一键启动 PostgreSQL、Go 后端和带 HMR 的 Vite 前端。Makefile 只读取根目录 `.env`；缺少时使用 `.env.example` 模板。由于 Go 后端运行在宿主机上，`make dev-api` 会为本机地址、开发数据库和本地导入目录应用开发默认值；需要时可用 `PULSE_*` Make 参数临时覆盖：
 
 ```sh
 make dev
 ```
 
-访问 [http://localhost:5173](http://localhost:5173)，`/api` 与 `/healthz` 会代理到本机 `8080`。也可分别启动：`make dev-db-up`、`make dev-api`、`make dev-web`（首次需 `make dev-web-install`）；停止开发库用 `make dev-db-down`。
+访问 [http://localhost:5173](http://localhost:5173)，`/api` 与 `/healthz` 会代理到本机 `8080`。也可分别启动：`make dev-db-up`、`make dev-api`、`make dev-web`（首次需 `make dev-web-install`）；停止开发库用 `make dev-db-down`。AI 配置等应用配置统一放在 `.env` 中，也可用 `make dev-api PULSE_DATABASE_URL=...` 临时覆盖本机开发数据库地址。
 
 参与开发或使用 AI 编码 Agent 前，请阅读 [AGENTS.md](AGENTS.md)。
 

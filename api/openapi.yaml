@@ -343,6 +343,7 @@ paths:
                 $ref: "#/components/schemas/StoryPage"
     patch:
       operationId: markStoriesRead
+      description: Marks matching Stories as read. When story_ids is provided, only those Stories are updated; otherwise source_id scopes the update.
       parameters:
         - name: source_id
           in: query
@@ -360,6 +361,14 @@ paths:
                 read:
                   type: boolean
                   const: true
+                story_ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  description: Exact Story IDs to update. When omitted, the optional source_id scope is used.
+                  items:
+                    type: string
+                    format: uuid
       responses:
         "200":
           description: Number of Stories newly marked as read
@@ -406,6 +415,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Story"
+  /stories/{storyId}/ai-summary:
+    parameters:
+      - name: storyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: requestStorySummary
+      summary: Queue an explicit AI StorySummary
+      description: Queues content-level summarization for one Story without changing Reader state.
+      responses:
+        "202":
+          description: StorySummary job queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIJob"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
   /stories/{storyId}/representative:
     parameters:
       - name: storyId
@@ -593,6 +627,106 @@ paths:
       responses:
         "204":
           description: User tag removed
+  /digests:
+    get:
+      operationId: listDigests
+      summary: List persisted AI Digests
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Persisted Digest history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Digest"
+        "503":
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createDigest
+      summary: Queue an explicit title-only Catch-up Digest
+      description: >
+        Selects unread, non-hidden Stories into a fixed snapshot and sends only
+        titles and necessary metadata to the configured AI Provider. It never
+        marks the source Stories as read.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DigestScope"
+      responses:
+        "202":
+          description: Digest job queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIJob"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /digests/preview:
+    get:
+      operationId: previewDigest
+      summary: Preview the current Catch-up Digest scope
+      parameters:
+        - name: start_at
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: end_at
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: max_stories
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Matching unread Story count and queueability
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DigestPreview"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /digests/{digestId}:
+    parameters:
+      - name: digestId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getDigest
+      summary: Get one persisted Digest
+      responses:
+        "200":
+          description: Digest with structured sections and Story references
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Digest"
+        "404":
+          $ref: "#/components/responses/Problem"
   /entries/{entryId}:
     parameters:
       - name: entryId
@@ -1238,6 +1372,8 @@ components:
         later_at:
           type: string
           format: date-time
+        ai_summary:
+          $ref: "#/components/schemas/StoryAISummary"
     StoryPage:
       type: object
       required: [stories, total_stories, reader_counts]
@@ -1255,6 +1391,219 @@ components:
         next_cursor:
           type: string
           description: Opaque cursor for the next Story page.
+    AIJob:
+      type: object
+      required: [id, kind, target_id, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [story_summary, digest]
+        target_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, running, retry, completed, partial, failed, dead]
+    StoryAISummary:
+      type: object
+      required: [story_id, status]
+      properties:
+        story_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [not_requested, queued, running, completed, partial, failed, stale, unavailable]
+        overview:
+          type: string
+        key_points:
+          type: array
+          items:
+            type: string
+        sources:
+          type: array
+          items:
+            type: object
+            required: [label, entry_id, title, note]
+            properties:
+              label:
+                type: string
+              entry_id:
+                type: string
+                format: uuid
+              title:
+                type: string
+              source_title:
+                type: string
+              note:
+                type: string
+        provider:
+          type: string
+        model:
+          type: string
+        prompt_version:
+          type: string
+        input_fingerprint:
+          type: string
+        error:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    DigestScope:
+      type: object
+      additionalProperties: false
+      properties:
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+        max_stories:
+          type: integer
+          minimum: 0
+          description: 0 uses the default scope and requires narrowing when it exceeds the configured safety limit.
+    DigestPreview:
+      type: object
+      required: [scope, matching_stories, matching_stories_truncated, selected_stories, safety_limit, can_queue]
+      properties:
+        scope:
+          $ref: "#/components/schemas/DigestScope"
+        matching_stories:
+          type: integer
+          minimum: 0
+          description: Matching Story count; when truncated, this is one greater than the safety limit.
+        matching_stories_truncated:
+          type: boolean
+        selected_stories:
+          type: integer
+          minimum: 0
+          description: Stories that will be processed if the scope can be queued.
+        safety_limit:
+          type: integer
+          minimum: 1
+        can_queue:
+          type: boolean
+    Digest:
+      type: object
+      required: [id, status, mode, story_count]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, running, completed, partial, failed]
+        mode:
+          type: string
+          enum: [catch_up]
+        story_count:
+          type: integer
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+        overview:
+          type: string
+        themes:
+          type: array
+          items:
+            $ref: "#/components/schemas/DigestTheme"
+        priorities:
+          type: array
+          items:
+            $ref: "#/components/schemas/DigestPriority"
+        stories:
+          type: array
+          items:
+            $ref: "#/components/schemas/DigestStory"
+        omissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/DigestOmission"
+        provider:
+          type: string
+        model:
+          type: string
+        prompt_version:
+          type: string
+        input_fingerprint:
+          type: string
+        error:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    DigestTheme:
+      type: object
+      required: [title, summary, story_ids]
+      properties:
+        title:
+          type: string
+        summary:
+          type: string
+        story_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+    DigestPriority:
+      type: object
+      required: [rank, title, reason, story_ids]
+      properties:
+        rank:
+          type: integer
+        title:
+          type: string
+        reason:
+          type: string
+        story_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+    DigestStory:
+      type: object
+      required: [label, story_id, title, entry_count, source_count, available]
+      properties:
+        label:
+          type: string
+        story_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        entry_count:
+          type: integer
+        source_count:
+          type: integer
+        available:
+          type: boolean
+    DigestOmission:
+      type: object
+      required: [label, title, reason]
+      properties:
+        label:
+          type: string
+        story_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        reason:
+          type: string
     ReaderCounts:
       type: object
       required: [inbox_stories, unread_stories, starred_stories, later_stories, hidden_stories]

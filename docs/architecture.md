@@ -36,6 +36,9 @@ flowchart LR
     R --> O["Effect Outbox"]
     O --> A["Effect Adapters"]
     DB --> UI["Reader / Search / Views"]
+    UI --> AI["User-triggered AI Summarization"]
+    AI --> DB
+    AI --> AP["OpenAI-compatible Provider"]
 ```
 
 系统采用模块化单体。Go 后端提供 REST/OpenAPI 接口，TypeScript/React 前端通过 SSE 接收提交后的轻量变更信号，再用 HTTP 读取权威数据。Web、Scheduler、Acquisition Worker 和 Effect Worker 使用同一镜像并可按角色启动；默认由一个容器运行全部角色。
@@ -258,6 +261,8 @@ Driver 不得自行持久化 Checkpoint。
 
 Worker 使用 `FOR UPDATE SKIP LOCKED` 领取任务。第一阶段不引入 Redis；只有 PostgreSQL 队列成为可测量瓶颈时才替换外部队列。
 
+AI Summarization 使用独立的 PostgreSQL `ai_jobs` 队列，但复用相同的 Claim/Lease/Retry 原则。它只有一个全局 Provider seam：`OpenAICompatibleAdapter` 发送标准 Chat Completions 请求，OpenAI、DeepSeek、OpenRouter、Qwen 和 Ollama 通过 Base URL、Model、API Key 与可选 Header 配置，不为每家供应商创建领域分支。AI 调用由用户显式触发；StorySummary 保存当前 Story 输入指纹并在内容变化后标记过期，Catch-up Digest 保存固定的标题-only Story 快照和历史结果。Digest 不读取正文、不修改 Reader 状态，结构化结果中的 Story ID 由服务端从快照标签映射，避免模型直接决定持久化 ID。AI 队列还通过 PostgreSQL 事务锁和 `PULSE_AI_MAX_ACTIVE_JOBS` 限制积压，避免重复点击无限增加 Provider 请求。
+
 抓取频率提供实时、较快、普通和低频四档，系统根据历史更新频率自适应调整；高级设置允许固定间隔。所有策略仍服从 `Retry-After`、缓存头、失败退避和域名级限流。
 
 ## 8. Persistence Model
@@ -283,6 +288,10 @@ rule_executions
 effects
 views
 diagnostic_snapshots
+ai_jobs
+story_ai_summaries
+ai_digests
+ai_digest_stories
 ```
 
 重要约束：

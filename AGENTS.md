@@ -89,10 +89,10 @@ make dev-web
 The Vite server proxies `/api` and `/healthz` to the Go backend on port `8080`.
 Use `make dev-db-logs` to follow PostgreSQL logs and `make dev-db-down` to stop the development database.
 
-The development defaults can be overridden without changing tracked files:
+The Makefile reads `.env` (falling back to `.env.example`) for local development. Host-side API defaults can be overridden without changing tracked files:
 
 ```sh
-make dev-api DEV_DATABASE_URL='postgres://...' DEV_IMPORT_ROOTS='./imports'
+make dev-api PULSE_DATABASE_URL='postgres://...' PULSE_IMPORT_ROOTS='./imports'
 ```
 
 ## Build and Test Commands

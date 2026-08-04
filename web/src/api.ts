@@ -129,6 +129,106 @@ export interface Story {
   starred_at?: string
   hidden_at?: string
   later_at?: string
+  ai_summary?: StoryAISummary
+}
+
+export type AIJobKind = 'story_summary' | 'digest'
+export type AIJobStatus = 'pending' | 'running' | 'retry' | 'completed' | 'partial' | 'failed' | 'dead'
+export type AIArtifactStatus = 'not_requested' | 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'stale' | 'unavailable'
+
+export interface AIJob {
+  id: string
+  kind: AIJobKind
+  target_id: string
+  status: AIJobStatus
+}
+
+export interface SummarySource {
+  label: string
+  entry_id: string
+  title: string
+  source_title?: string
+  note: string
+}
+
+export interface StoryAISummary {
+  story_id: string
+  status: AIArtifactStatus
+  overview?: string
+  key_points?: string[]
+  sources?: SummarySource[]
+  provider?: string
+  model?: string
+  prompt_version?: string
+  input_fingerprint?: string
+  error?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface DigestScope {
+  start_at?: string
+  end_at?: string
+  max_stories?: number
+}
+
+export interface DigestPreview {
+  scope: DigestScope
+  matching_stories: number
+  matching_stories_truncated: boolean
+  selected_stories: number
+  safety_limit: number
+  can_queue: boolean
+}
+
+export interface DigestTheme {
+  title: string
+  summary: string
+  story_ids: string[]
+}
+
+export interface DigestPriority {
+  rank: number
+  title: string
+  reason: string
+  story_ids: string[]
+}
+
+export interface DigestStory {
+  label: string
+  story_id: string
+  title: string
+  entry_count: number
+  source_count: number
+  available: boolean
+}
+
+export interface DigestOmission {
+  label: string
+  story_id?: string
+  title: string
+  reason: string
+}
+
+export interface Digest {
+  id: string
+  status: Exclude<AIArtifactStatus, 'not_requested' | 'stale' | 'unavailable'>
+  mode: 'catch_up'
+  story_count: number
+  start_at?: string
+  end_at?: string
+  overview?: string
+  themes?: DigestTheme[]
+  priorities?: DigestPriority[]
+  stories?: DigestStory[]
+  omissions?: DigestOmission[]
+  provider?: string
+  model?: string
+  prompt_version?: string
+  input_fingerprint?: string
+  error?: string
+  created_at?: string
+  updated_at?: string
 }
 
 export interface StoryPage {
@@ -419,7 +519,39 @@ export function listStories(query: EntryQuery = {}): Promise<StoryPage> {
 }
 
 export function getStory(id: string): Promise<Story> {
-	return request<Story>(`/api/v1/stories/${id}`)
+  return request<Story>(`/api/v1/stories/${id}`)
+}
+
+export function requestStorySummary(storyID: string): Promise<AIJob> {
+  return request<AIJob>(`/api/v1/stories/${storyID}/ai-summary`, {
+    method: 'POST',
+  })
+}
+
+export function listDigests(limit = 50): Promise<Digest[]> {
+  const parameters = new URLSearchParams({ limit: String(limit) })
+  return requestList<Digest>(`/api/v1/digests?${parameters}`)
+}
+
+export function previewDigest(scope: DigestScope = {}): Promise<DigestPreview> {
+  const parameters = new URLSearchParams()
+  if (scope.start_at) parameters.set('start_at', scope.start_at)
+  if (scope.end_at) parameters.set('end_at', scope.end_at)
+  if (scope.max_stories !== undefined) parameters.set('max_stories', String(scope.max_stories))
+  const suffix = parameters.size > 0 ? `?${parameters}` : ''
+  return request<DigestPreview>(`/api/v1/digests/preview${suffix}`)
+}
+
+export function createDigest(scope: DigestScope = {}): Promise<AIJob> {
+  return request<AIJob>('/api/v1/digests', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(scope),
+  })
+}
+
+export function getDigest(digestID: string): Promise<Digest> {
+  return request<Digest>(`/api/v1/digests/${digestID}`)
 }
 
 export function deleteEntry(id: string, confirm = false): Promise<void> {
@@ -446,14 +578,18 @@ export function setStoryRepresentative(storyId: string, entryId: string): Promis
   })
 }
 
-export function markStoriesRead(sourceId?: string): Promise<{ updated_count: number }> {
+export function markStoriesRead(options: { sourceId?: string; storyIDs?: string[] } = {}): Promise<{ updated_count: number }> {
   const parameters = new URLSearchParams()
-  if (sourceId) parameters.set('source_id', sourceId)
+  if (options.sourceId) parameters.set('source_id', options.sourceId)
   const suffix = parameters.size > 0 ? `?${parameters}` : ''
+  const body = {
+    read: true,
+    ...(options.storyIDs && options.storyIDs.length > 0 ? { story_ids: options.storyIDs } : {}),
+  }
   return request<{ updated_count: number }>(`/api/v1/stories${suffix}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ read: true }),
+    body: JSON.stringify(body),
   })
 }
 

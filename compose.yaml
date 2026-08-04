@@ -17,14 +17,25 @@ services:
   pulse:
     build: .
     environment:
-      PULSE_DATABASE_URL: postgres://pulse:pulse@postgres:5432/pulse?sslmode=disable
-      PULSE_HTTP_ADDR: :8080
-      PULSE_ROLES: web,scheduler,worker,effect-worker
+      PULSE_DATABASE_URL: ${PULSE_DATABASE_URL:-postgres://pulse:pulse@postgres:5432/pulse?sslmode=disable}
+      PULSE_HTTP_ADDR: ${PULSE_HTTP_ADDR:-:8080}
+      PULSE_ROLES: ${PULSE_ROLES:-web,scheduler,worker,effect-worker}
       # Base64 of exactly 32 random bytes. Required before adding authenticated sources.
       PULSE_MASTER_KEY: ${PULSE_MASTER_KEY:-}
+      PULSE_WEB_DIR: ${PULSE_WEB_DIR:-/web}
+      PULSE_IMPORT_ROOTS: ${PULSE_IMPORT_ROOTS:-/data/imports}
       PULSE_EMBEDDING_PROVIDER: ${PULSE_EMBEDDING_PROVIDER:-disabled}
       PULSE_EMBEDDING_BASE_URL: ${PULSE_EMBEDDING_BASE_URL:-http://127.0.0.1:11434}
       PULSE_EMBEDDING_MODEL: ${PULSE_EMBEDDING_MODEL:-qwen3-embedding}
+      # One global OpenAI-compatible AI Provider; keep credentials outside tracked files.
+      PULSE_AI_PROVIDER: ${PULSE_AI_PROVIDER:-disabled}
+      PULSE_AI_BASE_URL: ${PULSE_AI_BASE_URL:-http://127.0.0.1:11434/v1}
+      PULSE_AI_API_KEY: ${PULSE_AI_API_KEY:-}
+      PULSE_AI_HEADERS_JSON: ${PULSE_AI_HEADERS_JSON:-}
+      PULSE_AI_MODEL: ${PULSE_AI_MODEL:-qwen3:8b}
+      PULSE_AI_TIMEOUT: ${PULSE_AI_TIMEOUT:-2m}
+      PULSE_AI_MAX_DIGEST_STORIES: ${PULSE_AI_MAX_DIGEST_STORIES:-100}
+      PULSE_AI_MAX_ACTIVE_JOBS: ${PULSE_AI_MAX_ACTIVE_JOBS:-4}
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
