@@ -19,7 +19,7 @@ curl --retry 20 --retry-delay 2 --retry-connrefused \
   --fail --show-error http://localhost:8080/healthz
 ```
 
-生产环境必须通过服务管理器、Secret 管理器或仓库外的只读环境文件注入 `PULSE_MASTER_KEY`。不要把密钥写入 README、Compose、提交记录或仓库内未忽略的文件。Compose 会读取根目录 `.env` 用于变量插值，但 `compose.yaml` 仍显式列出允许注入容器的 `PULSE_*` 变量。
+生产环境必须通过服务管理器、Secret 管理器或仓库外的只读环境文件注入 `PULSE_MASTER_KEY`。不要把密钥写入 README、Compose、提交记录或仓库内未忽略的文件。Compose 会读取根目录 `.env` 用于变量插值，但 `compose.yaml` 仍显式列出允许注入容器的 `PULSE_*` 变量。宿主机运行 `make dev` 时，Makefile 会在基础 `.env` 后叠加 `.env.dev`；两份文件都使用 `PULSE_*`，不引入另一套变量命名。
 
 ## 升级
 

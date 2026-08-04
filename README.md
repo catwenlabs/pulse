@@ -92,13 +92,13 @@ Pulse 采用模块化单体架构，PostgreSQL 同时承载领域数据、任务
 
 ## Local Development
 
-一键启动 PostgreSQL、Go 后端和带 HMR 的 Vite 前端。Makefile 会读取根目录 `.env`；没有 `.env` 时使用 `.env.example` 的非敏感默认值：
+一键启动 PostgreSQL、Go 后端和带 HMR 的 Vite 前端。Makefile 会先读取根目录 `.env`，`make dev` 再叠加 `.env.dev`；缺少配置文件时分别使用对应的 `.env.example` 模板：
 
 ```sh
 make dev
 ```
 
-访问 [http://localhost:5173](http://localhost:5173)，`/api` 与 `/healthz` 会代理到本机 `8080`。也可分别启动：`make dev-db-up`、`make dev-api`、`make dev-web`（首次需 `make dev-web-install`）；停止开发库用 `make dev-db-down`。宿主机开发所需的 `DEV_*` 数据库和 Ollama 地址也集中在 `.env` 中，仍可用 `make dev-api DEV_DATABASE_URL=...` 临时覆盖。
+访问 [http://localhost:5173](http://localhost:5173)，`/api` 与 `/healthz` 会代理到本机 `8080`。也可分别启动：`make dev-db-up`、`make dev-api`、`make dev-web`（首次需 `make dev-web-install`）；停止开发库用 `make dev-db-down`。宿主机开发配置使用与应用一致的 `PULSE_*` 变量，放在 `.env.dev` 中，也可用 `make dev-api PULSE_DATABASE_URL=...` 临时覆盖。
 
 参与开发或使用 AI 编码 Agent 前，请阅读 [AGENTS.md](AGENTS.md)。
 
