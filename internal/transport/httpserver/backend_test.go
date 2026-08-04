@@ -85,7 +85,7 @@ func (fakeStories) SetRepresentative(_ context.Context, id story.ID, _ entry.ID)
 	return story.Story{ID: id}, nil
 }
 
-func (fakeStories) MarkRead(context.Context, string) (int64, error) {
+func (fakeStories) MarkRead(context.Context, string, []string) (int64, error) {
 	return 1, nil
 }
 func (fakeStories) MergeManual(_ context.Context, from story.ID, into story.ID, _ story.MergeOptions) error {

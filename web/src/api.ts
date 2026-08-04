@@ -578,14 +578,18 @@ export function setStoryRepresentative(storyId: string, entryId: string): Promis
   })
 }
 
-export function markStoriesRead(sourceId?: string): Promise<{ updated_count: number }> {
+export function markStoriesRead(options: { sourceId?: string; storyIDs?: string[] } = {}): Promise<{ updated_count: number }> {
   const parameters = new URLSearchParams()
-  if (sourceId) parameters.set('source_id', sourceId)
+  if (options.sourceId) parameters.set('source_id', options.sourceId)
   const suffix = parameters.size > 0 ? `?${parameters}` : ''
+  const body = {
+    read: true,
+    ...(options.storyIDs && options.storyIDs.length > 0 ? { story_ids: options.storyIDs } : {}),
+  }
   return request<{ updated_count: number }>(`/api/v1/stories${suffix}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ read: true }),
+    body: JSON.stringify(body),
   })
 }
 

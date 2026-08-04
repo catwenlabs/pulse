@@ -343,6 +343,7 @@ paths:
                 $ref: "#/components/schemas/StoryPage"
     patch:
       operationId: markStoriesRead
+      description: Marks matching Stories as read. When story_ids is provided, only those Stories are updated; otherwise source_id scopes the update.
       parameters:
         - name: source_id
           in: query
@@ -360,6 +361,14 @@ paths:
                 read:
                   type: boolean
                   const: true
+                story_ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  description: Exact Story IDs to update. When omitted, the optional source_id scope is used.
+                  items:
+                    type: string
+                    format: uuid
       responses:
         "200":
           description: Number of Stories newly marked as read

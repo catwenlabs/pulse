@@ -356,6 +356,41 @@ describe('App', () => {
     delete (Element.prototype as { scrollTo?: unknown }).scrollTo
   })
 
+  it('keeps the AI catch-up page in the main scroll region', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith('/api/v1/digests/preview')) {
+        return new Response('{"scope":{},"matching_stories":0,"matching_stories_truncated":false,"selected_stories":0,"safety_limit":100,"can_queue":true}', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url === '/api/v1/digests?limit=50') return new Response('[]', { status: 200 })
+      return defaultFetch(input, init)
+    })
+    window.history.replaceState(null, '', '/digests')
+
+    renderApp()
+
+    await screen.findByRole('heading', { name: 'AI 追更' })
+    const main = document.querySelector('main')
+    expect(main).toHaveClass('overflow-y-auto')
+    expect(main).not.toHaveClass('overflow-hidden')
+    expect(document.querySelector('.ai-page')).toBeInTheDocument()
+  })
+
+  it('hides the subscription tree outside Reader views', async () => {
+    window.history.replaceState(null, '', '/starred')
+
+    renderApp()
+
+    await screen.findByRole('heading', { name: '收藏' })
+    await waitFor(() => expect(screen.queryByText('订阅源')).not.toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'Example Feed' })).not.toBeInTheDocument()
+    expect(screen.getByRole('main').parentElement).toHaveClass('grid-cols-[72px_minmax(0,1fr)]')
+  })
+
   it('shows the Source sync indicator during the initial Source load', async () => {
     const defaultFetch = vi.mocked(fetch).getMockImplementation()!
     let releaseSources: (() => void) | undefined
@@ -489,6 +524,8 @@ describe('App', () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/folders/folder-1/sources/source-1', {
       method: 'DELETE',
     })
+    fireEvent.click(screen.getByRole('link', { name: 'Pulse 首页' }))
+    await screen.findByRole('button', { name: 'Reading，1 个订阅源' })
     expect(screen.getByRole('button', { name: 'Reading，1 个订阅源' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Tech，0 个订阅源' })).toBeInTheDocument()
   })
@@ -738,6 +775,70 @@ describe('App', () => {
     })
   })
 
+  it('inserts the AI summary card into the expanded entry without navigating away', async () => {
+    renderApp()
+    await screen.findByText('Reader article')
+
+    fireEvent.click(screen.getByText('Reader article'))
+    const storyAction = await screen.findByRole('button', { name: '生成AI摘要' })
+    await waitFor(() => expect(storyAction).not.toBeDisabled())
+    expect(storyAction).toBeInTheDocument()
+
+    fireEvent.click(storyAction)
+
+    expect(await screen.findByRole('heading', { name: '内容摘要' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/')
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/stories/story-1/ai-summary', { method: 'POST' })
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }), { button: 0 })
+    expect(await screen.findByRole('menuitem', { name: '查看 Story 与 AI 摘要' })).toBeInTheDocument()
+  })
+
+  it('reuses a stored Story AI summary after the reader is refreshed', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    let storyDetailFetches = 0
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/v1/stories/story-1' && !init?.method) {
+        storyDetailFetches += 1
+        return new Response(JSON.stringify({
+          id: 'story-1',
+          representative: {
+            id: 'entry-1',
+            source_id: 'source-1',
+            identity_key: 'external:entry-1',
+            source_title: 'Reader article',
+            summary: 'A useful summary',
+            discovered_at: '2026-07-25T00:00:00Z',
+          },
+          entries: [],
+          entry_count: 1,
+          source_count: 1,
+          ai_summary: {
+            story_id: 'story-1',
+            status: 'completed',
+            overview: '这是刷新后仍然保留的摘要。',
+            key_points: ['不需要重新生成'],
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return defaultFetch(input, init)
+    })
+
+    renderApp()
+    await screen.findByText('Reader article')
+    fireEvent.click(screen.getByText('Reader article'))
+
+    expect(await screen.findByText('这是刷新后仍然保留的摘要。')).toBeInTheDocument()
+    expect(storyDetailFetches).toBe(1)
+    expect(vi.mocked(fetch).mock.calls.filter(([url, init]) =>
+      String(url).endsWith('/api/v1/stories/story-1/ai-summary') && init?.method === 'POST')).toHaveLength(0)
+
+    fireEvent.click(screen.getByRole('button', { name: '重新生成AI摘要' }))
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([url, init]) =>
+      String(url).endsWith('/api/v1/stories/story-1/ai-summary') && init?.method === 'POST')).toHaveLength(1))
+  })
+
   it('resets the article stream to the top when switching Sources', async () => {
     const secondSource = { ...source, id: 'source-2', name: 'Second Feed' }
     sourceState = [source, secondSource]
@@ -773,6 +874,8 @@ describe('App', () => {
     renderApp()
     fireEvent.click(await screen.findByRole('button', { name: 'Example Feed' }))
     await screen.findByRole('heading', { name: 'Example Feed' })
+    expect(screen.getByText('订阅源')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Second Feed' })).toBeInTheDocument()
     scrollTo.mockClear()
 
     fireEvent.click(screen.getByRole('button', { name: 'Second Feed' }))
@@ -1570,7 +1673,7 @@ describe('App', () => {
     expect(await screen.findByText('还没有信息源')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '重新载入' }))
-    expect(await screen.findByRole('button', { name: 'Example Feed' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Example Feed' })).toBeInTheDocument()
   })
 
   it('shows unfiled sources at the root when the folder list is null', async () => {

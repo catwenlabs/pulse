@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -44,7 +45,7 @@ type fakeBackend struct {
 	getStory             func(context.Context, story.ID) (story.Story, error)
 	updateStory          func(context.Context, story.ID, story.Patch) (story.Story, error)
 	setRepresentative    func(context.Context, story.ID, entry.ID) (story.Story, error)
-	markStoriesRead      func(context.Context, string) (int64, error)
+	markStoriesRead      func(context.Context, string, []string) (int64, error)
 	mergeStories         func(context.Context, story.ID, story.ID) (story.Story, error)
 	splitStory           func(context.Context, story.ID, entry.ID) (story.Story, error)
 	recluster            func(context.Context) (int, error)
@@ -226,8 +227,8 @@ func (fake fakeBackend) SetStoryRepresentative(ctx context.Context, storyID stor
 	return story.Story{ID: storyID, Representative: entry.Entry{ID: entryID}}, nil
 }
 
-func (fake fakeBackend) MarkStoriesRead(ctx context.Context, sourceID string) (int64, error) {
-	return fake.markStoriesRead(ctx, sourceID)
+func (fake fakeBackend) MarkStoriesRead(ctx context.Context, sourceID string, storyIDs []string) (int64, error) {
+	return fake.markStoriesRead(ctx, sourceID, storyIDs)
 }
 
 func (fake fakeBackend) MergeStories(
@@ -770,9 +771,12 @@ func TestReaderSearchAndPatch(t *testing.T) {
 
 func TestMarkEntriesReadScopesToSourceWhenRequested(t *testing.T) {
 	backend := completeFakeBackend()
-	backend.markStoriesRead = func(_ context.Context, sourceID string) (int64, error) {
+	backend.markStoriesRead = func(_ context.Context, sourceID string, storyIDs []string) (int64, error) {
 		if sourceID != "source-1" {
 			t.Errorf("source id = %q", sourceID)
+		}
+		if len(storyIDs) != 0 {
+			t.Errorf("story ids = %v, want none", storyIDs)
 		}
 		return 7, nil
 	}
@@ -786,6 +790,31 @@ func TestMarkEntriesReadScopesToSourceWhenRequested(t *testing.T) {
 		),
 	)
 	if response.Code != http.StatusOK || response.Body.String() != "{\"updated_count\":7}\n" {
+		t.Errorf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestMarkEntriesReadCanTargetStoryIDs(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.markStoriesRead = func(_ context.Context, sourceID string, storyIDs []string) (int64, error) {
+		if sourceID != "" {
+			t.Errorf("source id = %q, want empty", sourceID)
+		}
+		if !reflect.DeepEqual(storyIDs, []string{"story-1", "story-2"}) {
+			t.Errorf("story ids = %v", storyIDs)
+		}
+		return 2, nil
+	}
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(
+		response,
+		httptest.NewRequest(
+			http.MethodPatch,
+			"/api/v1/stories",
+			bytes.NewBufferString(`{"read":true,"story_ids":["story-1","story-2"]}`),
+		),
+	)
+	if response.Code != http.StatusOK || response.Body.String() != "{\"updated_count\":2}\n" {
 		t.Errorf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
@@ -1285,7 +1314,7 @@ func completeFakeBackend() fakeBackend {
 		updateStory: func(context.Context, story.ID, story.Patch) (story.Story, error) {
 			return story.Story{}, errors.New("unexpected UpdateStory")
 		},
-		markStoriesRead: func(context.Context, string) (int64, error) {
+		markStoriesRead: func(context.Context, string, []string) (int64, error) {
 			return 0, errors.New("unexpected MarkStoriesRead")
 		},
 		mergeStories: func(context.Context, story.ID, story.ID) (story.Story, error) {

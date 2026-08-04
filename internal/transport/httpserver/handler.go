@@ -65,7 +65,7 @@ type Backend interface {
 	GetStory(context.Context, story.ID) (story.Story, error)
 	UpdateStory(context.Context, story.ID, story.Patch) (story.Story, error)
 	SetStoryRepresentative(context.Context, story.ID, entry.ID) (story.Story, error)
-	MarkStoriesRead(context.Context, string) (int64, error)
+	MarkStoriesRead(context.Context, string, []string) (int64, error)
 	MergeStories(context.Context, story.ID, story.ID, story.MergeOptions) (story.Story, error)
 	SplitStory(context.Context, story.ID, entry.ID, story.SplitOptions) (story.Story, error)
 	AddStoryTag(context.Context, story.ID, string) (entry.Tag, error)
@@ -524,7 +524,8 @@ func reclusterStories(backend Backend) http.HandlerFunc {
 func markStoriesRead(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
 		var body struct {
-			Read bool `json:"read"`
+			Read     bool      `json:"read"`
+			StoryIDs *[]string `json:"story_ids"`
 		}
 		if err := decodeJSONBody(w, request, &body); err != nil {
 			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
@@ -534,9 +535,22 @@ func markStoriesRead(backend Backend) http.HandlerFunc {
 			writeProblem(w, http.StatusBadRequest, "invalid_request", "read must be true", "read")
 			return
 		}
+		var storyIDs []string
+		if body.StoryIDs != nil {
+			if len(*body.StoryIDs) == 0 {
+				writeProblem(w, http.StatusBadRequest, "invalid_request", "story_ids must not be empty", "story_ids")
+				return
+			}
+			if len(*body.StoryIDs) > 200 {
+				writeProblem(w, http.StatusBadRequest, "invalid_request", "story_ids must contain at most 200 items", "story_ids")
+				return
+			}
+			storyIDs = *body.StoryIDs
+		}
 		count, err := backend.MarkStoriesRead(
 			request.Context(),
 			request.URL.Query().Get("source_id"),
+			storyIDs,
 		)
 		if err != nil {
 			writeDomainError(w, err)

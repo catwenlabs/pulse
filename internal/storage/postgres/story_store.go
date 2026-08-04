@@ -1149,27 +1149,46 @@ func (store *StoryStore) SetRepresentative(
 	return store.Get(ctx, resolvedID)
 }
 
-func (store *StoryStore) MarkRead(ctx context.Context, sourceID string) (int64, error) {
+func (store *StoryStore) MarkRead(ctx context.Context, sourceID string, storyIDs []string) (int64, error) {
 	tx, err := store.pool.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("begin mark Stories read: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	rows, err := tx.Query(ctx, `
-		UPDATE stories AS story
-		SET read_at = now(), updated_at = now()
-		WHERE story.read_at IS NULL
-		  AND (
-			$1 = ''
-			OR EXISTS (
-				SELECT 1
-				FROM story_entries AS member
-				JOIN entries AS entry ON entry.id = member.entry_id
-				WHERE member.story_id = story.id AND entry.source_id = $1::uuid
-			)
-		  )
-		RETURNING story.id
-	`, sourceID)
+	var rows pgx.Rows
+	if len(storyIDs) > 0 {
+		rows, err = tx.Query(ctx, `
+			UPDATE stories AS story
+			SET read_at = now(), updated_at = now()
+			WHERE story.read_at IS NULL
+			  AND (
+				story.id = ANY($1::uuid[])
+				OR EXISTS (
+					SELECT 1
+					FROM story_aliases AS alias
+					WHERE alias.alias_id = ANY($1::uuid[])
+					  AND alias.canonical_story_id = story.id
+				)
+			  )
+			RETURNING story.id
+		`, storyIDs)
+	} else {
+		rows, err = tx.Query(ctx, `
+			UPDATE stories AS story
+			SET read_at = now(), updated_at = now()
+			WHERE story.read_at IS NULL
+			  AND (
+				$1 = ''
+				OR EXISTS (
+					SELECT 1
+					FROM story_entries AS member
+					JOIN entries AS entry ON entry.id = member.entry_id
+					WHERE member.story_id = story.id AND entry.source_id = $1::uuid
+				)
+			  )
+			RETURNING story.id
+		`, sourceID)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("mark Stories read: %w", err)
 	}

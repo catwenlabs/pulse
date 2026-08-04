@@ -19,7 +19,7 @@ curl --retry 20 --retry-delay 2 --retry-connrefused \
   --fail --show-error http://localhost:8080/healthz
 ```
 
-生产环境必须通过服务管理器、Secret 管理器或仓库外的只读环境文件注入 `PULSE_MASTER_KEY`。不要把密钥写入 README、Compose、提交记录或仓库内未忽略的文件。Compose 会读取根目录 `.env` 用于变量插值，但 `compose.yaml` 仍显式列出允许注入容器的 `PULSE_*` 变量。宿主机运行 `make dev` 时，Makefile 会在基础 `.env` 后叠加 `.env.dev`；两份文件都使用 `PULSE_*`，不引入另一套变量命名。
+生产环境必须通过服务管理器、Secret 管理器或仓库外的只读环境文件注入 `PULSE_MASTER_KEY`。不要把密钥写入 README、Compose、提交记录或仓库内未忽略的文件。Compose 会读取根目录 `.env` 用于变量插值，但 `compose.yaml` 仍显式列出允许注入容器的 `PULSE_*` 变量。宿主机运行 `make dev` 时，Makefile 也只读取同一份 `.env`；由于开发 API 在宿主机运行，`dev-api` 会应用本机数据库、监听地址和导入目录的默认值，必要时可通过 `PULSE_*` Make 参数覆盖。
 
 ## 升级
 
@@ -144,7 +144,7 @@ PULSE_AI_API_KEY=YOUR_API_KEY
 PULSE_AI_MODEL=deepseek-v4-flash
 ```
 
-启用后必须保留 `worker` 角色，AI Job 会使用 PostgreSQL 的持久化队列、Lease 和重试机制。不要把 API Key 写入 Compose 文件、提交记录或普通诊断日志；AI Provider 的响应正文也不会被写入日志。
+启用后必须保留 `worker` 角色，AI Job 会使用 PostgreSQL 的持久化队列、Lease 和重试机制。AI 调用日志会记录完整的 Chat Completions 请求 JSON，便于排查 Provider 兼容性；请求中的 Story/Prompt 可能包含敏感内容，请只在受控的本地诊断环境查看。API Key、Authorization Header 和 AI Provider 响应正文不会被写入日志，也不要把 API Key 写入 Compose 文件或提交记录。
 
 AI 请求使用受控 HTTP Client：公网 Provider 不会连接私有、回环或链路本地地址；本地 Ollama 只允许 `localhost`、`127.0.0.1`、`::1`、`host.docker.internal`、`host.containers.internal`、`gateway.docker.internal` 和 `ollama` 这些显式主机名。Provider URL 不支持内嵌用户凭据，重定向也会继续执行同样的安全检查。
 

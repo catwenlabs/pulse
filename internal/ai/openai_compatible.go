@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"path"
@@ -132,6 +133,17 @@ func (adapter *OpenAICompatibleAdapter) generate(ctx context.Context, request Ge
 	if err != nil {
 		return GenerateResponse{}, fmt.Errorf("encode AI request: %w", err)
 	}
+	slog.Info(
+		"AI Provider request",
+		"provider", adapter.providerName,
+		"model", adapter.model,
+		"url", adapter.completionURL,
+		"json_mode", nativeJSON,
+		"message_count", len(request.Messages),
+		"max_tokens", request.MaxTokens,
+		"request_body_bytes", len(body),
+		"request_body", string(body),
+	)
 	httpRequest, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
@@ -142,19 +154,38 @@ func (adapter *OpenAICompatibleAdapter) generate(ctx context.Context, request Ge
 		return GenerateResponse{}, fmt.Errorf("create AI request: %w", err)
 	}
 	httpRequest.Header = adapter.headers.Clone()
+	startedAt := time.Now()
 	response, err := adapter.client.Do(httpRequest)
 	if err != nil {
+		slog.Error(
+			"AI Provider request failed",
+			"provider", adapter.providerName,
+			"model", adapter.model,
+			"url", adapter.completionURL,
+			"duration_ms", time.Since(startedAt).Milliseconds(),
+			"error", err,
+		)
 		return GenerateResponse{}, fmt.Errorf("request AI Provider: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		slog.Warn(
+			"AI Provider response",
+			"provider", adapter.providerName,
+			"model", adapter.model,
+			"url", adapter.completionURL,
+			"status", response.StatusCode,
+			"duration_ms", time.Since(startedAt).Milliseconds(),
+			"response_content_type", response.Header.Get("Content-Type"),
+		)
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 		return GenerateResponse{}, &providerHTTPError{status: response.StatusCode}
 	}
 	var decoded struct {
 		Model   string `json:"model"`
 		Choices []struct {
-			Message struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
@@ -164,11 +195,45 @@ func (adapter *OpenAICompatibleAdapter) generate(ctx context.Context, request Ge
 		} `json:"usage"`
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, maxProviderResponseBytes)).Decode(&decoded); err != nil {
+		slog.Error(
+			"AI Provider response decode failed",
+			"provider", adapter.providerName,
+			"model", adapter.model,
+			"url", adapter.completionURL,
+			"status", response.StatusCode,
+			"duration_ms", time.Since(startedAt).Milliseconds(),
+			"error", err,
+		)
 		return GenerateResponse{}, fmt.Errorf("decode AI Provider response: %w", err)
 	}
-	if len(decoded.Choices) == 0 || strings.TrimSpace(decoded.Choices[0].Message.Content) == "" {
+	choiceCount := len(decoded.Choices)
+	finishReason := ""
+	contentPresent := false
+	contentBytes := 0
+	if choiceCount > 0 {
+		finishReason = decoded.Choices[0].FinishReason
+		contentPresent = strings.TrimSpace(decoded.Choices[0].Message.Content) != ""
+		contentBytes = len(decoded.Choices[0].Message.Content)
+	}
+	responseAttrs := []any{
+		"provider", adapter.providerName,
+		"model", adapter.model,
+		"url", adapter.completionURL,
+		"status", response.StatusCode,
+		"duration_ms", time.Since(startedAt).Milliseconds(),
+		"response_model", decoded.Model,
+		"choices", choiceCount,
+		"finish_reason", finishReason,
+		"content_present", contentPresent,
+		"content_bytes", contentBytes,
+		"prompt_tokens", decoded.Usage.PromptTokens,
+		"completion_tokens", decoded.Usage.CompletionTokens,
+	}
+	if !contentPresent {
+		slog.Warn("AI Provider response has no message content", responseAttrs...)
 		return GenerateResponse{}, fmt.Errorf("AI Provider response has no message content")
 	}
+	slog.Info("AI Provider response", responseAttrs...)
 	return GenerateResponse{
 		Content:          decoded.Choices[0].Message.Content,
 		Model:            decoded.Model,

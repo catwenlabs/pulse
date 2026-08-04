@@ -1,9 +1,11 @@
 package ai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -13,6 +15,102 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return fn(request)
+}
+
+func captureAILogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	previous := slog.Default()
+	buffer := new(bytes.Buffer)
+	slog.SetDefault(slog.New(slog.NewTextHandler(buffer, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+	})
+	return buffer
+}
+
+func TestOpenAICompatibleAdapterLogsRequestAndResponseMetadata(t *testing.T) {
+	logs := captureAILogs(t)
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"model":"deepseek-v4-flash","choices":[{"finish_reason":"stop","message":{"content":"{\"overview\":\"ok\"}"}}]}`)),
+			Header:     make(http.Header),
+		}, nil
+	})}
+	adapter, err := NewOpenAICompatible(OpenAICompatibleConfig{
+		ProviderName: "deepseek",
+		BaseURL:      "https://example.com/v1",
+		APIKey:       "secret-api-key",
+		Model:        "deepseek-v4-flash",
+		Client:       client,
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompatible() error = %v", err)
+	}
+	if _, err := adapter.Generate(context.Background(), GenerateRequest{
+		Messages: []Message{{Role: "user", Content: "private prompt"}},
+	}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	output := logs.String()
+	for _, want := range []string{
+		"AI Provider request",
+		"provider=deepseek",
+		"model=deepseek-v4-flash",
+		"message_count=1",
+		"AI Provider response",
+		"finish_reason=stop",
+		"content_present=true",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("logs do not contain %q: %s", want, output)
+		}
+	}
+	if !strings.Contains(output, "request_body=") || !strings.Contains(output, "private prompt") {
+		t.Errorf("logs do not contain the request body: %s", output)
+	}
+	for _, secret := range []string{"secret-api-key", "overview"} {
+		if strings.Contains(output, secret) {
+			t.Errorf("logs contain sensitive value %q: %s", secret, output)
+		}
+	}
+}
+
+func TestOpenAICompatibleAdapterLogsFinishReasonWhenContentIsEmpty(t *testing.T) {
+	logs := captureAILogs(t)
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"model":"deepseek-v4-flash","choices":[{"finish_reason":"content_filter","message":{"content":""}}]}`)),
+			Header:     make(http.Header),
+		}, nil
+	})}
+	adapter, err := NewOpenAICompatible(OpenAICompatibleConfig{
+		ProviderName: "deepseek",
+		BaseURL:      "https://example.com/v1",
+		Model:        "deepseek-v4-flash",
+		Client:       client,
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompatible() error = %v", err)
+	}
+	if _, err := adapter.Generate(context.Background(), GenerateRequest{
+		Messages: []Message{{Role: "user", Content: "hello"}},
+	}); err == nil || !strings.Contains(err.Error(), "no message content") {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	output := logs.String()
+	for _, want := range []string{
+		"AI Provider response has no message content",
+		"finish_reason=content_filter",
+		"content_present=false",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("logs do not contain %q: %s", want, output)
+		}
+	}
 }
 
 func TestOpenAICompatibleAdapterUsesConfiguredEndpointAndJSONMode(t *testing.T) {

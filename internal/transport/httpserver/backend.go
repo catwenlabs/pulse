@@ -47,7 +47,7 @@ type storyRepository interface {
 	Get(context.Context, story.ID) (story.Story, error)
 	Update(context.Context, story.ID, story.Patch) (story.Story, error)
 	SetRepresentative(context.Context, story.ID, entry.ID) (story.Story, error)
-	MarkRead(context.Context, string) (int64, error)
+	MarkRead(context.Context, string, []string) (int64, error)
 	MergeManual(context.Context, story.ID, story.ID, story.MergeOptions) error
 	Split(context.Context, story.ID, entry.ID, story.SplitOptions) (story.ID, error)
 	AddTag(context.Context, story.ID, string) (entry.Tag, error)
@@ -291,8 +291,8 @@ func (service *backend) SetStoryRepresentative(ctx context.Context, storyID stor
 	return updated, err
 }
 
-func (service *backend) MarkStoriesRead(ctx context.Context, sourceID string) (int64, error) {
-	count, err := service.stories.MarkRead(ctx, sourceID)
+func (service *backend) MarkStoriesRead(ctx context.Context, sourceID string, storyIDs []string) (int64, error) {
+	count, err := service.stories.MarkRead(ctx, sourceID, storyIDs)
 	if err == nil && count > 0 {
 		service.publishLibraryChange(sourceID)
 	}

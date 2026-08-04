@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -15,6 +15,7 @@ function renderWithQueryClient(element: React.ReactNode) {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
@@ -47,9 +48,20 @@ describe('DigestPage', () => {
           ...(query.get('end_at') ? { end_at: query.get('end_at') } : {}),
           ...(query.get('max_stories') ? { max_stories: Number(query.get('max_stories')) } : {}),
         }
-        return new Response(JSON.stringify({ scope, matching_stories: 2, matching_stories_truncated: false, selected_stories: 2, safety_limit: 100, can_queue: true }), { status: 200 })
+        const scoped = Object.keys(scope).length > 0
+        return new Response(JSON.stringify({
+          scope,
+          matching_stories: scoped ? 2 : 101,
+          matching_stories_truncated: !scoped,
+          selected_stories: scoped ? 2 : 0,
+          safety_limit: 100,
+          can_queue: scoped,
+        }), { status: 200 })
       }
       if (url === '/api/v1/digests/digest-1') return new Response(JSON.stringify(digest), { status: 200 })
+      if (url === '/api/v1/stories' && init?.method === 'PATCH') {
+        return new Response('{"updated_count":1}', { status: 200 })
+      }
       if (url === '/api/v1/digests' && init?.method === 'POST') {
         return new Response('{"id":"job-1","kind":"digest","target_id":"digest-2","status":"pending"}', { status: 202 })
       }
@@ -60,11 +72,19 @@ describe('DigestPage', () => {
     renderWithQueryClient(<DigestPage />)
 
     expect(await screen.findByText('今天主要有两个值得关注的主题。')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '设置追更范围' })).toBeInTheDocument()
     expect(screen.getAllByRole('link', { name: /标题一/ })[0]).toHaveAttribute('href', '/stories/story-1')
     expect(screen.getAllByText(/S2 · 标题二/).every((element) => element.closest('a') === null)).toBe(true)
     expect(screen.getByText('主题一')).toBeInTheDocument()
     expect(screen.getByText(/先看标题一/)).toBeInTheDocument()
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+
+    fireEvent.click(screen.getByRole('button', { name: '将 1 个 Story 标记为已读' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/stories', expect.objectContaining({
+      method: 'PATCH',
+      body: JSON.stringify({ read: true, story_ids: ['story-1'] }),
+    })))
+    expect(await screen.findByRole('button', { name: '相关 Story 已标为已读' })).toBeDisabled()
 
     fireEvent.change(screen.getByLabelText('最多 Story（可选）'), { target: { value: '12' } })
     fireEvent.change(screen.getByLabelText('最早时间（可选）'), { target: { value: '2026-08-01T08:00' } })
@@ -76,21 +96,165 @@ describe('DigestPage', () => {
     })))
   })
 
+  it('puts the default Digest action in the page header', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/v1/digests?limit=50') return new Response('[]', { status: 200 })
+      if (url.startsWith('/api/v1/digests/preview')) {
+        return new Response('{"scope":{},"matching_stories":15,"matching_stories_truncated":false,"selected_stories":15,"safety_limit":100,"can_queue":true}', { status: 200 })
+      }
+      if (url === '/api/v1/digests' && init?.method === 'POST') {
+        return new Response('{"id":"job-1","kind":"digest","target_id":"digest-1","status":"pending"}', { status: 202 })
+      }
+      if (url === '/api/v1/digests/digest-1') {
+        return new Response('{"id":"digest-1","status":"pending","mode":"catch_up","story_count":15}', { status: 200 })
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWithQueryClient(<DigestPage />)
+
+    expect(await screen.findByText(/当前有 15 条未读 Story/)).toBeInTheDocument()
+    expect(screen.queryByText('直接整理未读 Story')).not.toBeInTheDocument()
+    expect(screen.queryByText('标题级处理')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '设置追更范围' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('最多 Story（可选）')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '生成追更摘要' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/digests', expect.objectContaining({
+      method: 'POST',
+      body: '{}',
+    })))
+  })
+
+  it('keeps the header action width stable while a Digest is being created', async () => {
+    let releaseCreate: ((response: Response) => void) | undefined
+    const createResponse = new Promise<Response>((resolve) => {
+      releaseCreate = resolve
+    })
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/v1/digests?limit=50') return new Response('[]', { status: 200 })
+      if (url.startsWith('/api/v1/digests/preview')) {
+        return new Response('{"scope":{},"matching_stories":15,"matching_stories_truncated":false,"selected_stories":15,"safety_limit":100,"can_queue":true}', { status: 200 })
+      }
+      if (url === '/api/v1/digests' && init?.method === 'POST') return createResponse
+      if (url === '/api/v1/digests/digest-1') {
+        return new Response('{"id":"digest-1","status":"pending","mode":"catch_up","story_count":15}', { status: 200 })
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWithQueryClient(<DigestPage />)
+
+    const action = await screen.findByRole('button', { name: '生成追更摘要' })
+    expect(action).toHaveClass('min-w-[148px]')
+    expect(action).toHaveClass('cursor-pointer')
+    fireEvent.click(action)
+    expect(await screen.findByRole('button', { name: '正在排队…' })).toHaveClass('min-w-[148px]')
+
+    releaseCreate?.(new Response('{"id":"job-1","kind":"digest","target_id":"digest-1","status":"pending"}', { status: 202 }))
+    expect(await screen.findByText('正在整理标题级速览，完成后会自动更新。')).toBeInTheDocument()
+  })
+
+  it('keeps the previous result visible while another Digest loads', async () => {
+    const firstDigest = {
+      id: 'digest-1', status: 'completed', mode: 'catch_up', story_count: 1,
+      overview: '第一份摘要仍然可见。', created_at: '2026-08-04T09:00:00Z', stories: [],
+    }
+    const secondDigest = {
+      id: 'digest-2', status: 'completed', mode: 'catch_up', story_count: 1,
+      overview: '第二份摘要已经更新。', created_at: '2026-08-04T10:00:00Z', stories: [],
+    }
+    let releaseSecond: ((response: Response) => void) | undefined
+    const secondResponse = new Promise<Response>((resolve) => {
+      releaseSecond = resolve
+    })
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/v1/digests?limit=50') return new Response(JSON.stringify([firstDigest, secondDigest]), { status: 200 })
+      if (url.startsWith('/api/v1/digests/preview')) {
+        return new Response('{"scope":{},"matching_stories":0,"matching_stories_truncated":false,"selected_stories":0,"safety_limit":100,"can_queue":true}', { status: 200 })
+      }
+      if (url === '/api/v1/digests/digest-1') return new Response(JSON.stringify(firstDigest), { status: 200 })
+      if (url === '/api/v1/digests/digest-2') return secondResponse
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { container } = renderWithQueryClient(<main><DigestPage /></main>)
+
+    expect(await screen.findByText('第一份摘要仍然可见。')).toBeInTheDocument()
+    const historyItems = screen.getAllByRole('button', { name: /1 个未读 Story/ })
+    const scrollContainer = container.querySelector('main')!
+    const historyLayout = container.querySelector('.ai-history-layout')!
+    Object.defineProperty(scrollContainer, 'scrollTop', { configurable: true, value: 360, writable: true })
+    vi.spyOn(scrollContainer, 'getBoundingClientRect').mockReturnValue({ top: 0 } as DOMRect)
+    vi.spyOn(historyLayout, 'getBoundingClientRect').mockReturnValue({ top: 120 } as DOMRect)
+    const scrollTo = vi.fn()
+    Object.defineProperty(scrollContainer, 'scrollTo', { configurable: true, value: scrollTo })
+    fireEvent.click(historyItems[1])
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 456, left: 0, behavior: 'smooth' })
+    expect(screen.getByText('第一份摘要仍然可见。')).toBeInTheDocument()
+    expect(screen.getByText('正在更新摘要…')).toBeInTheDocument()
+    expect(screen.queryByText('正在加载追更摘要')).not.toBeInTheDocument()
+
+    releaseSecond?.(new Response(JSON.stringify(secondDigest), { status: 200 }))
+    expect(await screen.findByText('第二份摘要已经更新。')).toBeInTheDocument()
+  })
+
   it('rejects a non-positive Story limit before making a request', async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input)
       if (url.startsWith('/api/v1/digests/preview')) {
-        return Promise.resolve(new Response('{"scope":{},"matching_stories":0,"matching_stories_truncated":false,"selected_stories":0,"safety_limit":100,"can_queue":true}', { status: 200 }))
+        return Promise.resolve(new Response('{"scope":{},"matching_stories":101,"matching_stories_truncated":true,"selected_stories":0,"safety_limit":100,"can_queue":false}', { status: 200 }))
       }
       return Promise.resolve(new Response('[]', { status: 200 }))
     })
     vi.stubGlobal('fetch', fetchMock)
     renderWithQueryClient(<DigestPage />)
-    await screen.findByText('还没有追更摘要。生成一份，稍后可以回来查看。')
+    await screen.findByRole('dialog', { name: '设置追更范围' })
     fireEvent.change(screen.getByLabelText('最多 Story（可选）'), { target: { value: '0' } })
     fireEvent.click(screen.getByRole('button', { name: '数量必须是正整数' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('数量必须是正整数')
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+  })
+
+  it('refreshes the history status after a Digest completes', async () => {
+    const pendingDigest = {
+      id: 'digest-1',
+      status: 'running',
+      mode: 'catch_up',
+      story_count: 1,
+      created_at: '2026-08-04T09:00:00Z',
+    }
+    const completedDigest = { ...pendingDigest, status: 'completed' }
+    let listCalls = 0
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/v1/digests?limit=50') {
+        const digest = listCalls++ === 0 ? pendingDigest : completedDigest
+        return new Response(JSON.stringify([digest]), { status: 200 })
+      }
+      if (url.startsWith('/api/v1/digests/preview')) {
+        return new Response('{"scope":{},"matching_stories":0,"matching_stories_truncated":false,"selected_stories":0,"safety_limit":100,"can_queue":true}', { status: 200 })
+      }
+      if (url === '/api/v1/digests/digest-1') {
+        return new Response(JSON.stringify(completedDigest), { status: 200 })
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWithQueryClient(<DigestPage />)
+
+    const historyItem = await screen.findByRole('button', { name: /1 个未读 Story/ })
+    expect(within(historyItem).getByText('生成中')).toBeInTheDocument()
+    await waitFor(() => expect(within(historyItem).getByText('已完成')).toBeInTheDocument(), { timeout: 4000 })
+    expect(listCalls).toBeGreaterThan(1)
   })
 })
 
@@ -108,7 +272,7 @@ describe('StoryDetailPage', () => {
       entries: [
         {
           id: 'entry-1', source_id: 'source-1', identity_key: 'key-1', source_title: '来源一',
-          summary: '来源摘要一', discovered_at: '2026-08-04T08:00:00Z',
+          summary: '来源摘要一', content_html: '<p>来源正文一</p><script>window.bad = true</script>', discovered_at: '2026-08-04T08:00:00Z',
         },
         {
           id: 'entry-2', source_id: 'source-2', identity_key: 'key-2', source_title: '来源二',
@@ -140,11 +304,15 @@ describe('StoryDetailPage', () => {
 
     renderWithQueryClient(<StoryDetailPage storyID="story-1" />)
     expect(await screen.findByText('一个需要总结的 Story')).toBeInTheDocument()
-    expect(screen.getByText('还没有摘要。点击右上角按钮后，AI 才会读取这个 Story 的内容。')).toBeInTheDocument()
+    expect(screen.getByText('还没有摘要。点击「生成AI摘要」后，AI 才会读取这个 Story 的内容。')).toBeInTheDocument()
+    expect(screen.getByText('来源正文一')).toBeInTheDocument()
+    expect(document.querySelector('.story-entry-reader script')).toBeNull()
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
 
-    fireEvent.click(screen.getByRole('button', { name: '生成 Story 摘要' }))
+    fireEvent.click(screen.getByRole('button', { name: '生成AI摘要' }))
     expect(await screen.findByText('这是完成后的摘要。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重新生成AI摘要' })).toBeInTheDocument()
+    expect(document.querySelector('.story-summary-card')).toHaveClass('pb-6')
     expect(screen.getByRole('link', { name: /E1 · 来源一/ })).toHaveAttribute('href', '#entry-entry-1')
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true)
   })

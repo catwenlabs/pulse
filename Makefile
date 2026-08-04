@@ -2,8 +2,6 @@ GOCACHE ?= /tmp/pulse-go-cache
 DEV_COMPOSE := docker compose -f compose.yaml -f compose.dev.yaml
 ENV_FILE ?= .env
 ENV_EXAMPLE_FILE ?= .env.example
-ENV_DEV_FILE ?= .env.dev
-ENV_DEV_EXAMPLE_FILE ?= .env.dev.example
 PULSE_HTTP_ADDR ?=
 PULSE_DATABASE_URL ?=
 PULSE_IMPORT_ROOTS ?=
@@ -12,7 +10,6 @@ PULSE_EMBEDDING_BASE_URL ?=
 PULSE_EMBEDDING_MODEL ?=
 
 LOAD_ENV = if [ -f "$(ENV_FILE)" ]; then set -a; . "$(ENV_FILE)"; set +a; elif [ -f "$(ENV_EXAMPLE_FILE)" ]; then set -a; . "$(ENV_EXAMPLE_FILE)"; set +a; else echo "missing $(ENV_FILE) and $(ENV_EXAMPLE_FILE)" >&2; exit 1; fi
-LOAD_DEV_ENV = if [ -f "$(ENV_DEV_FILE)" ]; then set -a; . "$(ENV_DEV_FILE)"; set +a; elif [ -f "$(ENV_DEV_EXAMPLE_FILE)" ]; then set -a; . "$(ENV_DEV_EXAMPLE_FILE)"; set +a; else echo "missing $(ENV_DEV_FILE) and $(ENV_DEV_EXAMPLE_FILE)" >&2; exit 1; fi
 
 .PHONY: test test-race vet run dev dev-db-up dev-db-down dev-db-logs dev-api dev-web-install dev-web compose-config backup backup-verify export-config export-entry e2e
 
@@ -45,13 +42,12 @@ dev-db-logs:
 dev-api:
 	@set -eu; \
 	$(LOAD_ENV); \
-	$(LOAD_DEV_ENV); \
-	PULSE_HTTP_ADDR="$(if $(PULSE_HTTP_ADDR),$(PULSE_HTTP_ADDR),$${PULSE_HTTP_ADDR})" \
-	PULSE_DATABASE_URL="$(if $(PULSE_DATABASE_URL),$(PULSE_DATABASE_URL),$${PULSE_DATABASE_URL})" \
-	PULSE_IMPORT_ROOTS="$(if $(PULSE_IMPORT_ROOTS),$(PULSE_IMPORT_ROOTS),$${PULSE_IMPORT_ROOTS})" \
-	PULSE_EMBEDDING_PROVIDER="$(if $(PULSE_EMBEDDING_PROVIDER),$(PULSE_EMBEDDING_PROVIDER),$${PULSE_EMBEDDING_PROVIDER})" \
-	PULSE_EMBEDDING_BASE_URL="$(if $(PULSE_EMBEDDING_BASE_URL),$(PULSE_EMBEDDING_BASE_URL),$${PULSE_EMBEDDING_BASE_URL})" \
-	PULSE_EMBEDDING_MODEL="$(if $(PULSE_EMBEDDING_MODEL),$(PULSE_EMBEDDING_MODEL),$${PULSE_EMBEDDING_MODEL})" \
+	PULSE_HTTP_ADDR="$(if $(PULSE_HTTP_ADDR),$(PULSE_HTTP_ADDR),127.0.0.1:8080)" \
+	PULSE_DATABASE_URL="$(if $(PULSE_DATABASE_URL),$(PULSE_DATABASE_URL),postgres://pulse:pulse@127.0.0.1:54321/pulse?sslmode=disable)" \
+	PULSE_IMPORT_ROOTS="$(if $(PULSE_IMPORT_ROOTS),$(PULSE_IMPORT_ROOTS),./imports)" \
+	PULSE_EMBEDDING_PROVIDER="$(if $(PULSE_EMBEDDING_PROVIDER),$(PULSE_EMBEDDING_PROVIDER),ollama)" \
+	PULSE_EMBEDDING_BASE_URL="$(if $(PULSE_EMBEDDING_BASE_URL),$(PULSE_EMBEDDING_BASE_URL),http://127.0.0.1:11434)" \
+	PULSE_EMBEDDING_MODEL="$(if $(PULSE_EMBEDDING_MODEL),$(PULSE_EMBEDDING_MODEL),qwen3-embedding)" \
 	GOCACHE="$(GOCACHE)" go run ./cmd/pulse
 
 dev-web-install:
