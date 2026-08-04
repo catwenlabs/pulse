@@ -97,6 +97,14 @@ make export-entry ID=ENTRY_UUID
 | `PULSE_EMBEDDING_PROVIDER` | `disabled` | Story 语义聚合 Provider；可设为 `ollama` |
 | `PULSE_EMBEDDING_BASE_URL` | `http://127.0.0.1:11434` | Embedding 服务基础地址，不包含 `/api/embed` |
 | `PULSE_EMBEDDING_MODEL` | `qwen3-embedding` | Embedding 模型名称 |
+| `PULSE_AI_PROVIDER` | `disabled` | 全局 AI Provider；可设为 `openai-compatible` 或 `ollama`（两者都走同一适配器） |
+| `PULSE_AI_BASE_URL` | `http://127.0.0.1:11434/v1` | OpenAI-compatible 服务基础地址；例如 OpenAI、DeepSeek、OpenRouter、Qwen 或 Ollama |
+| `PULSE_AI_API_KEY` | 空 | Provider API Key；通过 Secret/环境注入，不会返回到 API 或写入日志 |
+| `PULSE_AI_HEADERS_JSON` | 空 | 可选的额外 Header JSON 对象；同样按 Secret 处理 |
+| `PULSE_AI_MODEL` | `qwen3:8b` | 模型名称 |
+| `PULSE_AI_TIMEOUT` | `2m` | 单次 AI 请求超时 |
+| `PULSE_AI_MAX_DIGEST_STORIES` | `100` | 默认 Catch-up Digest 的安全上限 |
+| `PULSE_AI_MAX_ACTIVE_JOBS` | `4` | 全局 AI Provider 的排队、运行和重试 Job 上限 |
 
 ### Story 语义聚合（可选）
 
@@ -112,6 +120,29 @@ export PULSE_EMBEDDING_MODEL=qwen3-embedding
 启用后，worker 角色每 30 秒运行一次聚类（用标题 + 正文前 500 字生成向量做相似度匹配）。开启 embedding **之前**已入库、从未生成过向量的旧条目也会被 worker 逐步回填并重新聚类；想立刻跑完可调用 `POST /api/v1/stories/recluster`（同步、逐条生成向量，量大耗时；应用日志会打印每轮 `Story recluster pass` 进度）。
 
 Pulse 在 Ollama 不可用时自动回退到传统文本算法，Entry 摄取与 Checkpoint 不受影响。容器内的 `127.0.0.1` 指向 Pulse 容器本身，Compose 部署时应把 `PULSE_EMBEDDING_BASE_URL` 设置为可从 Pulse 容器访问的 Ollama 服务地址（macOS Docker Desktop 下可用 `http://host.docker.internal:11434`）。
+
+### AI StorySummary 与 Catch-up Digest（可选）
+
+AI 功能只在用户点击后执行，不会自动标记 Story 为已读。`StorySummary` 会读取一个 Story 的 Entry 内容，保存结构化概览、要点和来源说明；内容发生变化后，旧摘要会显示为过期。Catch-up Digest 默认按 Story 去重，选择未读且未隐藏的 Story，并把标题、来源数、Entry 数和时间等必要元数据固定成快照后发送给 AI，不发送 Entry 正文或 `Entry.Summary`。Digest 会持久化历史，结果中的每个 Story 引用都可以回到对应 Story 查看。
+
+所有供应商共用一个 OpenAI-compatible Chat Completions 适配器。选择供应商只需要改变环境变量，例如：
+
+```sh
+# Ollama（本地，不需要 API Key）
+export PULSE_AI_PROVIDER=ollama
+export PULSE_AI_BASE_URL=http://host.docker.internal:11434/v1
+export PULSE_AI_MODEL=qwen3:8b
+
+# DeepSeek / OpenRouter / Qwen / OpenAI 等
+export PULSE_AI_PROVIDER=openai-compatible
+export PULSE_AI_BASE_URL=https://api.deepseek.com/v1
+export PULSE_AI_API_KEY='YOUR_API_KEY'
+export PULSE_AI_MODEL=deepseek-chat
+```
+
+启用后必须保留 `worker` 角色，AI Job 会使用 PostgreSQL 的持久化队列、Lease 和重试机制。不要把 API Key 写入 Compose 文件、提交记录或普通诊断日志；AI Provider 的响应正文也不会被写入日志。
+
+AI 请求使用受控 HTTP Client：公网 Provider 不会连接私有、回环或链路本地地址；本地 Ollama 只允许 `localhost`、`127.0.0.1`、`::1`、`host.docker.internal`、`host.containers.internal`、`gateway.docker.internal` 和 `ollama` 这些显式主机名。Provider URL 不支持内嵌用户凭据，重定向也会继续执行同样的安全检查。
 
 ### 安全注意事项
 

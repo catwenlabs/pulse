@@ -121,3 +121,16 @@ func TestSafeDialerRejectsPrivateLiteral(t *testing.T) {
 		t.Fatalf("error = %v, want ErrAddressBlocked", err)
 	}
 }
+
+func TestAIClientUsesExplicitLocalHostAllowlist(t *testing.T) {
+	if !isLocalAIHost("host.docker.internal") || !isLocalAIHost("127.0.0.1") {
+		t.Fatal("expected supported local AI hosts to be allowed")
+	}
+	if isLocalAIHost("169.254.169.254") || isLocalAIHost("private.example") {
+		t.Fatal("unexpected local AI host allowlist entry")
+	}
+	dialer := localAIDialer{}
+	if _, err := dialer.DialContext(context.Background(), "tcp", "169.254.169.254:80"); !errors.Is(err, ErrAddressBlocked) {
+		t.Fatalf("local AI dialer error = %v, want ErrAddressBlocked", err)
+	}
+}

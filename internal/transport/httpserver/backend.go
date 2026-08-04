@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/catwenlabs/pulse/internal/ai"
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/ingestion"
 	"github.com/catwenlabs/pulse/internal/opml"
@@ -94,16 +95,17 @@ type ruleRepository interface {
 }
 
 type backend struct {
-	sources      sourceRepository
-	acquisitions acquisitionQueue
-	entries      entryRepository
-	opml         opmlRepository
-	previewer    sourcePreviewer
-	organization organizationRepository
-	rules        ruleRepository
-	stories      storyRepository
-	reclusterer  storyReclusterer
-	publish      func(string)
+	sources       sourceRepository
+	acquisitions  acquisitionQueue
+	entries       entryRepository
+	opml          opmlRepository
+	previewer     sourcePreviewer
+	organization  organizationRepository
+	rules         ruleRepository
+	stories       storyRepository
+	reclusterer   storyReclusterer
+	summarization ai.Summarization
+	publish       func(string)
 }
 
 func NewBackend(
@@ -119,7 +121,7 @@ func NewBackend(
 ) Backend {
 	return newBackend(
 		sources, acquisitions, entries, opmlRepository, previewer,
-		organizationStore, storyStore, reclusterer, nil, ruleStores...,
+		organizationStore, storyStore, reclusterer, nil, nil, ruleStores...,
 	)
 }
 
@@ -137,7 +139,44 @@ func NewBackendWithEvents(
 ) Backend {
 	return newBackend(
 		sources, acquisitions, entries, opmlRepository, previewer,
-		organizationStore, storyStore, reclusterer, publish, ruleStores...,
+		organizationStore, storyStore, reclusterer, publish, nil, ruleStores...,
+	)
+}
+
+func NewBackendWithAI(
+	sources sourceRepository,
+	acquisitions acquisitionQueue,
+	entries entryRepository,
+	opmlRepository opmlRepository,
+	previewer sourcePreviewer,
+	organizationStore organizationRepository,
+	storyStore storyRepository,
+	reclusterer storyReclusterer,
+	summarization ai.Summarization,
+	ruleStores ...ruleRepository,
+) Backend {
+	return NewBackendWithEventsAndAI(
+		sources, acquisitions, entries, opmlRepository, previewer,
+		organizationStore, storyStore, reclusterer, nil, summarization, ruleStores...,
+	)
+}
+
+func NewBackendWithEventsAndAI(
+	sources sourceRepository,
+	acquisitions acquisitionQueue,
+	entries entryRepository,
+	opmlRepository opmlRepository,
+	previewer sourcePreviewer,
+	organizationStore organizationRepository,
+	storyStore storyRepository,
+	reclusterer storyReclusterer,
+	publish func(string),
+	summarization ai.Summarization,
+	ruleStores ...ruleRepository,
+) Backend {
+	return newBackend(
+		sources, acquisitions, entries, opmlRepository, previewer,
+		organizationStore, storyStore, reclusterer, publish, summarization, ruleStores...,
 	)
 }
 
@@ -151,23 +190,67 @@ func newBackend(
 	storyStore storyRepository,
 	reclusterer storyReclusterer,
 	publish func(string),
+	summarization ai.Summarization,
 	ruleStores ...ruleRepository,
 ) Backend {
 	service := &backend{
-		sources:      sources,
-		acquisitions: acquisitions,
-		entries:      entries,
-		opml:         opmlRepository,
-		previewer:    previewer,
-		organization: organizationStore,
-		stories:      storyStore,
-		reclusterer:  reclusterer,
-		publish:      publish,
+		sources:       sources,
+		acquisitions:  acquisitions,
+		entries:       entries,
+		opml:          opmlRepository,
+		previewer:     previewer,
+		organization:  organizationStore,
+		stories:       storyStore,
+		reclusterer:   reclusterer,
+		summarization: summarization,
+		publish:       publish,
 	}
 	if len(ruleStores) > 0 {
 		service.rules = ruleStores[0]
 	}
 	return service
+}
+
+func (service *backend) RequestStorySummary(ctx context.Context, storyID string) (ai.JobReceipt, error) {
+	if service.summarization == nil {
+		return ai.JobReceipt{}, ai.ErrUnavailable
+	}
+	return service.summarization.RequestStorySummary(ctx, storyID)
+}
+
+func (service *backend) GetStorySummary(ctx context.Context, storyID string) (ai.StorySummary, error) {
+	if service.summarization == nil {
+		return ai.StorySummary{}, ai.ErrUnavailable
+	}
+	return service.summarization.GetStorySummary(ctx, storyID)
+}
+
+func (service *backend) PreviewDigest(ctx context.Context, scope ai.DigestScope) (ai.DigestPreview, error) {
+	if service.summarization == nil {
+		return ai.DigestPreview{}, ai.ErrUnavailable
+	}
+	return service.summarization.PreviewDigest(ctx, scope)
+}
+
+func (service *backend) RequestDigest(ctx context.Context, scope ai.DigestScope) (ai.JobReceipt, error) {
+	if service.summarization == nil {
+		return ai.JobReceipt{}, ai.ErrUnavailable
+	}
+	return service.summarization.RequestDigest(ctx, scope)
+}
+
+func (service *backend) ListDigests(ctx context.Context, limit int) ([]ai.Digest, error) {
+	if service.summarization == nil {
+		return nil, ai.ErrUnavailable
+	}
+	return service.summarization.ListDigests(ctx, limit)
+}
+
+func (service *backend) GetDigest(ctx context.Context, digestID string) (ai.Digest, error) {
+	if service.summarization == nil {
+		return ai.Digest{}, ai.ErrUnavailable
+	}
+	return service.summarization.GetDigest(ctx, digestID)
 }
 
 func (service *backend) publishLibraryChange(sourceID string) {

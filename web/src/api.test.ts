@@ -4,8 +4,12 @@ import {
   createManualEntry,
   createSource,
   addStoryTag,
+  createDigest,
   deleteEntry,
+  getDigest,
   importAnnotations,
+  listDigests,
+  previewDigest,
   listSourceEntries,
   listStories,
   listSources,
@@ -16,6 +20,7 @@ import {
   mergeStory,
   previewSource,
   reclusterStories,
+  requestStorySummary,
   runSource,
   removeStoryTag,
   setStoryRepresentative,
@@ -243,5 +248,32 @@ describe('navigation order API', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ source_ids: ['source-2', 'source-1'] }),
     })
+  })
+})
+
+describe('AI summarization API', () => {
+  it('queues StorySummary and fetches persisted Digest history/details', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('{"id":"job-1","kind":"story_summary","target_id":"story-1","status":"pending"}', { status: 202 }))
+      .mockResolvedValueOnce(new Response('[{"id":"digest-1","status":"completed","mode":"catch_up","story_count":2}]', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"id":"digest-1","status":"completed","mode":"catch_up","story_count":2,"stories":[]}', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"scope":{},"matching_stories":2,"matching_stories_truncated":false,"selected_stories":2,"safety_limit":100,"can_queue":true}', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"id":"job-2","kind":"digest","target_id":"digest-2","status":"pending"}', { status: 202 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await requestStorySummary('story-1')
+    await listDigests()
+    await getDigest('digest-1')
+    await previewDigest({ max_stories: 2 })
+    await createDigest({ max_stories: 20, start_at: '2026-08-01T00:00:00Z' })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/stories/story-1/ai-summary', { method: 'POST' })
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/digests?limit=50', undefined)
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/digests/digest-1', undefined)
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/digests/preview?max_stories=2', undefined)
+    expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/digests', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ max_stories: 20, start_at: '2026-08-01T00:00:00Z' }),
+    }))
   })
 })

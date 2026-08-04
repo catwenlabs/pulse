@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/catwenlabs/pulse/internal/ai"
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/ingestion"
 	"github.com/catwenlabs/pulse/internal/opml"
@@ -51,6 +52,40 @@ type fakeBackend struct {
 	exportOPML           func(context.Context) ([]opml.Subscription, error)
 	previewSource        func(context.Context, source.Spec) (preview.Result, error)
 	replayRule           func(context.Context, string, bool) (rule.ReplayResult, error)
+}
+
+type aiFakeBackend struct {
+	fakeBackend
+	requestStorySummary func(context.Context, string) (ai.JobReceipt, error)
+	getStorySummary     func(context.Context, string) (ai.StorySummary, error)
+	previewDigest       func(context.Context, ai.DigestScope) (ai.DigestPreview, error)
+	requestDigest       func(context.Context, ai.DigestScope) (ai.JobReceipt, error)
+	listDigests         func(context.Context, int) ([]ai.Digest, error)
+	getDigest           func(context.Context, string) (ai.Digest, error)
+}
+
+func (fake aiFakeBackend) RequestStorySummary(ctx context.Context, storyID string) (ai.JobReceipt, error) {
+	return fake.requestStorySummary(ctx, storyID)
+}
+
+func (fake aiFakeBackend) GetStorySummary(ctx context.Context, storyID string) (ai.StorySummary, error) {
+	return fake.getStorySummary(ctx, storyID)
+}
+
+func (fake aiFakeBackend) PreviewDigest(ctx context.Context, scope ai.DigestScope) (ai.DigestPreview, error) {
+	return fake.previewDigest(ctx, scope)
+}
+
+func (fake aiFakeBackend) RequestDigest(ctx context.Context, scope ai.DigestScope) (ai.JobReceipt, error) {
+	return fake.requestDigest(ctx, scope)
+}
+
+func (fake aiFakeBackend) ListDigests(ctx context.Context, limit int) ([]ai.Digest, error) {
+	return fake.listDigests(ctx, limit)
+}
+
+func (fake aiFakeBackend) GetDigest(ctx context.Context, digestID string) (ai.Digest, error) {
+	return fake.getDigest(ctx, digestID)
 }
 
 func (fake fakeBackend) CreateSource(ctx context.Context, spec source.Spec) (source.Source, error) {
@@ -1099,6 +1134,78 @@ func TestHTTPDomainErrors(t *testing.T) {
 				t.Errorf("status = %d, want %d; body = %s", response.Code, test.wantStatus, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestAISummarizationEndpoints(t *testing.T) {
+	var requestedStoryID string
+	var requestedScope ai.DigestScope
+	backend := aiFakeBackend{fakeBackend: completeFakeBackend()}
+	backend.getStory = func(_ context.Context, id story.ID) (story.Story, error) {
+		return story.Story{
+			ID:             id,
+			Representative: entry.Entry{ID: entry.ID("entry-1"), SourceTitle: "A Story"},
+			EntryCount:     1,
+			SourceCount:    1,
+		}, nil
+	}
+	backend.requestStorySummary = func(_ context.Context, id string) (ai.JobReceipt, error) {
+		requestedStoryID = id
+		return ai.JobReceipt{ID: "job-story", Kind: ai.JobKindStorySummary, TargetID: id, Status: ai.JobPending}, nil
+	}
+	backend.getStorySummary = func(_ context.Context, id string) (ai.StorySummary, error) {
+		return ai.StorySummary{StoryID: id, Status: ai.StatusNotRequested}, nil
+	}
+	backend.previewDigest = func(_ context.Context, scope ai.DigestScope) (ai.DigestPreview, error) {
+		return ai.DigestPreview{Scope: scope, MatchingStories: 2, SelectedStories: 2, SafetyLimit: 100, CanQueue: true}, nil
+	}
+	backend.requestDigest = func(_ context.Context, scope ai.DigestScope) (ai.JobReceipt, error) {
+		requestedScope = scope
+		return ai.JobReceipt{ID: "job-digest", Kind: ai.JobKindDigest, TargetID: "digest-1", Status: ai.JobPending}, nil
+	}
+	backend.listDigests = func(_ context.Context, limit int) ([]ai.Digest, error) {
+		return []ai.Digest{{ID: "digest-1", Status: ai.StatusCompleted, Mode: "catch_up", StoryCount: limit}}, nil
+	}
+	backend.getDigest = func(_ context.Context, id string) (ai.Digest, error) {
+		return ai.Digest{ID: id, Status: ai.StatusCompleted, Mode: "catch_up", StoryCount: 1, Stories: []ai.DigestStory{{Label: "S1", StoryID: "story-1", Title: "A Story", EntryCount: 1, SourceCount: 1, Available: true}}}, nil
+	}
+	handler := NewHandler(backend)
+
+	storyJobResponse := httptest.NewRecorder()
+	handler.ServeHTTP(storyJobResponse, httptest.NewRequest(http.MethodPost, "/api/v1/stories/story-1/ai-summary", nil))
+	if storyJobResponse.Code != http.StatusAccepted || requestedStoryID != "story-1" || !strings.Contains(storyJobResponse.Body.String(), `"kind":"story_summary"`) {
+		t.Fatalf("StorySummary response = %d %s", storyJobResponse.Code, storyJobResponse.Body.String())
+	}
+
+	storyResponse := httptest.NewRecorder()
+	handler.ServeHTTP(storyResponse, httptest.NewRequest(http.MethodGet, "/api/v1/stories/story-1", nil))
+	if storyResponse.Code != http.StatusOK || !strings.Contains(storyResponse.Body.String(), `"ai_summary"`) {
+		t.Fatalf("Story response = %d %s", storyResponse.Code, storyResponse.Body.String())
+	}
+
+	digestJobResponse := httptest.NewRecorder()
+	digestRequest := httptest.NewRequest(http.MethodPost, "/api/v1/digests", strings.NewReader(`{"max_stories":12,"start_at":"2026-08-01T00:00:00Z"}`))
+	handler.ServeHTTP(digestJobResponse, digestRequest)
+	if digestJobResponse.Code != http.StatusAccepted || requestedScope.MaxStories != 12 || requestedScope.StartAt == nil {
+		t.Fatalf("Digest request = %d %s scope=%+v", digestJobResponse.Code, digestJobResponse.Body.String(), requestedScope)
+	}
+
+	previewResponse := httptest.NewRecorder()
+	handler.ServeHTTP(previewResponse, httptest.NewRequest(http.MethodGet, "/api/v1/digests/preview?max_stories=2", nil))
+	if previewResponse.Code != http.StatusOK || !strings.Contains(previewResponse.Body.String(), `"selected_stories":2`) {
+		t.Fatalf("Digest preview = %d %s", previewResponse.Code, previewResponse.Body.String())
+	}
+
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/api/v1/digests?limit=7", nil))
+	if listResponse.Code != http.StatusOK || !strings.Contains(listResponse.Body.String(), `"story_count":7`) {
+		t.Fatalf("Digest list = %d %s", listResponse.Code, listResponse.Body.String())
+	}
+
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, httptest.NewRequest(http.MethodGet, "/api/v1/digests/digest-1", nil))
+	if getResponse.Code != http.StatusOK || !strings.Contains(getResponse.Body.String(), `"story_id":"story-1"`) {
+		t.Fatalf("Digest detail = %d %s", getResponse.Code, getResponse.Body.String())
 	}
 }
 

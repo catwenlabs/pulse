@@ -59,9 +59,9 @@ func TestRedactConfigHidesCredentials(t *testing.T) {
 }
 
 func TestRedactDiagnosticTextHidesCredentialValues(t *testing.T) {
-	message := `GET https://example.com/feed?token=abc123&safe=yes failed; Authorization: Bearer-secret`
+	message := `GET https://user:pass@example.com/feed?token=abc123&safe=yes failed; Authorization: Bearer-secret`
 	redacted := RedactDiagnosticText(message)
-	if strings.Contains(redacted, "abc123") || strings.Contains(redacted, "Bearer-secret") {
+	if strings.Contains(redacted, "user:pass") || strings.Contains(redacted, "abc123") || strings.Contains(redacted, "Bearer-secret") {
 		t.Fatalf("diagnostic leaked credential: %s", redacted)
 	}
 	if !strings.Contains(redacted, "safe=yes") {

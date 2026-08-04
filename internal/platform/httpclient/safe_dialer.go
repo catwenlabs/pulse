@@ -7,7 +7,9 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -108,13 +110,40 @@ func AllowedAddress(address netip.Addr) bool {
 }
 
 func New() *http.Client {
+	return newClient(SafeDialer{}, time.Minute)
+}
+
+// NewForAI returns a controlled client for a configured AI endpoint. Public
+// endpoints use the normal SSRF-safe dialer. Ollama-style local endpoints are
+// allowed only for an explicit host allowlist, so a redirect or DNS result
+// cannot turn a local provider into an arbitrary internal request.
+func NewForAI(baseURL string, timeout time.Duration) (*http.Client, error) {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return nil, fmt.Errorf("AI Base URL must be an absolute HTTP(S) URL")
+	}
+	if parsed.User != nil {
+		return nil, fmt.Errorf("AI Base URL must not contain userinfo")
+	}
+	if timeout <= 0 {
+		timeout = time.Minute
+	}
+	if isLocalAIHost(parsed.Hostname()) {
+		return newClient(localAIDialer{}, timeout), nil
+	}
+	return newClient(SafeDialer{}, timeout), nil
+}
+
+func newClient(dialer interface {
+	DialContext(context.Context, string, string) (net.Conn, error)
+}, timeout time.Duration) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
-	transport.DialContext = (SafeDialer{}).DialContext
+	transport.DialContext = dialer.DialContext
 
 	return &http.Client{
 		Transport: userAgentTransport{base: transport},
-		Timeout:   time.Minute,
+		Timeout:   timeout,
 		CheckRedirect: func(request *http.Request, via []*http.Request) error {
 			if request.URL.Scheme != "http" && request.URL.Scheme != "https" {
 				return fmt.Errorf("redirect scheme %q is not allowed", request.URL.Scheme)
@@ -127,5 +156,28 @@ func New() *http.Client {
 			}
 			return nil
 		},
+	}
+}
+
+type localAIDialer struct{}
+
+func (localAIDialer) DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, fmt.Errorf("split network address %q: %w", address, err)
+	}
+	if !isLocalAIHost(host) {
+		return nil, fmt.Errorf("%w: %s", ErrAddressBlocked, host)
+	}
+	var dialer net.Dialer
+	return dialer.DialContext(ctx, network, address)
+}
+
+func isLocalAIHost(host string) bool {
+	switch strings.TrimSuffix(strings.ToLower(host), ".") {
+	case "localhost", "127.0.0.1", "::1", "host.docker.internal", "host.containers.internal", "gateway.docker.internal", "ollama":
+		return true
+	default:
+		return false
 	}
 }

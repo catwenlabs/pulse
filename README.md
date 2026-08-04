@@ -31,6 +31,7 @@ Pulse 是面向单用户、本机或局域网部署的信息阅读中枢。它�
 - **Ingest anything** — RSS/Atom/JSON Feed、JSON API、Static HTML、Webhook、手工条目、本地文件、阅读批注，统一为 Entry。
 - **Read on your terms** — 收件箱、Folder、标签、持久化 View；已读、收藏、隐藏、稍后读、笔记；PostgreSQL 全文与模糊搜索；OPML / 脱敏配置 / Markdown 导出。
 - **Cluster across sources** — 同一新闻的多个来源自动聚合成一条 Story；跨源合并需启用 Ollama embedding（默认关闭），配置见[部署与运维](docs/operations.md#story-语义聚合可选)。
+- **AI catch-up** — 用户主动生成 StorySummary 或标题级未读追更 Digest；支持 OpenAI-compatible Provider、DeepSeek、OpenRouter、Qwen 与 Ollama，结果保留可回到来源 Story 的引用。
 
 ## Quick Start
 
@@ -85,6 +86,8 @@ Pulse 采用模块化单体架构，PostgreSQL 同时承载领域数据、任务
 | `PULSE_MASTER_KEY` | 空 | 来源凭据主密钥（Base64，32 字节） |
 | `PULSE_ROLES` | `web,scheduler,worker,effect-worker` | 进程启用的运行角色 |
 | `PULSE_EMBEDDING_PROVIDER` | `disabled` | Story 语义聚合；可设为 `ollama` |
+| `PULSE_AI_PROVIDER` | `disabled` | 全局 AI Provider；可设为 `openai-compatible` 或 `ollama` |
+| `PULSE_AI_MAX_ACTIVE_JOBS` | `4` | 全局 AI Provider 的排队、运行和重试 Job 上限 |
 
 ## Local Development
 

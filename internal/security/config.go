@@ -17,6 +17,7 @@ const encryptedKey = "$pulse_encrypted"
 var (
 	diagnosticQuerySecret  = regexp.MustCompile(`(?i)(authorization|cookie|api[-_]?key|secret|password|token)=([^&\s"'<>]+)`)
 	diagnosticHeaderSecret = regexp.MustCompile(`(?i)(authorization|cookie|x-api-key):[^\r\n;]+`)
+	diagnosticURLUserinfo  = regexp.MustCompile(`(?i)(https?://)[^/@\s]+@`)
 )
 
 type CredentialCipher struct {
@@ -180,6 +181,7 @@ func RedactConfig(config json.RawMessage) json.RawMessage {
 }
 
 func RedactDiagnosticText(value string) string {
+	value = diagnosticURLUserinfo.ReplaceAllString(value, "$1[REDACTED]@")
 	value = diagnosticQuerySecret.ReplaceAllString(value, "$1=[REDACTED]")
 	return diagnosticHeaderSecret.ReplaceAllString(value, "$1: [REDACTED]")
 }

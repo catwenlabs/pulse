@@ -225,6 +225,71 @@
   .annotation-highlights small { @apply mt-[7px] block text-[9px] text-[#aaa397]; }
   .annotation-expand { @apply justify-self-start rounded-[7px] border border-[#ddd7cb] bg-white px-2.5 py-[7px] text-[11px] text-[#625d53] hover:border-[#c9c1b2] hover:bg-[#f8f5ef]; }
 
+  /* AI summaries and catch-up Digests */
+  .ai-page { @apply min-h-full overflow-y-auto bg-[#f4f1ea] px-[clamp(24px,5vw,72px)] pb-20 pt-10 max-md:px-4 max-md:pb-10 max-md:pt-6; }
+  .ai-page-header { @apply mx-auto mb-8 flex max-w-[1120px] items-end justify-between gap-6 max-md:flex-col max-md:items-start max-md:gap-4; }
+  .ai-page-header h1 { @apply m-0 font-serif text-4xl font-semibold tracking-tight max-md:text-3xl; }
+  .ai-page-header p:last-child { @apply mb-0 mt-3 max-w-[680px] text-sm leading-6 text-muted-foreground; }
+  .ai-eyebrow { @apply mb-2 mt-0 text-[10px] font-bold tracking-[.16em] text-primary; }
+  .ai-title-only-badge { @apply rounded-full border border-[#d9d2c4] bg-white/70 px-3 py-1.5 text-xs text-muted-foreground; }
+  .ai-create-card, .ai-history-card, .ai-result-card, .ai-summary-card { @apply mx-auto rounded-2xl border bg-card shadow-[0_10px_32px_rgba(51,46,36,.05)]; }
+  .ai-create-card { @apply mb-8 grid max-w-[1120px] grid-cols-[minmax(220px,.75fr)_minmax(320px,1.25fr)] gap-8 p-7 max-md:grid-cols-1 max-md:gap-5 max-md:p-5; }
+  .ai-create-card h2, .ai-history-card h2, .ai-result-card h2, .ai-summary-card h2 { @apply mb-1 mt-0 font-serif text-2xl font-semibold; }
+  .ai-create-card > div > p:last-child { @apply mb-0 text-sm leading-6 text-muted-foreground; }
+  .ai-create-card form { @apply grid gap-3; }
+  .ai-form-grid { @apply grid grid-cols-3 gap-3 max-md:grid-cols-1; }
+  .ai-create-card label { @apply grid gap-1.5 text-xs font-semibold text-muted-foreground; }
+  .ai-form-error { @apply m-0 text-xs text-destructive; }
+  .ai-scope-preview { @apply m-0 text-xs leading-5 text-muted-foreground; }
+  .ai-history-layout { @apply mx-auto grid max-w-[1120px] grid-cols-[minmax(220px,.72fr)_minmax(0,1.5fr)] items-start gap-5 max-md:grid-cols-1; }
+  .ai-history-card, .ai-result-card { @apply min-w-0 overflow-hidden; }
+  .ai-card-heading { @apply flex items-start justify-between gap-4 border-b px-6 py-5 max-md:px-5; }
+  .ai-card-heading > span { @apply shrink-0 pt-1 text-xs text-muted-foreground; }
+  .ai-state { @apply m-0 p-8 text-center text-sm text-muted-foreground; }
+  .ai-error { @apply text-destructive; }
+  .ai-history-list { @apply grid; }
+  .ai-history-item { @apply grid cursor-pointer gap-1 border-0 border-b bg-transparent px-6 py-4 text-left last:border-b-0 hover:bg-muted/40 max-md:px-5; }
+  .ai-history-item.is-selected { @apply bg-primary/10; }
+  .ai-history-item-title { @apply text-sm font-semibold text-foreground; }
+  .ai-history-item-meta, .ai-result-meta { @apply text-xs text-muted-foreground; }
+  .ai-result-card { @apply min-h-[420px]; }
+  .ai-result-meta { @apply mx-6 mb-0 mt-4 max-md:mx-5; }
+  .ai-error-box { @apply mx-6 mt-4 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive max-md:mx-5; }
+  .ai-overview { @apply mx-6 mt-5 text-base leading-7 text-foreground max-md:mx-5; }
+  .ai-section, .ai-source-section { @apply mx-6 mt-7 border-t pt-5 max-md:mx-5; }
+  .ai-section h3, .ai-source-section h3, .story-entry-list h2 { @apply mb-3 mt-0 text-sm font-semibold text-foreground; }
+  .ai-priority-list, .ai-theme-list { @apply grid gap-3; }
+  .ai-priority-item, .ai-theme-list article { @apply rounded-xl border bg-white/60 p-4; }
+  .ai-priority-item strong, .ai-theme-list strong { @apply text-sm; }
+  .ai-priority-item p, .ai-theme-list p { @apply mb-0 mt-1 text-sm leading-6 text-muted-foreground; }
+  .ai-reference-list, .ai-source-list { @apply mt-3 flex flex-wrap gap-2; }
+  .ai-reference { @apply inline-flex min-w-0 max-w-full flex-col rounded-lg border border-[#ddd7cb] bg-white px-2.5 py-1.5 text-left no-underline hover:border-primary/50 hover:bg-primary/5; }
+  .ai-reference > span { @apply text-[10px] font-bold text-primary; }
+  .ai-reference > strong { @apply truncate text-xs font-semibold text-foreground; }
+  .ai-reference > small { @apply text-[10px] text-muted-foreground; }
+  .ai-reference-unavailable { @apply text-muted-foreground; }
+  .ai-status { @apply rounded-full px-2.5 py-1 text-xs font-semibold; }
+  .ai-status-completed { @apply bg-success/10 text-success; }
+  .ai-status-partial, .ai-status-stale { @apply bg-amber-100 text-amber-800; }
+  .ai-status-failed { @apply bg-destructive/10 text-destructive; }
+  .ai-status-queued, .ai-status-running, .ai-status-pending, .ai-status-retry { @apply bg-primary/10 text-primary-hover; }
+  .ai-omission-list { @apply m-0 grid gap-2 pl-5 text-sm leading-6 text-muted-foreground; }
+  .ai-omission-list .ai-reference { @apply inline-flex align-middle; }
+  .ai-summary-card { @apply mx-auto mb-8 max-w-[1120px] overflow-hidden; }
+  .ai-key-point-list { @apply mx-6 mt-5 grid gap-2 pl-5 text-sm leading-6 max-md:mx-5; }
+  .ai-summary-source-list { @apply grid gap-2; }
+  .ai-summary-source { @apply grid gap-1 rounded-lg border border-[#e2ddd3] bg-white/60 px-3 py-2 text-sm no-underline hover:bg-primary/5; }
+  .ai-summary-source strong { @apply text-foreground; }
+  .ai-summary-source span { @apply text-xs text-muted-foreground; }
+  .story-detail-page .ai-page-header { @apply mb-6; }
+  .story-entry-list { @apply mx-auto grid max-w-[1120px] gap-3; }
+  .story-entry-card { @apply rounded-xl border bg-card p-5 shadow-[0_8px_24px_rgba(51,46,36,.04)]; }
+  .story-entry-heading { @apply flex items-start justify-between gap-4 border-b pb-3; }
+  .story-entry-heading h3 { @apply m-0 text-sm font-semibold; }
+  .story-entry-heading p, .story-entry-card > p { @apply mb-0 mt-1 text-xs leading-6 text-muted-foreground; }
+  .story-entry-heading a { @apply shrink-0 text-xs text-primary hover:underline; }
+  .ai-state-page { @apply grid place-items-center; }
+
   /* Reader */
   .reader-page { @apply relative grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden max-md:h-auto; }
   .reader-header { @apply z-[3] flex min-h-[58px] items-center justify-between gap-6 border-b bg-white/95 py-2 pl-[18px] pr-3.5 shadow-[0_1px_3px_rgba(42,48,58,.04)] max-md:static max-md:min-h-[52px] max-md:px-3; }

@@ -22,6 +22,9 @@ export const queryKeys = {
   sources: ['sources'] as const,
   folders: ['folders'] as const,
   story: (id: string) => ['story', id] as const,
+  digests: ['digests'] as const,
+  digest: (id: string) => ['digest', id] as const,
+  digestPreview: (scope: { startAt: string; endAt: string; maxStories: string }) => ['digest-preview', scope] as const,
   reader: (query: EntryQuery & { view: string; state: string; limit: number }) => [
     'reader',
     {

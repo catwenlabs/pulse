@@ -16,11 +16,13 @@ import {
   Rss,
   Search,
   Star,
+  Sparkles,
   X,
   type LucideIcon,
 } from 'lucide-react'
 
 import * as api from './api'
+import { DigestPage, StoryDetailPage } from './AISummarization'
 import type { AnnotationInput, CreateSourceInput, Entry, Folder, PreviewResult, Source, SourceHealth, SourceKind, Story, StoryPatch } from './api'
 import { Button, buttonVariants } from './components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, SheetContent } from './components/ui/dialog'
@@ -35,7 +37,7 @@ import { useLibraryRealtime, type LibraryRealtimeSignal, type RealtimeConnection
 import { toast } from 'sonner'
 import './styles.css'
 
-export type View = 'sources' | 'inbox' | 'starred' | 'later' | 'annotations'
+export type View = 'sources' | 'inbox' | 'starred' | 'later' | 'annotations' | 'ai' | 'story'
 type SaveRequest = { url: string; title: string }
 type ReaderEntry = Entry & {
   display_title: string
@@ -188,7 +190,7 @@ export function App() {
   )
 }
 
-export function AppContent({ view, sourceID: selectedSourceID }: { view: View; sourceID: string }) {
+export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: { view: View; sourceID: string; storyID?: string }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const { requestMobileMenuFocus, consumeMobileMenuFocus } = useContext(NavigationFocusContext)
@@ -523,7 +525,7 @@ export function AppContent({ view, sourceID: selectedSourceID }: { view: View; s
     }
   }
 
-  function showStream(view: Exclude<View, 'sources'>, sourceID = '') {
+  function showStream(view: Exclude<View, 'sources' | 'ai' | 'story'>, sourceID = '') {
     if (view === 'starred') void navigate({ to: '/starred' })
     else if (view === 'later') void navigate({ to: '/later' })
     else if (view === 'annotations') void navigate({ to: '/annotations' })
@@ -565,6 +567,10 @@ export function AppContent({ view, sourceID: selectedSourceID }: { view: View; s
           ? '稍后阅读'
           : activeView === 'annotations'
             ? '阅读笔记'
+            : activeView === 'ai'
+              ? 'AI 追更'
+              : activeView === 'story'
+                ? 'Story'
             : '全部文章'
     )
 
@@ -762,6 +768,10 @@ export function AppContent({ view, sourceID: selectedSourceID }: { view: View; s
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'starred' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'starred' ? 'page' : undefined} onSelect={() => showStream('starred')}><NavIcon name="star" />收藏</DropdownMenuItem>
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'later' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'later' ? 'page' : undefined} onSelect={() => showStream('later')}><NavIcon name="clock" />稍后阅读</DropdownMenuItem>
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'annotations' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'annotations' ? 'page' : undefined} onSelect={() => showStream('annotations')}><NavIcon name="book" />阅读笔记</DropdownMenuItem>
+                <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'ai' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'ai' ? 'page' : undefined} onSelect={() => {
+                  void navigate({ to: '/digests' })
+                  closeMobileNavigation()
+                }}><NavIcon name="ai" />AI 追更</DropdownMenuItem>
                 <DropdownMenuItem className="min-h-11 gap-3" onSelect={() => {
                   closeMobileNavigation(false)
                   setShowBookmarklet(true)
@@ -791,6 +801,7 @@ export function AppContent({ view, sourceID: selectedSourceID }: { view: View; s
               <Link className={navItemClass(activeView === 'starred', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/starred" onClick={() => closeMobileNavigation()}><NavIcon name="star" />收藏</Link>
               <Link className={navItemClass(activeView === 'later', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/later" onClick={() => closeMobileNavigation()}><NavIcon name="clock" />稍后阅读</Link>
               <Link className={navItemClass(activeView === 'annotations', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/annotations" onClick={() => closeMobileNavigation()}><NavIcon name="book" />阅读笔记</Link>
+              <Link className={navItemClass(activeView === 'ai', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/digests" onClick={() => closeMobileNavigation()}><NavIcon name="ai" />AI 追更</Link>
             </nav>
             <div className="m-0 grid gap-2 border-t border-[#d8d4ca] px-2 pb-4 pt-2 text-xs leading-5 text-muted-foreground md:col-start-1 md:row-start-3">
               <Button unstyled className={navItemClass(false, 'min-h-[54px] w-full flex-col justify-center gap-1 px-1 text-center text-[10px] leading-none')} ref={bookmarkletButtonRef} aria-label="安装保存书签" onClick={() => setShowBookmarklet(true)}>
@@ -957,6 +968,10 @@ export function AppContent({ view, sourceID: selectedSourceID }: { view: View; s
               current.map((source) => source.id === updated.id ? updated : source)
             ))}
           />
+        ) : activeView === 'ai' ? (
+          <DigestPage />
+        ) : activeView === 'story' ? (
+          <StoryDetailPage storyID={storyID} />
         ) : (
           <Reader
             view={activeView}
@@ -1727,7 +1742,7 @@ function Reader({
   realtimeSignal,
   realtimeConnectionState,
 }: {
-  view: Exclude<View, 'sources'>
+  view: Exclude<View, 'sources' | 'ai' | 'story'>
   sourceID: string
   sourceName?: string
   sources: Source[]
@@ -1736,6 +1751,7 @@ function Reader({
   realtimeSignal: LibraryRealtimeSignal | null
   realtimeConnectionState: RealtimeConnectionState
 }) {
+  const navigate = useNavigate()
   const [entries, setEntries] = useState<ReaderEntry[]>([])
   const [storiesByEntry, setStoriesByEntry] = useState<Record<string, ReaderStory>>({})
   const [selected, setSelected] = useState<ReaderEntry | null>(null)
@@ -2359,6 +2375,14 @@ function Reader({
                             <DropdownMenuItem onSelect={() => setNotesOpen((open) => !open)}>
                               编辑标题与笔记
                             </DropdownMenuItem>
+                            {storiesByEntry[item.id] && (
+                              <DropdownMenuItem onSelect={() => void navigate({
+                                to: '/stories/$storyID',
+                                params: { storyID: storiesByEntry[item.id].id },
+                              })}>
+                                查看 Story 与 AI 摘要
+                              </DropdownMenuItem>
+                            )}
                             {mergeTargets.length > 0 && (
                               <DropdownMenuItem onSelect={() => setMergePickerOpen(true)}>合并到其他 Story</DropdownMenuItem>
                             )}
@@ -2977,6 +3001,7 @@ function NavIcon({ name }: { name: string }) {
     clock: Clock3,
     bookmark: Bookmark,
     book: BookOpen,
+    ai: Sparkles,
   }
   const Icon = icons[name] ?? Inbox
   return <Icon className="size-4 shrink-0" strokeWidth={1.8} aria-hidden="true" />
