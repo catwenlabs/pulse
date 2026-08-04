@@ -79,7 +79,7 @@ func digestRequest(items []DigestStorySnapshot) GenerateRequest {
 			{Role: "system", Content: "你是 Pulse 的未读追更分诊助手。只做标题级归类和排序，明确保持不确定性。"},
 			{Role: "user", Content: prompt.String()},
 		},
-		MaxTokens: 1800,
+		MaxTokens: 4096,
 		JSONMode:  true,
 	}
 }
