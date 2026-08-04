@@ -17,11 +17,13 @@ services:
   pulse:
     build: .
     environment:
-      PULSE_DATABASE_URL: postgres://pulse:pulse@postgres:5432/pulse?sslmode=disable
-      PULSE_HTTP_ADDR: :8080
-      PULSE_ROLES: web,scheduler,worker,effect-worker
+      PULSE_DATABASE_URL: ${PULSE_DATABASE_URL:-postgres://pulse:pulse@postgres:5432/pulse?sslmode=disable}
+      PULSE_HTTP_ADDR: ${PULSE_HTTP_ADDR:-:8080}
+      PULSE_ROLES: ${PULSE_ROLES:-web,scheduler,worker,effect-worker}
       # Base64 of exactly 32 random bytes. Required before adding authenticated sources.
       PULSE_MASTER_KEY: ${PULSE_MASTER_KEY:-}
+      PULSE_WEB_DIR: ${PULSE_WEB_DIR:-/web}
+      PULSE_IMPORT_ROOTS: ${PULSE_IMPORT_ROOTS:-/data/imports}
       PULSE_EMBEDDING_PROVIDER: ${PULSE_EMBEDDING_PROVIDER:-disabled}
       PULSE_EMBEDDING_BASE_URL: ${PULSE_EMBEDDING_BASE_URL:-http://127.0.0.1:11434}
       PULSE_EMBEDDING_MODEL: ${PULSE_EMBEDDING_MODEL:-qwen3-embedding}

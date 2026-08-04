@@ -10,15 +10,16 @@
 git clone https://github.com/catwenlabs/pulse.git
 cd pulse
 
-# 只在首次部署时生成，并在仓库之外持久保存。
-export PULSE_MASTER_KEY="$(openssl rand -base64 32)"
+# .env.example 可提交；.env 已被 Git 忽略，只在本机保存真实配置。
+cp .env.example .env
+# 编辑 .env，至少设置 PULSE_MASTER_KEY；生产环境也可改用 Secret 管理器。
 
 docker compose up -d
 curl --retry 20 --retry-delay 2 --retry-connrefused \
   --fail --show-error http://localhost:8080/healthz
 ```
 
-生产环境必须通过服务管理器、Secret 管理器或仓库外的只读环境文件注入 `PULSE_MASTER_KEY`。不要把密钥写入 README、Compose、提交记录或仓库内未忽略的文件。
+生产环境必须通过服务管理器、Secret 管理器或仓库外的只读环境文件注入 `PULSE_MASTER_KEY`。不要把密钥写入 README、Compose、提交记录或仓库内未忽略的文件。Compose 会读取根目录 `.env` 用于变量插值，但 `compose.yaml` 仍显式列出允许注入容器的 `PULSE_*` 变量。
 
 ## 升级
 
@@ -112,9 +113,10 @@ Story 聚合把同一新闻的多个来源条目合并成一条 Story。**未启
 
 ```sh
 ollama pull qwen3-embedding          # 约 4.7 GB，首次调用有冷启动加载耗时
-export PULSE_EMBEDDING_PROVIDER=ollama
-export PULSE_EMBEDDING_BASE_URL=http://127.0.0.1:11434
-export PULSE_EMBEDDING_MODEL=qwen3-embedding
+# 在 .env 中设置：
+PULSE_EMBEDDING_PROVIDER=ollama
+PULSE_EMBEDDING_BASE_URL=http://127.0.0.1:11434
+PULSE_EMBEDDING_MODEL=qwen3-embedding
 ```
 
 启用后，worker 角色每 30 秒运行一次聚类（用标题 + 正文前 500 字生成向量做相似度匹配）。开启 embedding **之前**已入库、从未生成过向量的旧条目也会被 worker 逐步回填并重新聚类；想立刻跑完可调用 `POST /api/v1/stories/recluster`（同步、逐条生成向量，量大耗时；应用日志会打印每轮 `Story recluster pass` 进度）。
@@ -129,15 +131,17 @@ AI 功能只在用户点击后执行，不会自动标记 Story 为已读。`Sto
 
 ```sh
 # Ollama（本地，不需要 API Key）
-export PULSE_AI_PROVIDER=ollama
-export PULSE_AI_BASE_URL=http://host.docker.internal:11434/v1
-export PULSE_AI_MODEL=qwen3:8b
+# 在 .env 中设置：
+PULSE_AI_PROVIDER=ollama
+PULSE_AI_BASE_URL=http://host.docker.internal:11434/v1
+PULSE_AI_MODEL=qwen3:8b
 
 # DeepSeek / OpenRouter / Qwen / OpenAI 等
-export PULSE_AI_PROVIDER=openai-compatible
-export PULSE_AI_BASE_URL=https://api.deepseek.com/v1
-export PULSE_AI_API_KEY='YOUR_API_KEY'
-export PULSE_AI_MODEL=deepseek-chat
+# 在 .env 中设置：
+PULSE_AI_PROVIDER=openai-compatible
+PULSE_AI_BASE_URL=https://api.deepseek.com
+PULSE_AI_API_KEY=YOUR_API_KEY
+PULSE_AI_MODEL=deepseek-v4-flash
 ```
 
 启用后必须保留 `worker` 角色，AI Job 会使用 PostgreSQL 的持久化队列、Lease 和重试机制。不要把 API Key 写入 Compose 文件、提交记录或普通诊断日志；AI Provider 的响应正文也不会被写入日志。
