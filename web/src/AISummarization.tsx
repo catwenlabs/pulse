@@ -120,10 +120,11 @@ export function DigestPage() {
 
   useEffect(() => {
     if (scopeSelectionRequired && !scopePrompted) {
+      if (!maxStories.trim()) setMaxStories(String(preview?.safety_limit ?? 100))
       setScopePrompted(true)
       setScopeDialogOpen(true)
     }
-  }, [scopePrompted, scopeSelectionRequired])
+  }, [maxStories, preview?.safety_limit, scopePrompted, scopeSelectionRequired])
 
   async function createDigest(event?: FormEvent) {
     event?.preventDefault()
