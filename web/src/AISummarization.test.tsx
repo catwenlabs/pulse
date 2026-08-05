@@ -96,6 +96,46 @@ describe('DigestPage', () => {
     })))
   })
 
+  it('prefills the safety limit when the default scope is oversized', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/v1/digests?limit=50') return new Response('[]', { status: 200 })
+      if (url.startsWith('/api/v1/digests/preview')) {
+        const maxStories = new URL(url, 'http://localhost').searchParams.get('max_stories')
+        const selectedStories = maxStories ? Number(maxStories) : 0
+        return new Response(JSON.stringify({
+          scope: maxStories ? { max_stories: selectedStories } : {},
+          matching_stories: 101,
+          matching_stories_truncated: true,
+          selected_stories: selectedStories,
+          safety_limit: 100,
+          can_queue: Boolean(maxStories),
+        }), { status: 200 })
+      }
+      if (url === '/api/v1/digests' && init?.method === 'POST') {
+        return new Response('{"id":"job-1","kind":"digest","target_id":"digest-1","status":"pending"}', { status: 202 })
+      }
+      if (url === '/api/v1/digests/digest-1') {
+        return new Response('{"id":"digest-1","status":"pending","mode":"catch_up","story_count":100}', { status: 200 })
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWithQueryClient(<DigestPage />)
+
+    const maxStoriesInput = await screen.findByLabelText('最多 Story（可选）')
+    await waitFor(() => expect(maxStoriesInput).toHaveValue('100'))
+    const generateButton = await screen.findByRole('button', { name: '生成追更摘要' })
+    expect(generateButton).toBeEnabled()
+
+    fireEvent.click(generateButton)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/digests', expect.objectContaining({
+      method: 'POST',
+      body: expect.stringContaining('"max_stories":100'),
+    })))
+  })
+
   it('puts the default Digest action in the page header', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
