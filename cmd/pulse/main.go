@@ -115,12 +115,13 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 			MaxActiveJobs: cfg.AIMaxActiveJobs,
 		})
 		adapter, adapterErr := ai.NewOpenAICompatible(ai.OpenAICompatibleConfig{
-			ProviderName: cfg.AIProvider,
-			BaseURL:      cfg.AIBaseURL,
-			APIKey:       cfg.AIAPIKey,
-			Model:        cfg.AIModel,
-			Headers:      cfg.AIHeaders,
-			Timeout:      cfg.AITimeout,
+			ProviderName:    cfg.AIProvider,
+			BaseURL:         cfg.AIBaseURL,
+			APIKey:          cfg.AIAPIKey,
+			Model:           cfg.AIModel,
+			Headers:         cfg.AIHeaders,
+			Timeout:         cfg.AITimeout,
+			DisableThinking: true,
 		})
 		if adapterErr != nil {
 			return fmt.Errorf("configure AI Provider: %w", adapterErr)

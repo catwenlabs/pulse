@@ -144,6 +144,8 @@ PULSE_AI_API_KEY=YOUR_API_KEY
 PULSE_AI_MODEL=deepseek-v4-flash
 ```
 
+当前应用启动 AI 适配器时会固定发送 DeepSeek-compatible 的 `thinking: {"type":"disabled"}`，因此 StorySummary 和 Catch-up Digest 都不生成思考内容，思考 token 不会占用摘要的 `max_tokens` 预算。若切换到不支持该扩展参数的其他 OpenAI-compatible Provider，需要相应调整适配器配置。
+
 启用后必须保留 `worker` 角色，AI Job 会使用 PostgreSQL 的持久化队列、Lease 和重试机制。AI 调用日志会记录完整的 Chat Completions 请求 JSON，便于排查 Provider 兼容性；请求中的 Story/Prompt 可能包含敏感内容，请只在受控的本地诊断环境查看。API Key、Authorization Header 和 AI Provider 响应正文不会被写入日志，也不要把 API Key 写入 Compose 文件或提交记录。
 
 AI 请求使用受控 HTTP Client：公网 Provider 不会连接私有、回环或链路本地地址；本地 Ollama 只允许 `localhost`、`127.0.0.1`、`::1`、`host.docker.internal`、`host.containers.internal`、`gateway.docker.internal` 和 `ollama` 这些显式主机名。Provider URL 不支持内嵌用户凭据，重定向也会继续执行同样的安全检查。
