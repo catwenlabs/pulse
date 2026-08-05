@@ -1246,6 +1246,59 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'Example Feed' })).toBeInTheDocument()
   })
 
+  it('keeps the source list visible in the mobile drawer on inner pages', async () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(max-width: 767px)',
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })))
+
+    renderApp()
+    await screen.findByText('Reader article')
+
+    fireEvent.click(screen.getByRole('button', { name: '打开导航' }))
+    fireEvent.pointerDown(screen.getByRole('button', { name: '更多导航' }), { button: 0 })
+    fireEvent.click(await screen.findByRole('menuitem', { name: '收藏' }))
+    expect(await screen.findByRole('heading', { name: '收藏' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '打开导航' }))
+    const drawer = await screen.findByRole('navigation', { name: '移动导航抽屉' })
+    expect(within(drawer).getByText('订阅源')).toBeInTheDocument()
+    expect(within(drawer).getByRole('button', { name: 'Example Feed' })).toBeInTheDocument()
+  })
+
+  it('keeps the mobile reader title and actions on one compact row', async () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(max-width: 767px)',
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })))
+
+    renderApp()
+    await screen.findByText('Reader article')
+
+    const readerHeader = screen.getByRole('heading', { level: 1, name: '全部文章' }).closest('header')
+    expect(readerHeader).not.toBeNull()
+    expect(within(readerHeader!).getByRole('button', { name: '将全部文章标记为已读' })).toBeInTheDocument()
+    const searchButton = within(readerHeader!).getByRole('button', { name: '打开搜索' })
+    expect(screen.queryByRole('textbox', { name: '搜索文章' })).not.toBeInTheDocument()
+
+    fireEvent.click(searchButton)
+    const searchInput = await screen.findByRole('textbox', { name: '搜索文章' })
+    expect(searchInput).toHaveFocus()
+    fireEvent.change(searchInput, { target: { value: 'Reader' } })
+    await new Promise((resolve) => window.setTimeout(resolve, 300))
+    expect(screen.getByRole('textbox', { name: '搜索文章' })).toBeInTheDocument()
+
+    fireEvent.keyDown(searchInput, { key: 'Escape' })
+    expect(screen.queryByRole('textbox', { name: '搜索文章' })).not.toBeInTheDocument()
+    expect(within(readerHeader!).getByRole('button', { name: '打开搜索' })).toBeInTheDocument()
+  })
+
   it('shows an installable bookmarklet from the navigation', async () => {
     renderApp()
     await screen.findByText('Reader article')
