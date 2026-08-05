@@ -549,7 +549,8 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
   }
 
   const activeView = view
-  const showSourceTree = activeView === 'inbox'
+  const isReaderView = activeView === 'inbox' || activeView === 'starred' || activeView === 'later'
+  const showSourceTree = isMobile || activeView === 'inbox'
   const activeSourceName = sources.find((source) => source.id === selectedSourceID)?.name
   const assignedSourceIDs = new Set(folders.flatMap((folder) => folder.source_ids))
   const rootSources = sources.filter((source) => !assignedSourceIDs.has(source.id))
@@ -846,13 +847,15 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
       <main
         className={cn(
           'col-start-2 h-dvh min-w-0 overflow-y-auto overscroll-contain bg-background p-0 [scrollbar-gutter:stable]',
-          activeView !== 'sources' && activeView !== 'ai' && activeView !== 'story' && 'overflow-hidden max-md:grid max-md:grid-rows-[auto_minmax(0,1fr)]',
+          activeView !== 'sources' && activeView !== 'ai' && activeView !== 'story' && 'overflow-hidden',
+          !isReaderView && activeView !== 'sources' && activeView !== 'ai' && activeView !== 'story' && 'max-md:grid max-md:grid-rows-[auto_minmax(0,1fr)]',
+          isReaderView && 'max-md:block',
           (activeView === 'ai' || activeView === 'story') && 'max-md:block',
           activeView === 'sources' && 'px-[clamp(24px,4vw,56px)] py-9 max-md:px-0 max-md:py-0',
         )}
         inert={isMobile && mobileNavigationOpen ? true : undefined}
       >
-        {isMobile && (
+        {isMobile && !isReaderView && (
           <header className="max-md:z-[7] max-md:grid max-md:min-h-[calc(52px+env(safe-area-inset-top))] max-md:grid-cols-[40px_minmax(0,1fr)] max-md:items-center max-md:gap-2 max-md:border-b max-md:bg-card/95 max-md:px-3.5 max-md:pt-[env(safe-area-inset-top)] max-md:backdrop-blur-xl">
             <Button unstyled
               className="grid size-10 cursor-pointer content-center gap-1 rounded-lg border-0 bg-transparent px-[9px] text-foreground hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
@@ -991,6 +994,9 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
             sourceName={activeSourceName}
             sources={sources}
             mobile={isMobile}
+            mobileMenuButtonRef={mobileMenuButtonRef}
+            mobileNavigationOpen={mobileNavigationOpen}
+            onOpenMobileNavigation={() => setMobileNavigationOpen(true)}
             refreshSources={refreshSources}
             realtimeSignal={signal}
             realtimeConnectionState={connectionState}
@@ -1750,6 +1756,9 @@ function Reader({
   sourceName,
   sources,
   mobile,
+  mobileMenuButtonRef,
+  mobileNavigationOpen,
+  onOpenMobileNavigation,
   refreshSources,
   realtimeSignal,
   realtimeConnectionState,
@@ -1759,6 +1768,9 @@ function Reader({
   sourceName?: string
   sources: Source[]
   mobile: boolean
+  mobileMenuButtonRef: { current: HTMLButtonElement | null }
+  mobileNavigationOpen: boolean
+  onOpenMobileNavigation: () => void
   refreshSources: () => void
   realtimeSignal: LibraryRealtimeSignal | null
   realtimeConnectionState: RealtimeConnectionState
@@ -1782,6 +1794,7 @@ function Reader({
   const [activeEntryId, setActiveEntryId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const [markingAllRead, setMarkingAllRead] = useState(false)
   const [readerNotice, setReaderNotice] = useState('')
   const [pendingNewCount, setPendingNewCount] = useState(0)
@@ -1907,6 +1920,10 @@ function Reader({
     const timeout = window.setTimeout(() => setDebouncedSearch(search.trim()), 250)
     return () => window.clearTimeout(timeout)
   }, [search])
+
+  useEffect(() => {
+    setMobileSearchOpen(false)
+  }, [sourceID, view])
 
   useEffect(() => {
     setPendingNewCount(0)
@@ -2278,33 +2295,96 @@ function Reader({
       : undefined)
   return (
     <div className="relative grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-      <header className="z-[3] flex min-h-16 items-center justify-between gap-6 border-b bg-card/95 px-5 py-2 shadow-[0_1px_3px_rgba(42,48,58,.04)] max-md:static max-md:min-h-14 max-md:px-3">
-        <div className="flex min-w-0 items-baseline gap-3 max-md:hidden" aria-hidden={mobile || undefined}>
-          <h1>{title}</h1>
-          <span className="flex-none text-xs text-muted-foreground">{loading ? '正在更新…' : `${totalCount} 篇`}</span>
+      <header className={cn(
+        'z-[3] flex min-h-16 items-center justify-between gap-6 border-b bg-card/95 px-5 py-2 shadow-[0_1px_3px_rgba(42,48,58,.04)]',
+        mobile && 'max-md:grid max-md:grid-cols-[40px_minmax(0,1fr)_auto] max-md:gap-1.5 max-md:min-h-[calc(52px+env(safe-area-inset-top))] max-md:px-3.5 max-md:pt-[env(safe-area-inset-top)]',
+      )}>
+        {mobile && (
+          <Button
+            unstyled
+            className="grid size-10 cursor-pointer content-center place-items-center rounded-lg border-0 bg-transparent px-[9px] text-foreground hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+            ref={mobileMenuButtonRef}
+            aria-label="打开导航"
+            aria-controls="mobile-navigation"
+            aria-expanded={mobileNavigationOpen}
+            onClick={onOpenMobileNavigation}
+          >
+            <Menu className="size-5" aria-hidden="true" />
+          </Button>
+        )}
+        <div className={cn(
+          'flex min-w-0 items-baseline gap-3',
+          mobile ? 'max-md:min-w-0' : 'max-md:hidden',
+        )}>
+          <h1 className="m-0 truncate text-lg font-[650] leading-[1.1] max-md:text-[15px]">{title}</h1>
+          {!mobile && <span className="flex-none text-xs text-muted-foreground">{loading ? '正在更新…' : `${totalCount} 篇`}</span>}
         </div>
-        <div className="flex w-[min(680px,68%)] items-center justify-end gap-2.5 max-md:w-full max-md:justify-stretch">
+        <div className={cn(
+          'flex w-[min(680px,68%)] items-center justify-end gap-2.5',
+          mobile && 'max-md:col-start-3 max-md:w-auto max-md:gap-0.5',
+        )}>
           <Button
             variant="secondary"
             size="sm"
-            className="h-9 shrink-0 border-border bg-background text-foreground shadow-sm max-md:size-9 max-md:px-0"
+            className={cn(
+              'h-9 shrink-0 border-border bg-background text-foreground shadow-sm',
+              mobile && 'max-md:size-9 max-md:px-0',
+            )}
             disabled={markingAllRead}
             aria-label={sourceName ? `将 ${sourceName} 全部标记为已读` : '将全部文章标记为已读'}
             onClick={() => void markAllRead()}
           >
             <CheckCheck className="size-4" aria-hidden="true" />
-            <span className="max-md:hidden">{markingAllRead ? '正在标记…' : '全部标记为已读'}</span>
+            <span className={mobile ? 'sr-only' : 'max-md:hidden'}>{markingAllRead ? '正在标记…' : '全部标记为已读'}</span>
           </Button>
-          <label className="relative w-[min(390px,55%)] max-md:w-auto max-md:flex-1">
-            <span className="sr-only">搜索文章</span>
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 z-[1] size-[22px] -translate-y-1/2 text-muted-foreground" strokeWidth={2.25} aria-hidden="true" />
-            <Input
-              className="h-9 w-full border-border bg-background pl-10 pr-3 text-sm text-foreground shadow-sm focus-visible:ring-2 focus-visible:ring-ring/20"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="搜索文章"
-            />
-          </label>
+          {mobile ? (
+            mobileSearchOpen ? (
+              <div className="flex items-center gap-0.5">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2 top-1/2 z-[1] size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                  <Input
+                    autoFocus
+                    className="h-9 w-[min(42vw,11rem)] border-border bg-background pl-8 pr-2 text-sm text-foreground shadow-sm focus-visible:ring-2 focus-visible:ring-ring/20"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') setMobileSearchOpen(false)
+                    }}
+                    aria-label="搜索文章"
+                    placeholder="搜索文章"
+                  />
+                </div>
+                <Button
+                  unstyled
+                  className="grid size-9 cursor-pointer place-items-center rounded-md border-0 bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label="关闭搜索"
+                  onClick={() => setMobileSearchOpen(false)}
+                >
+                  <X className="size-4" aria-hidden="true" />
+                </Button>
+              </div>
+            ) : (
+              <Button
+                unstyled
+                className="grid size-9 cursor-pointer place-items-center rounded-md border-0 bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="打开搜索"
+                onClick={() => setMobileSearchOpen(true)}
+              >
+                <Search className="size-[18px]" aria-hidden="true" />
+              </Button>
+            )
+          ) : (
+            <label className="relative w-[min(390px,55%)]">
+              <span className="sr-only">搜索文章</span>
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 z-[1] size-[22px] -translate-y-1/2 text-muted-foreground" strokeWidth={2.25} aria-hidden="true" />
+              <Input
+                className="h-9 w-full border-border bg-background pl-10 pr-3 text-sm text-foreground shadow-sm focus-visible:ring-2 focus-visible:ring-ring/20"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="搜索文章"
+              />
+            </label>
+          )}
         </div>
       </header>
       {pendingNewCount > 0 && (
