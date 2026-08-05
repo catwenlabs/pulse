@@ -72,7 +72,15 @@ describe('DigestPage', () => {
     renderWithQueryClient(<DigestPage />)
 
     expect(await screen.findByText('今天主要有两个值得关注的主题。')).toBeInTheDocument()
-    expect(screen.getByRole('dialog', { name: '设置追更范围' })).toBeInTheDocument()
+    const scopeDialog = screen.getByRole('dialog', { name: '设置追更范围' })
+    expect(scopeDialog).toHaveClass('ai-scope-dialog')
+    expect(screen.getByRole('button', { name: '关闭' })).toHaveClass('ai-scope-dialog-close')
+    expect(screen.getByLabelText('最多 Story（可选）')).toHaveFocus()
+    expect(scopeDialog.querySelector('.ai-scope-preview')).toHaveClass('is-ready')
+    expect(screen.getByLabelText('最早时间（可选）')).toHaveAttribute('aria-haspopup', 'dialog')
+    expect(screen.getByLabelText('最晚时间（可选）')).toHaveAttribute('aria-haspopup', 'dialog')
+    expect(screen.getByLabelText('最早时间（可选）')).toHaveClass('w-full')
+    expect(screen.getByLabelText('最晚时间（可选）')).toHaveClass('w-full')
     expect(screen.getAllByRole('link', { name: /标题一/ })[0]).toHaveAttribute('href', '/stories/story-1')
     expect(screen.getAllByText(/S2 · 标题二/).every((element) => element.closest('a') === null)).toBe(true)
     expect(screen.getByText('主题一')).toBeInTheDocument()
@@ -87,7 +95,15 @@ describe('DigestPage', () => {
     expect(await screen.findByRole('button', { name: '相关 Story 已标为已读' })).toBeDisabled()
 
     fireEvent.change(screen.getByLabelText('最多 Story（可选）'), { target: { value: '12' } })
-    fireEvent.change(screen.getByLabelText('最早时间（可选）'), { target: { value: '2026-08-01T08:00' } })
+    fireEvent.click(screen.getByLabelText('最早时间（可选）'))
+    const calendar = await screen.findByRole('grid')
+    const popoverContent = calendar.closest('[data-radix-popper-content-wrapper]')?.querySelector('[role="dialog"]')
+    expect(popoverContent).toHaveClass(
+      'max-h-[var(--radix-popover-content-available-height)]',
+      'overflow-y-auto',
+    )
+    fireEvent.click(within(calendar).getByRole('button', { name: /2026年8月1日/ }))
+    fireEvent.change(screen.getByRole('combobox', { name: '选择时间' }), { target: { value: '08:00' } })
     await screen.findByText(/当前范围（08\/01 08:00 之后）匹配 2 个未读 Story/)
     fireEvent.click(screen.getByRole('button', { name: '生成追更摘要' }))
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/digests', expect.objectContaining({
@@ -299,6 +315,72 @@ describe('DigestPage', () => {
 })
 
 describe('StoryDetailPage', () => {
+  it('uses the shared reader to render HTML stored in a summary-only Entry', async () => {
+    const entry = {
+      id: 'entry-summary-only',
+      source_id: 'source-1',
+      identity_key: 'key-summary-only',
+      source_title: '来源一',
+      summary: '<p>摘要里的正文 <strong>格式化文本</strong></p><script>window.bad = true</script>',
+      discovered_at: '2026-08-04T08:00:00Z',
+    }
+    const story = {
+      id: 'story-summary-only',
+      display_title: '只有摘要正文的 Story',
+      source_count: 1,
+      entry_count: 1,
+      representative: entry,
+      entries: [entry],
+      ai_summary: { story_id: 'story-summary-only', status: 'not_requested' },
+    }
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === '/api/v1/stories/story-summary-only') {
+        return new Response(JSON.stringify(story), { status: 200 })
+      }
+      throw new Error(`unexpected request: ${String(input)}`)
+    }))
+
+    renderWithQueryClient(<StoryDetailPage storyID="story-summary-only" />)
+
+    expect(await screen.findByText('格式化文本')).toBeInTheDocument()
+    expect(document.querySelector('.story-entry-prose')).toHaveClass('mx-auto', 'max-w-[75ch]')
+    expect(screen.queryByText(/<p>摘要里的正文/)).not.toBeInTheDocument()
+    expect(document.querySelector('.story-entry-reader script')).toBeNull()
+  })
+
+  it('does not render a duplicate summary when it matches the Entry content', async () => {
+    const content = '<p>同一份正文</p>'
+    const entry = {
+      id: 'entry-duplicate-content',
+      source_id: 'source-1',
+      identity_key: 'key-duplicate-content',
+      source_title: '来源一',
+      summary: content,
+      content_html: content,
+      discovered_at: '2026-08-04T08:00:00Z',
+    }
+    const story = {
+      id: 'story-duplicate-content',
+      display_title: '不重复正文的 Story',
+      source_count: 1,
+      entry_count: 1,
+      representative: entry,
+      entries: [entry],
+      ai_summary: { story_id: 'story-duplicate-content', status: 'not_requested' },
+    }
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === '/api/v1/stories/story-duplicate-content') {
+        return new Response(JSON.stringify(story), { status: 200 })
+      }
+      throw new Error(`unexpected request: ${String(input)}`)
+    }))
+
+    renderWithQueryClient(<StoryDetailPage storyID="story-duplicate-content" />)
+
+    expect(await screen.findAllByText('同一份正文')).toHaveLength(1)
+    expect(document.querySelector('.story-entry-summary')).not.toBeInTheDocument()
+  })
+
   it('shows the Story without requesting AI until the user clicks', async () => {
     const story = {
       id: 'story-1',
@@ -306,12 +388,12 @@ describe('StoryDetailPage', () => {
       source_count: 2,
       entry_count: 2,
       representative: {
-        id: 'entry-1', source_id: 'source-1', identity_key: 'key-1', source_title: '来源一',
+        id: 'entry-1', source_id: 'source-1', identity_key: 'key-1', source_title: '来源一', canonical_url: 'https://source.example/story-1',
         summary: '来源摘要一', discovered_at: '2026-08-04T08:00:00Z',
       },
       entries: [
         {
-          id: 'entry-1', source_id: 'source-1', identity_key: 'key-1', source_title: '来源一',
+          id: 'entry-1', source_id: 'source-1', identity_key: 'key-1', source_title: '来源一', canonical_url: 'https://source.example/story-1',
           summary: '来源摘要一', content_html: '<p>来源正文一</p><script>window.bad = true</script>', discovered_at: '2026-08-04T08:00:00Z',
         },
         {
@@ -346,6 +428,23 @@ describe('StoryDetailPage', () => {
     expect(await screen.findByText('一个需要总结的 Story')).toBeInTheDocument()
     expect(screen.getByText('还没有摘要。点击「生成AI摘要」后，AI 才会读取这个 Story 的内容。')).toBeInTheDocument()
     expect(screen.getByText('来源正文一')).toBeInTheDocument()
+    const firstEntry = document.querySelector('.story-entry-card')
+    expect(firstEntry).toBeInTheDocument()
+    const entryToggle = firstEntry?.querySelector('summary')
+    expect(entryToggle).toBeInTheDocument()
+    const entryHeading = within(entryToggle!).getByRole('heading', { name: '来源一' })
+    const entryReader = entryHeading.closest('article')?.querySelector('details')
+    expect(entryReader).not.toHaveAttribute('open')
+    fireEvent.click(entryToggle!)
+    expect(entryReader).toHaveAttribute('open')
+    expect(document.querySelector('.story-entry-summary')).not.toBeInTheDocument()
+    const entryTitleLink = screen.getByRole('link', { name: '来源一' })
+    expect(entryTitleLink).toHaveAttribute('href', 'https://source.example/story-1')
+    expect(entryTitleLink).toHaveAttribute('target', '_blank')
+    expect(screen.queryByRole('link', { name: '打开原文' })).not.toBeInTheDocument()
+    const entryProse = document.querySelector('.story-entry-prose')
+    expect(entryProse?.firstElementChild).toHaveClass('entry-reader-title')
+    expect(entryProse?.querySelector('.entry-reader-title + .entry-reader-content')).toBeInTheDocument()
     expect(document.querySelector('.story-entry-reader script')).toBeNull()
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
 

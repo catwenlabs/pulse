@@ -237,20 +237,45 @@
   .ai-eyebrow-with-icon { @apply flex items-center gap-1.5; }
   .ai-history-card, .ai-result-card, .ai-summary-card { @apply mx-auto rounded-2xl border border-border bg-card shadow-[0_10px_32px_rgba(51,46,36,.05)]; }
   .ai-history-card h2, .ai-result-card h2, .ai-summary-card h2 { @apply mb-1 mt-0 font-serif text-2xl font-semibold; }
-  .ai-scope-preview, .ai-processing-note { @apply flex items-start gap-2; }
-  .ai-scope-preview svg { @apply mt-0.5 shrink-0 text-success; }
-  .ai-scope-fieldset { @apply m-0 min-w-0 rounded-xl border border-border bg-background/50 p-4; }
-  .ai-scope-fieldset legend { @apply px-1.5 text-xs font-semibold text-foreground; }
-  .ai-form-grid { @apply grid grid-cols-3 gap-3 max-lg:grid-cols-2 max-md:grid-cols-1; }
-  .ai-scope-dialog label { @apply grid min-w-0 gap-1.5 text-xs font-semibold text-muted-foreground; }
-  .ai-scope-dialog label > span { @apply flex items-center gap-1.5; }
-  .ai-scope-dialog label input { @apply min-w-0 text-sm; }
-  .ai-form-error { @apply m-0 text-xs text-destructive; }
-  .ai-scope-preview { @apply m-0 text-xs leading-5 text-muted-foreground; }
-  .ai-scope-dialog { @apply max-w-[620px]; }
-  .ai-scope-dialog form { @apply gap-4; }
-  .ai-dialog-actions { @apply flex justify-end gap-2 pt-1 max-md:flex-col-reverse; }
-  .ai-dialog-actions > button { @apply max-md:w-full; }
+  .ai-scope-dialog { @apply max-h-[calc(100dvh-32px)] max-w-[680px] overflow-y-auto rounded-[24px] border-border/80 bg-card p-0 shadow-[0_24px_80px_rgba(51,46,36,.22)] max-md:max-h-[calc(100dvh-24px)] max-md:max-w-[calc(100vw-24px)] max-md:rounded-2xl; }
+  .ai-scope-dialog-header { @apply flex items-start justify-between gap-4 border-b border-border/70 px-6 pb-4 pt-6 max-md:px-4 max-md:pb-3 max-md:pt-4; }
+  .ai-scope-dialog-heading { @apply flex min-w-0 items-start gap-3.5; }
+  .ai-scope-dialog-icon { @apply grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary; }
+  .ai-scope-dialog-kicker { @apply mb-1 mt-0 text-[10px] font-bold tracking-[.16em] text-primary; }
+  .ai-scope-dialog h2 { @apply pr-0 text-[clamp(24px,3vw,30px)] font-semibold leading-tight tracking-[-.025em]; }
+  .ai-scope-dialog-close { @apply grid size-10 shrink-0 cursor-pointer place-items-center rounded-xl border border-border bg-background text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2; }
+  .ai-scope-dialog-description { @apply m-0 px-6 pb-4 pt-4 text-sm leading-6 text-muted-foreground max-md:px-4 max-md:pb-3 max-md:pt-3; }
+  .ai-scope-dialog-description strong { @apply font-semibold text-foreground; }
+  .ai-scope-dialog form { @apply gap-4 px-6 pb-6 max-md:px-4 max-md:pb-4; }
+  .ai-scope-fieldset { @apply m-0 grid min-w-0 gap-3 rounded-2xl border border-border/80 bg-background/60 px-3 pb-3 pt-3 max-md:px-2.5; }
+  .ai-scope-fieldset legend { @apply flex items-center gap-2 px-2 text-sm font-semibold text-foreground; }
+  .ai-scope-fieldset legend span:last-child { @apply rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground; }
+  .ai-scope-fieldset-hint { @apply m-0 -mt-1 text-xs leading-5 text-muted-foreground; }
+  .ai-form-grid { @apply grid grid-cols-2 gap-3 max-md:grid-cols-1; }
+  .ai-scope-field { @apply grid min-w-0 gap-1.5; }
+  .ai-scope-dialog label { @apply grid min-w-0 gap-2 text-xs font-semibold text-foreground; }
+  .ai-field-label { @apply flex min-h-5 items-center gap-2 whitespace-nowrap; }
+  .ai-field-label svg { @apply size-4 shrink-0 text-primary; }
+  .ai-scope-dialog label input { @apply max-w-full min-w-0 rounded-xl border-input bg-card/80 text-sm font-medium shadow-[inset_0_1px_2px_rgba(51,46,36,.04)] transition-[background-color,border-color,box-shadow] focus-visible:bg-card focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary/10; }
+  .ai-field-hint { @apply m-0 text-[11px] font-normal leading-4 text-muted-foreground; }
+  .date-time-picker-time-row { @apply flex items-center gap-2 border-t border-border/70 px-1 pt-3; }
+  .date-time-picker-time-label { @apply flex shrink-0 items-center gap-1.5 text-xs font-semibold text-muted-foreground; }
+  .date-time-picker-time-label svg { @apply text-primary; }
+  .date-time-picker-actions { @apply mt-3 flex items-center justify-between border-t border-border/70 px-1 pt-3; }
+  .ai-form-error { @apply m-0 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs leading-5 text-destructive; }
+  .ai-scope-preview, .ai-processing-note { @apply flex items-start gap-3; }
+  .ai-scope-preview { @apply m-0 rounded-xl border px-3.5 py-3 text-xs leading-5; }
+  .ai-scope-preview.is-ready { @apply border-success/25 bg-success/5 text-foreground; }
+  .ai-scope-preview.is-warning { @apply border-primary/25 bg-primary/5 text-foreground; }
+  .ai-scope-preview svg { @apply mt-0.5 size-5 shrink-0; }
+  .ai-scope-preview.is-ready svg { @apply text-success; }
+  .ai-scope-preview.is-warning svg { @apply text-primary; }
+  .ai-scope-preview-copy { @apply grid gap-0.5; }
+  .ai-scope-preview-copy strong { @apply text-xs font-semibold text-foreground; }
+  .ai-scope-preview-copy > span { @apply text-muted-foreground; }
+  .ai-dialog-actions { @apply flex justify-end gap-2 border-t border-border/70 pt-4 max-md:flex-col-reverse; }
+  .ai-dialog-actions > button { @apply min-h-11 max-md:w-full; }
+  .ai-dialog-actions > button:last-child { @apply min-w-[176px] shadow-lg shadow-primary/20; }
   .ai-history-layout { @apply mx-auto grid max-w-[1360px] grid-cols-[minmax(200px,260px)_minmax(0,1fr)] items-start gap-6 max-xl:grid-cols-1; }
   .ai-history-card, .ai-result-card { @apply min-w-0 overflow-hidden; }
   .ai-history-card { @apply xl:sticky xl:top-6; }
@@ -376,25 +401,21 @@
   .story-section-heading h2 { @apply m-0 font-serif text-2xl font-semibold tracking-tight; }
   .story-section-heading p:last-child { @apply mb-0 mt-2 max-w-[680px] text-sm leading-6 text-muted-foreground; }
   .story-section-count { @apply shrink-0 rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold text-muted-foreground; }
-  .story-entry-stack { @apply grid gap-4; }
-  .story-entry-card { @apply overflow-hidden rounded-2xl border bg-card shadow-[0_8px_24px_rgba(51,46,36,.045)]; }
-  .story-entry-heading { @apply flex items-start justify-between gap-5 border-b border-border/80 px-6 py-5 max-md:gap-3 max-md:px-5; }
-  .story-entry-title-wrap { @apply flex min-w-0 items-start gap-3.5; }
-  .story-entry-number { @apply grid size-9 shrink-0 place-items-center rounded-xl bg-[#f0e1d7] font-mono text-[10px] font-bold text-primary-hover; }
+  .story-entry-stack { @apply overflow-hidden rounded-2xl border bg-card; }
+  .story-entry-card { @apply border-b border-border/80 last:border-b-0; }
+  .story-entry-reader { @apply m-0; }
+  .story-entry-heading { @apply grid min-h-12 w-full cursor-pointer list-none grid-cols-[minmax(0,1fr)_16px] items-center gap-3 border-0 bg-card px-4 py-2.5 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring max-md:px-3; }
+  .story-entry-title-wrap { @apply flex min-w-0 items-center gap-3; }
+  .story-entry-number { @apply grid size-7 shrink-0 place-items-center rounded-lg bg-[#f0e1d7] font-mono text-[9px] font-bold text-primary-hover; }
   .story-entry-heading-copy { @apply min-w-0; }
-  .story-entry-kicker { @apply mb-1 mt-0 text-[9px] font-bold tracking-[.15em] text-primary; }
-  .story-entry-heading h3 { @apply m-0 break-words text-base font-semibold leading-6; }
-  .story-entry-meta { @apply mb-0 mt-1 text-xs leading-5 text-muted-foreground; }
-  .story-entry-heading > a { @apply inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-semibold text-primary no-underline hover:border-primary/50 hover:bg-primary/5; }
-  .story-entry-body { @apply px-6 pb-6 max-md:px-5; }
-  .story-entry-summary { @apply m-0 max-w-[75ch] pt-5 font-serif text-[1.15rem] leading-8 text-[#403e38]; }
-  .story-entry-empty { @apply m-0 pt-5 text-sm leading-6 text-muted-foreground; }
-  .story-entry-reader { @apply mt-5 border-t border-border/80; }
-  .story-entry-reader-toggle { @apply flex min-h-12 cursor-pointer list-none items-center justify-between gap-4 text-xs font-semibold text-primary outline-none hover:text-primary-hover; }
-  .story-entry-reader-toggle::-webkit-details-marker { display: none; }
-  .story-entry-reader-toggle > span:last-child { @apply text-[10px] font-normal text-muted-foreground; }
-  .story-entry-reader[open] .story-entry-reader-toggle { @apply border-b border-border/70; }
-  .story-entry-reader .entry-prose { @apply mt-5 max-w-[75ch] text-[18px] leading-[1.8] max-md:text-[17px] max-md:leading-[1.78]; }
+  .story-entry-heading h3 { @apply m-0 truncate text-sm font-semibold leading-5; }
+  .story-entry-meta { @apply mb-0 mt-0.5 truncate text-[11px] leading-4 text-muted-foreground; }
+  .story-entry-chevron { @apply size-4 shrink-0 text-muted-foreground transition-transform; }
+  .story-entry-reader[open] .story-entry-chevron { @apply rotate-180; }
+  .story-entry-heading::-webkit-details-marker { display: none; }
+  .story-entry-body { @apply border-t border-[#e8e9eb] bg-card px-6 pb-8 pt-5 max-md:px-4 max-md:pb-6; }
+  .story-entry-empty { @apply mx-auto max-w-[75ch] text-sm leading-6 text-muted-foreground; }
+  .story-entry-reader .entry-prose { @apply mt-0; }
   .ai-state-page { @apply grid place-items-center; }
 
   /* Reader */
@@ -448,6 +469,10 @@
   .entry-prose { @apply mt-8 break-words font-serif text-[19px] leading-[1.75] text-[#403e38] max-md:text-lg max-md:leading-[1.72]; }
   .entry-prose > :first-child { margin-top: 0; }
   .entry-prose > :last-child { margin-bottom: 0; }
+  .entry-prose .entry-reader-title { @apply mb-4 mt-1 text-xl font-bold leading-snug; }
+  .entry-prose .entry-reader-title a { @apply text-foreground underline-offset-4 hover:underline; }
+  .entry-prose .entry-reader-content > :first-child { margin-top: 0; }
+  .entry-prose .entry-reader-content > :last-child { margin-bottom: 0; }
   .entry-prose p, .entry-prose ul, .entry-prose ol, .entry-prose blockquote, .entry-prose pre, .entry-prose table, .entry-prose figure { margin: 0 0 1.35em; }
   .entry-prose h1, .entry-prose h2, .entry-prose h3, .entry-prose h4, .entry-prose h5, .entry-prose h6 { margin: 1.75em 0 .65em; color: #2f2d28; font-family: var(--font-sans); line-height: 1.3; letter-spacing: -.018em; }
   .entry-prose h1 { font-size: 1.65em; }
