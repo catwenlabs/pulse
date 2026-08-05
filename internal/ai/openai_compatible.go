@@ -20,21 +20,24 @@ import (
 const maxProviderResponseBytes = 8 << 20
 
 type OpenAICompatibleConfig struct {
-	ProviderName string
-	BaseURL      string
-	APIKey       string
-	Model        string
-	Headers      map[string]string
-	Client       *http.Client
-	Timeout      time.Duration
+	ProviderName    string
+	BaseURL         string
+	APIKey          string
+	Model           string
+	Headers         map[string]string
+	Client          *http.Client
+	Timeout         time.Duration
+	// DisableThinking adds the DeepSeek-compatible non-thinking request option.
+	DisableThinking bool
 }
 
 type OpenAICompatibleAdapter struct {
-	providerName  string
-	completionURL string
-	model         string
-	headers       http.Header
-	client        *http.Client
+	providerName    string
+	completionURL   string
+	model           string
+	headers         http.Header
+	client          *http.Client
+	disableThinking bool
 }
 
 func NewOpenAICompatible(config OpenAICompatibleConfig) (*OpenAICompatibleAdapter, error) {
@@ -85,11 +88,12 @@ func NewOpenAICompatible(config OpenAICompatibleConfig) (*OpenAICompatibleAdapte
 		headers.Set("Authorization", "Bearer "+strings.TrimSpace(config.APIKey))
 	}
 	return &OpenAICompatibleAdapter{
-		providerName:  providerName,
-		completionURL: parsed.String(),
-		model:         model,
-		headers:       headers,
-		client:        client,
+		providerName:    providerName,
+		completionURL:   parsed.String(),
+		model:           model,
+		headers:         headers,
+		client:          client,
+		disableThinking: config.DisableThinking,
 	}, nil
 }
 
@@ -117,6 +121,7 @@ func (adapter *OpenAICompatibleAdapter) generate(ctx context.Context, request Ge
 		Messages       []Message       `json:"messages"`
 		MaxTokens      int             `json:"max_tokens,omitempty"`
 		Temperature    *float32        `json:"temperature,omitempty"`
+		Thinking       *thinkingConfig `json:"thinking,omitempty"`
 		ResponseFormat *responseFormat `json:"response_format,omitempty"`
 		Stream         bool            `json:"stream"`
 	}{
@@ -125,6 +130,9 @@ func (adapter *OpenAICompatibleAdapter) generate(ctx context.Context, request Ge
 		MaxTokens:   request.MaxTokens,
 		Temperature: request.Temperature,
 		Stream:      false,
+	}
+	if adapter.disableThinking {
+		payload.Thinking = &thinkingConfig{Type: "disabled"}
 	}
 	if nativeJSON {
 		payload.ResponseFormat = &responseFormat{Type: "json_object"}
@@ -265,5 +273,9 @@ func shouldFallbackJSONMode(status int) bool {
 }
 
 type responseFormat struct {
+	Type string `json:"type"`
+}
+
+type thinkingConfig struct {
 	Type string `json:"type"`
 }

@@ -261,7 +261,7 @@ Driver 不得自行持久化 Checkpoint。
 
 Worker 使用 `FOR UPDATE SKIP LOCKED` 领取任务。第一阶段不引入 Redis；只有 PostgreSQL 队列成为可测量瓶颈时才替换外部队列。
 
-AI Summarization 使用独立的 PostgreSQL `ai_jobs` 队列，但复用相同的 Claim/Lease/Retry 原则。它只有一个全局 Provider seam：`OpenAICompatibleAdapter` 发送标准 Chat Completions 请求，OpenAI、DeepSeek、OpenRouter、Qwen 和 Ollama 通过 Base URL、Model、API Key 与可选 Header 配置，不为每家供应商创建领域分支。AI 调用由用户显式触发；StorySummary 保存当前 Story 输入指纹并在内容变化后标记过期，Catch-up Digest 保存固定的标题-only Story 快照和历史结果。Digest 不读取正文、不修改 Reader 状态，结构化结果中的 Story ID 由服务端从快照标签映射，避免模型直接决定持久化 ID。AI 队列还通过 PostgreSQL 事务锁和 `PULSE_AI_MAX_ACTIVE_JOBS` 限制积压，避免重复点击无限增加 Provider 请求。
+AI Summarization 使用独立的 PostgreSQL `ai_jobs` 队列，但复用相同的 Claim/Lease/Retry 原则。它只有一个全局 Provider seam：`OpenAICompatibleAdapter` 发送 Chat Completions 请求，OpenAI、DeepSeek、OpenRouter、Qwen 和 Ollama 通过 Base URL、Model、API Key 与可选 Header 配置，不为每家供应商创建领域分支；当前 DeepSeek 部署通过适配器配置固定使用非思考模式。AI 调用由用户显式触发；StorySummary 保存当前 Story 输入指纹并在内容变化后标记过期，Catch-up Digest 保存固定的标题-only Story 快照和历史结果。Digest 不读取正文、不修改 Reader 状态，结构化结果中的 Story ID 由服务端从快照标签映射，避免模型直接决定持久化 ID。AI 队列还通过 PostgreSQL 事务锁和 `PULSE_AI_MAX_ACTIVE_JOBS` 限制积压，避免重复点击无限增加 Provider 请求。
 
 抓取频率提供实时、较快、普通和低频四档，系统根据历史更新频率自适应调整；高级设置允许固定间隔。所有策略仍服从 `Retry-After`、缓存头、失败退避和域名级限流。
 

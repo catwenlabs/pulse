@@ -168,6 +168,47 @@ func TestOpenAICompatibleAdapterUsesConfiguredEndpointAndJSONMode(t *testing.T) 
 	}
 }
 
+func TestOpenAICompatibleAdapterDisablesThinkingWhenConfigured(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatalf("read request: %v", err)
+		}
+		var payload struct {
+			Thinking *struct {
+				Type string `json:"type"`
+			} `json:"thinking"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if payload.Thinking == nil || payload.Thinking.Type != "disabled" {
+			t.Fatalf("thinking control = %+v, want disabled", payload.Thinking)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"model":"deepseek-v4-flash","choices":[{"message":{"content":"{\"overview\":\"ok\"}"}}]}`)),
+			Header:     make(http.Header),
+		}, nil
+	})}
+	adapter, err := NewOpenAICompatible(OpenAICompatibleConfig{
+		ProviderName:    "openai-compatible",
+		BaseURL:         "https://api.deepseek.com",
+		Model:           "deepseek-v4-flash",
+		DisableThinking: true,
+		Client:          client,
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompatible() error = %v", err)
+	}
+	if _, err := adapter.Generate(context.Background(), GenerateRequest{
+		Messages: []Message{{Role: "user", Content: "summarize"}},
+		JSONMode: true,
+	}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+}
+
 func TestOpenAICompatibleAdapterRejectsInvalidConfiguration(t *testing.T) {
 	for _, config := range []OpenAICompatibleConfig{
 		{BaseURL: "file:///tmp/provider", Model: "model"},
