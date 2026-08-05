@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ArrowUpRight, BookOpen, CalendarDays, CheckCircle2, Clock3, ExternalLink, FileText, Info, Loader2, RefreshCw, Sparkles, Star, Tag, X } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, BookOpen, CalendarDays, CheckCircle2, ChevronDown, Clock3, FileText, Info, Loader2, RefreshCw, Sparkles, Star, Tag, X } from 'lucide-react'
 
 import * as api from './api'
 import type { Digest, DigestPriority, DigestStory, DigestTheme, Entry, Story, StoryAISummary } from './api'
+import { EntryReader } from './components/EntryReader'
 import { Button } from './components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog'
+import { DateTimePicker } from './components/ui/date-time-picker'
 import { Input } from './components/ui/input'
-import { sanitizeEntryHTML } from './lib/sanitizeEntryHTML'
 import { queryKeys } from './query'
 
 const activeJobStatuses = new Set(['pending', 'running', 'retry', 'queued'])
@@ -58,6 +59,7 @@ export function DigestPage() {
     queryKey: queryKeys.digestPreview({ startAt, endAt, maxStories }),
     queryFn: () => api.previewDigest(draftScope),
     enabled: maxStoriesValid,
+    placeholderData: (previousData) => previousData,
   })
   const selectedDigestQuery = useQuery({
     queryKey: queryKeys.digest(selectedDigestID),
@@ -207,39 +209,69 @@ export function DigestPage() {
           if (open) setFormError('')
         }}
       >
-        <DialogContent className="ai-scope-dialog">
-          <DialogClose className="absolute right-4 top-4 grid size-8 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="关闭">
-            <X className="size-4" aria-hidden="true" />
-          </DialogClose>
-          <DialogTitle>设置追更范围</DialogTitle>
-          <DialogDescription>
-            当前未读 Story 超过 {preview?.safety_limit ?? 100} 个的安全上限。缩小时间范围或指定最多 Story 数后再生成。
+        <DialogContent
+          className="ai-scope-dialog"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault()
+            document.getElementById('digest-max-stories')?.focus()
+          }}
+        >
+          <div className="ai-scope-dialog-header">
+            <div className="ai-scope-dialog-heading">
+              <span className="ai-scope-dialog-icon" aria-hidden="true"><CalendarDays size={20} /></span>
+              <div>
+                <p className="ai-scope-dialog-kicker">AI CATCH-UP</p>
+                <DialogTitle>设置追更范围</DialogTitle>
+              </div>
+            </div>
+            <DialogClose className="ai-scope-dialog-close" aria-label="关闭">
+              <X className="size-4" aria-hidden="true" />
+            </DialogClose>
+          </div>
+          <DialogDescription className="ai-scope-dialog-description">
+            当前未读 Story 已超过 <strong>{preview?.safety_limit ?? 100} 个</strong> 的安全上限。缩小时间范围或限制数量，生成更聚焦的追更摘要。
           </DialogDescription>
           <form onSubmit={(event) => void createDigest(event)}>
             <fieldset className="ai-scope-fieldset">
-              <legend>追更窗口</legend>
+              <legend>
+                <span>追更窗口</span>
+                <span>按需筛选</span>
+              </legend>
+              <p className="ai-scope-fieldset-hint" id="digest-scope-hint">设置任一条件即可缩小本次处理范围，留空表示不限制。</p>
               <div className="ai-form-grid">
-                <label>
-                  <span><CalendarDays size={14} aria-hidden="true" />最早时间（可选）</span>
-                  <Input type="datetime-local" value={startAt} onChange={(event) => setStartAt(event.target.value)} />
-                </label>
-                <label>
-                  <span><CalendarDays size={14} aria-hidden="true" />最晚时间（可选）</span>
-                  <Input type="datetime-local" value={endAt} onChange={(event) => setEndAt(event.target.value)} />
-                </label>
-                <label>
-                  <span><FileText size={14} aria-hidden="true" />最多 Story（可选）</span>
-                  <Input inputMode="numeric" min={1} placeholder="默认安全上限" value={maxStories} onChange={(event) => setMaxStories(event.target.value)} />
-                </label>
+                <div className="ai-scope-field">
+                  <label htmlFor="digest-start-at">
+                    <span className="ai-field-label"><CalendarDays size={16} aria-hidden="true" />最早时间（可选）</span>
+                    <DateTimePicker id="digest-start-at" value={startAt} onChange={setStartAt} defaultTime="00:00" aria-describedby="digest-start-at-hint digest-scope-hint" />
+                  </label>
+                  <p className="ai-field-hint" id="digest-start-at-hint">只处理此时间之后的未读 Story</p>
+                </div>
+                <div className="ai-scope-field">
+                  <label htmlFor="digest-end-at">
+                    <span className="ai-field-label"><CalendarDays size={16} aria-hidden="true" />最晚时间（可选）</span>
+                    <DateTimePicker id="digest-end-at" value={endAt} onChange={setEndAt} defaultTime="23:59" aria-describedby="digest-end-at-hint digest-scope-hint" />
+                  </label>
+                  <p className="ai-field-hint" id="digest-end-at-hint">只处理此时间之前的未读 Story</p>
+                </div>
+                <div className="ai-scope-field">
+                  <label htmlFor="digest-max-stories">
+                    <span className="ai-field-label"><FileText size={16} aria-hidden="true" />最多 Story（可选）</span>
+                    <Input id="digest-max-stories" inputMode="numeric" min={1} placeholder="默认安全上限" aria-describedby="digest-max-stories-hint digest-scope-hint" value={maxStories} onChange={(event) => setMaxStories(event.target.value)} />
+                  </label>
+                  <p className="ai-field-hint" id="digest-max-stories-hint">控制本次最多处理的数量</p>
+                </div>
               </div>
             </fieldset>
             {formError && <p className="ai-form-error" role="alert">{formError}</p>}
             {createMutation.isError && !formError && <p className="ai-form-error" role="alert">{createMutation.error.message}</p>}
             {previewQuery.error && <p className="ai-form-error" role="alert">{previewQuery.error.message}</p>}
             {previewQuery.data && (
-              <p className="ai-scope-preview" aria-live="polite">
+              <p className={`ai-scope-preview ${previewQuery.data.can_queue ? 'is-ready' : 'is-warning'}`} aria-live="polite">
                 <Info size={15} aria-hidden="true" />
-                <span>{formatScopePreview(previewQuery.data)}</span>
+                <span className="ai-scope-preview-copy">
+                  <strong>范围预览</strong>
+                  <span>{formatScopePreview(previewQuery.data)}</span>
+                </span>
               </p>
             )}
             <div className="ai-dialog-actions">
@@ -804,41 +836,28 @@ export function StorySummaryCard({
 }
 
 function EntryCard({ entry, index }: { entry: Entry; index: number }) {
-  const contentHTML = entry.content_html?.trim()
-    ? sanitizeEntryHTML(entry.content_html, entry.canonical_url)
-    : ''
   return (
     <article className="story-entry-card" id={`entry-${entry.id}`}>
-      <header className="story-entry-heading">
-        <div className="story-entry-title-wrap">
-          <span className="story-entry-number" aria-hidden="true">E{String(index + 1).padStart(2, '0')}</span>
-          <div className="story-entry-heading-copy">
-            <p className="story-entry-kicker">SOURCE ENTRY</p>
-            <h3>{entry.source_title || '无标题'}</h3>
-            <p className="story-entry-meta">{entry.author || '未知作者'} · {formatDate(entry.published_at || entry.discovered_at)}</p>
+      <details className="story-entry-reader">
+        <summary className="story-entry-heading">
+          <div className="story-entry-title-wrap">
+            <span className="story-entry-number" aria-hidden="true">E{String(index + 1).padStart(2, '0')}</span>
+            <div className="story-entry-heading-copy">
+              <h3>{entry.source_title || '无标题'}</h3>
+              <p className="story-entry-meta">{entry.author || '未知作者'} · {formatDate(entry.published_at || entry.discovered_at)}</p>
+            </div>
           </div>
+          <ChevronDown className="story-entry-chevron" aria-hidden="true" />
+        </summary>
+        <div className="story-entry-body">
+          <EntryReader
+            entry={entry}
+            className="story-entry-prose"
+            title={entry.source_title || '无标题'}
+            empty={<p className="story-entry-empty">这个 Entry 没有摘要，打开原文查看完整内容。</p>}
+          />
         </div>
-        {entry.canonical_url && (
-          <a href={entry.canonical_url} rel="noreferrer" target="_blank">
-            <ExternalLink size={14} aria-hidden="true" />
-            <span>打开原文</span>
-          </a>
-        )}
-      </header>
-      <div className="story-entry-body">
-        {entry.summary && <p className="story-entry-summary">{entry.summary}</p>}
-        {contentHTML ? (
-          <details className="story-entry-reader" open={index === 0}>
-            <summary className="story-entry-reader-toggle">
-              <span>阅读正文</span>
-              <span>展开 / 收起</span>
-            </summary>
-            <div className="entry-prose story-entry-prose" dangerouslySetInnerHTML={{ __html: contentHTML }} />
-          </details>
-        ) : !entry.summary ? (
-          <p className="story-entry-empty">这个 Entry 没有摘要，打开原文查看完整内容。</p>
-        ) : null}
-      </div>
+      </details>
     </article>
   )
 }

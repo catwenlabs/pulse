@@ -24,6 +24,7 @@ import {
 import * as api from './api'
 import { DigestPage, isStoredStorySummary, StoryDetailPage, StorySummaryCard } from './AISummarization'
 import type { AnnotationInput, CreateSourceInput, Entry, Folder, PreviewResult, Source, SourceHealth, SourceKind, Story, StoryPatch } from './api'
+import { EntryReader } from './components/EntryReader'
 import { Button, buttonVariants } from './components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, SheetContent } from './components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu'
@@ -32,7 +33,6 @@ import { Select } from './components/ui/select'
 import { Textarea } from './components/ui/textarea'
 import { Toaster } from './components/ui/sonner'
 import { cn } from './lib/utils'
-import { sanitizeEntryHTML } from './lib/sanitizeEntryHTML'
 import { createQueryClient, queryKeys } from './query'
 import { useLibraryRealtime, type LibraryRealtimeSignal, type RealtimeConnectionState } from './realtime'
 import { toast } from 'sonner'
@@ -2627,15 +2627,7 @@ function Reader({
                         </Button>
                       </div>
                     )}
-                    <div
-                      className="entry-prose"
-                      dangerouslySetInnerHTML={{
-                        __html: sanitizeEntryHTML(
-                          activeEntry!.content_html || activeEntry!.summary || '',
-                          activeEntry!.canonical_url,
-                        ),
-                      }}
-                    />
+                    <EntryReader entry={activeEntry!} />
                     {notesOpen && <div className="mt-10 grid max-w-[68ch] gap-4 border-t pt-6">
                       <label>
                         <span>显示标题</span>
