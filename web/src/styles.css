@@ -500,3 +500,28 @@
 @media (prefers-reduced-motion: reduce) {
   .sidebar { transition: none; }
 }
+
+/* AI chat dialog */
+@layer components {
+  .chat-markdown { @apply break-words; }
+  .chat-markdown > :first-child { margin-top: 0; }
+  .chat-markdown > :last-child { margin-bottom: 0; }
+  .chat-markdown p, .chat-markdown ul, .chat-markdown ol, .chat-markdown blockquote, .chat-markdown pre, .chat-markdown table { margin: .6em 0; }
+  .chat-markdown h1, .chat-markdown h2, .chat-markdown h3, .chat-markdown h4 { margin: 1em 0 .4em; font-weight: 650; line-height: 1.35; letter-spacing: -.01em; }
+  .chat-markdown h1 { font-size: 1.12em; }
+  .chat-markdown h2 { font-size: 1.06em; }
+  .chat-markdown h3, .chat-markdown h4 { font-size: 1em; }
+  .chat-markdown ul, .chat-markdown ol { padding-left: 1.35em; }
+  .chat-markdown li { margin: .3em 0; }
+  .chat-markdown li::marker { color: var(--color-primary); }
+  .chat-markdown blockquote { padding: .1em 0 .1em .9em; border-left: 3px solid color-mix(in srgb, var(--color-primary) 45%, transparent); color: var(--color-muted-foreground); }
+  .chat-markdown a { color: var(--color-primary-hover); text-decoration-color: color-mix(in srgb, var(--color-primary) 35%, transparent); text-underline-offset: .18em; }
+  .chat-markdown a:hover { text-decoration-color: currentColor; }
+  .chat-markdown hr { margin: 1.1em 0; border: 0; border-top: 1px solid var(--color-border); }
+  .chat-markdown pre { max-width: 100%; overflow-x: auto; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-muted); font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .chat-markdown :not(pre) > code { padding: .1em .35em; border-radius: 5px; background: color-mix(in srgb, var(--color-primary) 9%, transparent); color: var(--color-primary-hover); font: .85em ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .chat-markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: .92em; }
+  .chat-markdown th, .chat-markdown td { padding: 6px 10px; border: 1px solid var(--color-border); text-align: left; }
+  .chat-markdown th { background: var(--color-muted); }
+  .chat-markdown img { max-width: 100%; height: auto; border-radius: 8px; }
+}

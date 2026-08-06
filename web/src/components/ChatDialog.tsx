@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { Loader2, Send, StopCircle, RotateCcw, ChevronDown, ChevronRight, ShieldAlert } from 'lucide-react'
+import {
+  ChevronDown,
+  Loader2,
+  Quote,
+  RotateCcw,
+  SendHorizontal,
+  ShieldAlert,
+  Sparkles,
+  Square,
+} from 'lucide-react'
 
 import * as api from '../api'
 import type { ChatMessage, ChatStreamEvent, SelectionTool } from '../api'
 import { Button } from './ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog'
 import { ChatMarkdown } from './ChatMarkdown'
+import { cn } from '../lib/utils'
 
 const firstUseStorageKey = 'pulse:ai-chat:first-use-ack'
 
@@ -46,6 +56,7 @@ export function ChatDialog({ open, onOpenChange, start, conversationId, tools = 
   const [pendingStart, setPendingStart] = useState<ChatDialogStart | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const lastStreamKey = useRef('')
+  const scrollRef = useRef<HTMLDivElement | null>(null)
 
   const acknowledgeFirstUse = () => {
     try { localStorage.setItem(firstUseStorageKey, '1') } catch { /* storage may be unavailable */ }
@@ -130,6 +141,19 @@ export function ChatDialog({ open, onOpenChange, start, conversationId, tools = 
   // Abort on unmount (genuine disconnect). Hiding the dialog does not abort.
   useEffect(() => () => abortRef.current?.abort(), [])
 
+  const streaming = Boolean(assistantDraft?.streaming)
+  const lastMessage = messages[messages.length - 1]
+  const canRetry = !streaming && lastMessage?.role === 'assistant'
+    && (lastMessage.status === 'failed' || lastMessage.status === 'cancelled')
+  const canFollowUp = !streaming && lastMessage?.role === 'assistant' && lastMessage.status === 'completed'
+  const visible: ChatMessage[] = assistantDraft ? [...messages, assistantDraft] : messages
+
+  // Keep the newest reply in view while streaming or when messages arrive.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [visible.length, assistantDraft?.content])
+
   const stop = async () => {
     if (!conversation) return
     try {
@@ -158,61 +182,105 @@ export function ChatDialog({ open, onOpenChange, start, conversationId, tools = 
     }
   }
 
-  const streaming = Boolean(assistantDraft?.streaming)
-  const lastMessage = messages[messages.length - 1]
-  const canRetry = !streaming && lastMessage?.role === 'assistant'
-    && (lastMessage.status === 'failed' || lastMessage.status === 'cancelled')
-  const canFollowUp = !streaming && lastMessage?.role === 'assistant' && lastMessage.status === 'completed'
-  const visible: ChatMessage[] = assistantDraft ? [...messages, assistantDraft] : messages
+  const toolName = conversation?.tool_name ?? start?.tool.name ?? 'AI 对话'
+  const contextBlocks: Array<{ key: string; label: string; content: string }> = []
+  if (conversation?.selected_text) {
+    contextBlocks.push({ key: 'selection', label: '选中文本', content: conversation.selected_text })
+  }
+  if (start?.tool.prompt_template) {
+    contextBlocks.push({ key: 'prompt', label: '指令模板', content: start.tool.prompt_template })
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-2xl">
-        <div className="border-b border-border px-4 py-3">
-          <DialogTitle className="text-base font-semibold">{conversation?.tool_name ?? start?.tool.name ?? 'AI 对话'}</DialogTitle>
-          <DialogDescription className="sr-only">与 AI 助手的对话</DialogDescription>
-          {conversation && (
-            <CollapsibleSelection label="选中文本" content={conversation.selected_text} />
+      <DialogContent className="flex max-h-[85dvh] w-full flex-col gap-0 overflow-hidden rounded-2xl p-0 shadow-[0_24px_80px_rgba(32,29,23,.28)] sm:max-w-2xl">
+        <header className="border-b border-border/70 bg-card px-5 py-4">
+          <div className="flex items-center gap-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary" aria-hidden="true">
+              <Sparkles className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <DialogTitle className="truncate text-[15px] font-semibold leading-5">{toolName}</DialogTitle>
+              <DialogDescription className="sr-only">与 AI 助手的对话</DialogDescription>
+              <p className="m-0 mt-0.5 text-xs leading-4 text-muted-foreground">
+                {streaming ? '正在生成回复…' : '基于选中内容的 AI 对话'}
+              </p>
+            </div>
+          </div>
+          {contextBlocks.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {contextBlocks.map((block) => (
+                <ContextChip key={block.key} label={block.label} content={block.content} />
+              ))}
+            </div>
           )}
-          {start?.tool && (
-            <CollapsibleSelection label="指令模板" content={start.tool.prompt_template} />
-          )}
-        </div>
+        </header>
 
         {!firstUseAcknowledged && pendingStart ? (
           <FirstUseNotice toolName={pendingStart.tool.name} onAcknowledge={acknowledgeFirstUse} />
         ) : (
           <>
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-background/40 px-5 py-4">
               <MessageList messages={visible} />
-              {error && <p role="alert" className="mt-2 text-sm text-destructive">{error}</p>}
+              {error && (
+                <p role="alert" className="mt-3 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs leading-5 text-destructive">
+                  {error}
+                </p>
+              )}
             </div>
-            <div className="flex items-center gap-2 border-t border-border px-4 py-2">
-              {streaming && (
-                <Button variant="ghost" size="sm" onClick={() => void stop()} aria-label="停止生成">
-                  <StopCircle className="size-4" aria-hidden="true" />停止
-                </Button>
-              )}
-              {canRetry && (
-                <Button variant="ghost" size="sm" onClick={() => void retry()} aria-label="重试">
-                  <RotateCcw className="size-4" aria-hidden="true" />重试
-                </Button>
-              )}
-              <form onSubmit={(e) => void sendFollowUp(e)} className="ml-auto flex w-full max-w-md items-center gap-2">
-                <input
-                  type="text"
-                  value={followUp}
-                  onChange={(e) => setFollowUp(e.target.value)}
-                  placeholder={canFollowUp ? '继续追问…' : streaming ? '正在生成…' : '等待回复…'}
-                  disabled={!canFollowUp}
-                  aria-label="追问内容"
-                  className="min-h-9 flex-1 rounded-md border border-border bg-background px-3 text-sm disabled:opacity-50"
-                />
-                <Button type="submit" size="sm" disabled={!canFollowUp || !followUp.trim()} aria-label="发送追问">
-                  <Send className="size-4" aria-hidden="true" />
-                </Button>
+
+            <footer className="border-t border-border/70 bg-card px-4 py-3">
+              <form onSubmit={(e) => void sendFollowUp(e)} className="flex items-end gap-2">
+                <div className="min-w-0 flex-1">
+                  <label htmlFor="chat-follow-up" className="sr-only">追问内容</label>
+                  <textarea
+                    id="chat-follow-up"
+                    value={followUp}
+                    onChange={(e) => setFollowUp(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                        e.preventDefault()
+                        if (canFollowUp && followUp.trim()) void sendFollowUp(e)
+                      }
+                    }}
+                    placeholder={canFollowUp ? '继续追问…（Enter 发送，Shift+Enter 换行）' : streaming ? '正在生成…' : '等待回复…'}
+                    disabled={!canFollowUp}
+                    rows={1}
+                    className="max-h-32 min-h-10 w-full resize-none rounded-xl border-input bg-background px-3.5 py-2.5 text-sm leading-5 shadow-[inset_0_1px_2px_rgba(51,46,36,.04)] outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/70 focus:border-primary focus:ring-3 focus:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </div>
+                {streaming ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    onClick={() => void stop()}
+                    aria-label="停止生成"
+                    className="size-10 shrink-0 rounded-xl"
+                  >
+                    <Square className="size-3.5 fill-current" aria-hidden="true" />
+                  </Button>
+                ) : (
+                  <Button
+                    type="submit"
+                    size="icon"
+                    disabled={!canFollowUp || !followUp.trim()}
+                    aria-label="发送追问"
+                    className="size-10 shrink-0 rounded-xl"
+                  >
+                    <SendHorizontal className="size-4" aria-hidden="true" />
+                  </Button>
+                )}
               </form>
-            </div>
+              {canRetry && (
+                <div className="mt-2 flex justify-center">
+                  <Button variant="ghost" size="sm" onClick={() => void retry()} className="text-xs">
+                    <RotateCcw className="size-3.5" aria-hidden="true" />
+                    重试
+                  </Button>
+                </div>
+              )}
+            </footer>
           </>
         )}
       </DialogContent>
@@ -222,10 +290,17 @@ export function ChatDialog({ open, onOpenChange, start, conversationId, tools = 
 
 function MessageList({ messages }: { messages: ChatMessage[] }) {
   if (messages.length === 0) {
-    return <p className="text-sm text-muted-foreground">正在开始对话…</p>
+    return (
+      <div className="grid min-h-40 place-items-center">
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+          正在开始对话…
+        </p>
+      </div>
+    )
   }
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {messages.map((message) => (
         <MessageBubble key={message.id} message={message} />
       ))}
@@ -236,22 +311,26 @@ function MessageList({ messages }: { messages: ChatMessage[] }) {
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user'
   return (
-    <div className={isUser ? 'flex justify-end' : 'flex justify-start'}>
+    <div className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
       <div
-        className={
+        className={cn(
+          'min-w-0 px-3.5 py-2.5 text-sm leading-6',
           isUser
-            ? 'max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-3 py-2 text-sm text-primary-foreground whitespace-pre-wrap'
-            : 'max-w-[90%] rounded-2xl rounded-bl-sm bg-card px-3 py-2 text-sm text-card-foreground'
-        }
+            ? 'max-w-[85%] rounded-2xl rounded-br-md bg-primary text-primary-foreground shadow-sm whitespace-pre-wrap'
+            : 'max-w-[92%] rounded-2xl rounded-bl-md border border-border/70 bg-card text-card-foreground shadow-[0_1px_2px_rgba(51,46,36,.05)]',
+        )}
       >
         {isUser ? message.content : (
           <>
             <ChatMarkdown content={message.content || ''} />
             {message.status === 'failed' && message.error && (
-              <p className="mt-1 text-xs text-destructive">{message.error}</p>
+              <p className="m-0 mt-2 border-t border-destructive/15 pt-2 text-xs text-destructive">{message.error}</p>
             )}
             {message.status === 'streaming' && !message.content && (
-              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" aria-hidden="true" />正在生成…</span>
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                正在生成…
+              </span>
             )}
           </>
         )}
@@ -260,32 +339,51 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   )
 }
 
-function CollapsibleSelection({ label, content }: { label: string; content: string }) {
+function ContextChip({ label, content }: { label: string; content: string }) {
   const [open, setOpen] = useState(false)
   if (!content) return null
   return (
-    <div className="mt-1">
-      <button type="button" onClick={() => setOpen((v) => !v)} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" aria-expanded={open}>
-        {open ? <ChevronDown className="size-3" aria-hidden="true" /> : <ChevronRight className="size-3" aria-hidden="true" />}
-        {label}
+    <div className="min-w-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={cn(
+          'inline-flex max-w-full cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+          open
+            ? 'border-primary/30 bg-primary/10 text-primary-hover'
+            : 'border-border bg-background text-muted-foreground hover:border-primary/25 hover:text-foreground',
+        )}
+      >
+        <Quote className="size-3 shrink-0" aria-hidden="true" />
+        <span className="truncate">{label}</span>
+        <ChevronDown className={cn('size-3 shrink-0 transition-transform', open && 'rotate-180')} aria-hidden="true" />
       </button>
-      {open && <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-muted px-2 py-1 text-xs text-foreground">{content}</pre>}
+      {open && (
+        <pre className="mt-1.5 max-h-32 overflow-auto whitespace-pre-wrap rounded-lg border border-border/70 bg-muted/60 px-3 py-2 font-sans text-xs leading-5 text-foreground">
+          {content}
+        </pre>
+      )}
     </div>
   )
 }
 
 function FirstUseNotice({ toolName, onAcknowledge }: { toolName: string; onAcknowledge: () => void }) {
   return (
-    <div className="px-4 py-6 text-sm" role="dialog" aria-label="首次使用提示">
-      <div className="mb-2 flex items-center gap-2 font-medium text-foreground">
-        <ShieldAlert className="size-4 text-primary" aria-hidden="true" />
-        选中文本将发送给 AI
+    <div className="grid gap-4 px-6 py-8" role="dialog" aria-label="首次使用提示">
+      <span className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary" aria-hidden="true">
+        <ShieldAlert className="size-5" />
+      </span>
+      <div>
+        <p className="m-0 text-base font-semibold text-foreground">选中文本将发送给 AI</p>
+        <p className="m-0 mt-2 text-sm leading-6 text-muted-foreground">
+          使用「{toolName}」时，你选中的文本会发送给已配置的 AI 服务（Provider）以生成回复。
+          如果该服务是远程的，选中文本会离开 Pulse。请在确认理解后继续。
+        </p>
       </div>
-      <p className="text-muted-foreground">
-        使用「{toolName}」时，你选中的文本会发送给已配置的 AI 服务（Provider）以生成回复。
-        如果该服务是远程的，选中文本会离开 Pulse。请在确认理解后继续。
-      </p>
-      <Button className="mt-3" onClick={onAcknowledge}>我知道了</Button>
+      <div>
+        <Button onClick={onAcknowledge}>我知道了</Button>
+      </div>
     </div>
   )
 }
