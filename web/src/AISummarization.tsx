@@ -296,7 +296,7 @@ export function DigestPage() {
       </Dialog>
 
       <div className="ai-history-layout">
-        <section className="ai-history-card" aria-labelledby="digest-history-title">
+        <section className="ai-history-card ai-history-scroll-shell" aria-labelledby="digest-history-title">
           <div className="ai-card-heading ai-history-heading">
             <div className="ai-card-heading-title">
               <span className="ai-card-icon" aria-hidden="true"><Clock3 size={18} /></span>
@@ -321,7 +321,7 @@ export function DigestPage() {
               <p>还没有追更摘要。生成一份，稍后可以回来查看。</p>
             </div>
           )}
-          <div className="ai-history-list">
+          <div className="ai-history-list ai-history-scroll-list">
             {digests.map((digest) => (
               <button
                 className={`ai-history-item ${selectedFromHistory === digest.id ? 'is-selected' : ''}`}
