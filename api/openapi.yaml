@@ -980,6 +980,303 @@ paths:
             text/x-opml:
               schema:
                 type: string
+  /ai/tools:
+    get:
+      operationId: listChatTools
+      summary: List selection tools in display order
+      responses:
+        "200":
+          description: Selection tools
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SelectionTool"
+        "503":
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createChatTool
+      summary: Create a selection tool
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SelectionToolInput"
+      responses:
+        "201":
+          description: Tool created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelectionTool"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /ai/tools/order:
+    put:
+      operationId: reorderChatTools
+      summary: Atomically rewrite selection-tool display order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tool_ids]
+              properties:
+                tool_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        "200":
+          description: Tools in the new order
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SelectionTool"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /ai/tools/{toolId}:
+    parameters:
+      - name: toolId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getChatTool
+      responses:
+        "200":
+          description: Selection tool
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelectionTool"
+        "404":
+          $ref: "#/components/responses/Problem"
+    put:
+      operationId: updateChatTool
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SelectionToolInput"
+      responses:
+        "200":
+          description: Updated tool
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelectionTool"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteChatTool
+      responses:
+        "204":
+          description: Tool deleted
+        "404":
+          $ref: "#/components/responses/Problem"
+  /ai/conversations:
+    get:
+      operationId: listConversations
+      summary: List AI conversation history by recent activity
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Conversation history page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationPage"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createConversation
+      summary: Start a Conversation from a selection
+      description: >
+        Resolves the enabled tool server-side, validates the selection, expands
+        {{selection}}, and persists immutable snapshots of the tool name,
+        template, and selected text. No Source, Entry, Story, page-origin, or
+        tool reference is stored.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConversationInput"
+      responses:
+        "201":
+          description: Conversation and first User Message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationCreated"
+        "413":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /ai/conversations/{conversationId}:
+    parameters:
+      - name: conversationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getConversation
+      responses:
+        "200":
+          description: Conversation with full message history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationDetail"
+        "404":
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteConversation
+      summary: Delete a Conversation and all of its messages
+      responses:
+        "204":
+          description: Conversation deleted
+        "404":
+          $ref: "#/components/responses/Problem"
+  /ai/conversations/{conversationId}/messages:
+    parameters:
+      - name: conversationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: sendFollowUp
+      summary: Append a follow-up User Message
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FollowUpInput"
+      responses:
+        "201":
+          description: Appended User Message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatMessage"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /ai/conversations/{conversationId}/generate:
+    parameters:
+      - name: conversationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: generateAssistant
+      summary: Stream the Assistant reply for the latest unanswered User Message
+      description: >
+        Emits a text/event-stream of metadata, delta, and terminal events. The
+        first metadata event identifies the Conversation and Assistant Message;
+        terminal events carry persisted status and safe usage metadata. A hidden
+        dialog does not abort the request; explicit stop or a genuine disconnect
+        terminates it.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Assistant generation stream
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/ChatStreamEvent"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /ai/conversations/{conversationId}/retry:
+    parameters:
+      - name: conversationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: retryAssistant
+      summary: Retry the last failed or cancelled Assistant reply
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Assistant generation stream
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/ChatStreamEvent"
+        "422":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /ai/conversations/{conversationId}/stop:
+    parameters:
+      - name: conversationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: stopGeneration
+      summary: Cancel the active Assistant generation
+      responses:
+        "204":
+          description: Generation cancellation requested
+        "503":
+          $ref: "#/components/responses/Problem"
 components:
   parameters:
     SourceId:
@@ -1024,6 +1321,16 @@ components:
       schema:
         type: string
         format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: >
+        Bounded client-supplied key. A transport retry with the same key does
+        not duplicate a Conversation, User Message, or Provider request.
+      schema:
+        type: string
+        maxLength: 128
   responses:
     Problem:
       description: Request problem
@@ -1715,3 +2022,176 @@ components:
           type: integer
         created_folders:
           type: integer
+    SelectionTool:
+      type: object
+      required: [id, name, prompt_template, enabled, position]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 40
+        prompt_template:
+          type: string
+          maxLength: 4000
+        enabled:
+          type: boolean
+        position:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SelectionToolInput:
+      type: object
+      required: [name, prompt_template, enabled]
+      properties:
+        name:
+          type: string
+          maxLength: 40
+        prompt_template:
+          type: string
+          maxLength: 4000
+          description: Must reference the selection via {{selection}} at least once.
+        enabled:
+          type: boolean
+    ChatConversation:
+      type: object
+      required: [id, selected_text, tool_name, prompt_template]
+      properties:
+        id:
+          type: string
+          format: uuid
+        selected_text:
+          type: string
+        tool_name:
+          type: string
+        prompt_template:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ConversationPage:
+      type: object
+      required: [items, has_more]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatConversation"
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+    CreateConversationInput:
+      type: object
+      required: [tool_id, selection]
+      properties:
+        tool_id:
+          type: string
+          format: uuid
+        selection:
+          type: string
+          maxLength: 10000
+          description: Plain selected text. Oversized selections are rejected, not truncated.
+    ConversationCreated:
+      type: object
+      required: [conversation, user_message]
+      properties:
+        conversation:
+          $ref: "#/components/schemas/ChatConversation"
+        user_message:
+          $ref: "#/components/schemas/ChatMessage"
+    FollowUpInput:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          maxLength: 10000
+    ChatMessage:
+      type: object
+      required: [id, conversation_id, role, content]
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversation_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        status:
+          type: string
+          enum: [streaming, completed, cancelled, failed]
+          description: Assistant messages only.
+        provider:
+          type: string
+        model:
+          type: string
+        prompt_tokens:
+          type: integer
+        completion_tokens:
+          type: integer
+        finish_reason:
+          type: string
+        error:
+          type: string
+          description: Sanitized Provider error with no credentials or auth material.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ConversationDetail:
+      type: object
+      required: [conversation, messages]
+      properties:
+        conversation:
+          $ref: "#/components/schemas/ChatConversation"
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+    ChatStreamEvent:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [metadata, delta, completed, cancelled, failed]
+        conversation_id:
+          type: string
+          format: uuid
+        message_id:
+          type: string
+          format: uuid
+        delta:
+          type: string
+        content:
+          type: string
+        status:
+          type: string
+          enum: [streaming, completed, cancelled, failed]
+        provider:
+          type: string
+        model:
+          type: string
+        prompt_tokens:
+          type: integer
+        completion_tokens:
+          type: integer
+        finish_reason:
+          type: string
+        error:
+          type: string

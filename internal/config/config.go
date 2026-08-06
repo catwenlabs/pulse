@@ -38,6 +38,9 @@ type Config struct {
 	AITimeout          time.Duration
 	AIMaxDigestStories int
 	AIMaxActiveJobs    int
+	AIChatMaxInputTokens     int
+	AIChatMaxConcurrent      int
+	AIChatProviderInputLimit int
 }
 
 type LookupEnv func(string) (string, bool)
@@ -58,6 +61,8 @@ func Load(lookup LookupEnv) (Config, error) {
 		AITimeout:          2 * time.Minute,
 		AIMaxDigestStories: 100,
 		AIMaxActiveJobs:    4,
+		AIChatMaxInputTokens: 16000,
+		AIChatMaxConcurrent:  4,
 	}
 
 	if value, ok := lookup("PULSE_HTTP_ADDR"); ok && strings.TrimSpace(value) != "" {
@@ -130,6 +135,27 @@ func Load(lookup LookupEnv) (Config, error) {
 			return Config{}, fmt.Errorf("invalid PULSE_AI_MAX_ACTIVE_JOBS: positive integer required")
 		}
 		cfg.AIMaxActiveJobs = limit
+	}
+	if value, ok := lookup("PULSE_AI_CHAT_MAX_INPUT_TOKENS"); ok && strings.TrimSpace(value) != "" {
+		limit, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || limit <= 0 {
+			return Config{}, fmt.Errorf("invalid PULSE_AI_CHAT_MAX_INPUT_TOKENS: positive integer required")
+		}
+		cfg.AIChatMaxInputTokens = limit
+	}
+	if value, ok := lookup("PULSE_AI_CHAT_MAX_CONCURRENT"); ok && strings.TrimSpace(value) != "" {
+		limit, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || limit <= 0 {
+			return Config{}, fmt.Errorf("invalid PULSE_AI_CHAT_MAX_CONCURRENT: positive integer required")
+		}
+		cfg.AIChatMaxConcurrent = limit
+	}
+	if value, ok := lookup("PULSE_AI_CHAT_PROVIDER_INPUT_LIMIT"); ok && strings.TrimSpace(value) != "" {
+		limit, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || limit < 0 {
+			return Config{}, fmt.Errorf("invalid PULSE_AI_CHAT_PROVIDER_INPUT_LIMIT: non-negative integer required")
+		}
+		cfg.AIChatProviderInputLimit = limit
 	}
 	if cfg.EmbeddingProvider != "disabled" && cfg.EmbeddingProvider != "ollama" {
 		return Config{}, fmt.Errorf(

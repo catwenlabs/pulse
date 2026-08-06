@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/catwenlabs/pulse/internal/ai"
+	"github.com/catwenlabs/pulse/internal/aichat"
 	"github.com/catwenlabs/pulse/internal/config"
 	annotationdriver "github.com/catwenlabs/pulse/internal/drivers/annotations"
 	"github.com/catwenlabs/pulse/internal/drivers/feed"
@@ -110,6 +111,7 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 	var aiStore *postgresstore.AIStore
 	var aiProvider ai.Provider
 	var aiService ai.Summarization
+	var aiChatService aichat.Chat
 	if cfg.AIProvider != "" && cfg.AIProvider != "disabled" {
 		aiStore = postgresstore.NewAIStore(pool, postgresstore.AIStoreOptions{
 			MaxActiveJobs: cfg.AIMaxActiveJobs,
@@ -130,6 +132,17 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 		aiService = ai.NewService(aiStore, aiProvider, ai.ServiceOptions{
 			MaxDigestStories: cfg.AIMaxDigestStories,
 		})
+		chatStore := postgresstore.NewAIChatStore(pool)
+		aiChatService = aichat.NewService(chatStore, chatStreamingProvider{adapter: adapter}, aichat.ServiceOptions{
+			MaxConcurrent: cfg.AIChatMaxConcurrent,
+			Memory: aichat.MemoryOptions{
+				MaxInputTokens:     cfg.AIChatMaxInputTokens,
+				ProviderInputLimit: cfg.AIChatProviderInputLimit,
+			},
+			Publish: func(topic string) {
+				changeHub.Publish(events.LibraryChange{SourceID: topic})
+			},
+		})
 	}
 	backend := httpserver.NewBackendWithEventsAndAI(
 		sourceStore,
@@ -144,6 +157,7 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 		aiService,
 		ruleStore,
 	)
+	backend = httpserver.WithAIChat(backend, aiChatService)
 
 	if slices.Contains(cfg.Roles, config.RoleWorker) {
 		go func() {
@@ -235,4 +249,38 @@ func signalReady(ready []chan<- struct{}) {
 	if len(ready) > 0 && ready[0] != nil {
 		close(ready[0])
 	}
+}
+
+// chatStreamingProvider adapts the shared OpenAI-compatible Provider to the
+// aichat streaming seam. It reuses the same adapter instance as background
+// StorySummary and Digest jobs; streaming is a separate execution path that
+// leaves the non-streaming Generate behavior untouched.
+type chatStreamingProvider struct {
+	adapter *ai.OpenAICompatibleAdapter
+}
+
+func (p chatStreamingProvider) Metadata() aichat.ProviderMetadata {
+	meta := p.adapter.Metadata()
+	return aichat.ProviderMetadata{Name: meta.Name, Model: meta.Model}
+}
+
+func (p chatStreamingProvider) Stream(
+	ctx context.Context,
+	request aichat.StreamRequest,
+	emit func(string) error,
+) (aichat.StreamResult, error) {
+	messages := make([]ai.Message, 0, len(request.Messages))
+	for _, message := range request.Messages {
+		messages = append(messages, ai.Message{Role: string(message.Role), Content: message.Content})
+	}
+	result, err := p.adapter.Stream(ctx, ai.GenerateRequest{Messages: messages}, emit)
+	if err != nil {
+		return aichat.StreamResult{}, err
+	}
+	return aichat.StreamResult{
+		Model:            result.Model,
+		FinishReason:     result.FinishReason,
+		PromptTokens:     result.PromptTokens,
+		CompletionTokens: result.CompletionTokens,
+	}, nil
 }
