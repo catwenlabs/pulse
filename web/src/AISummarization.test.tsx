@@ -20,6 +20,37 @@ afterEach(() => {
 })
 
 describe('DigestPage', () => {
+  it('keeps a long Digest history inside its own scroll region', async () => {
+    const digests = Array.from({ length: 24 }, (_, index) => ({
+      id: `digest-${index + 1}`,
+      status: 'completed',
+      mode: 'catch_up',
+      story_count: index + 1,
+      created_at: `2026-08-04T${String(index % 24).padStart(2, '0')}:00:00Z`,
+      stories: [],
+    }))
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/v1/digests?limit=50') return new Response(JSON.stringify(digests), { status: 200 })
+      if (url.startsWith('/api/v1/digests/preview')) {
+        return new Response('{"scope":{},"matching_stories":0,"matching_stories_truncated":false,"selected_stories":0,"safety_limit":100,"can_queue":true}', { status: 200 })
+      }
+      if (url === '/api/v1/digests/digest-1') return new Response(JSON.stringify(digests[0]), { status: 200 })
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWithQueryClient(<DigestPage />)
+
+    const historyItems = await screen.findAllByRole('button', { name: /个未读 Story/ })
+    expect(historyItems).toHaveLength(digests.length)
+    const historyCard = document.querySelector('.ai-history-card')
+    const historyScrollRegion = document.querySelector('.ai-history-list')
+    expect(historyCard).toHaveClass('ai-history-scroll-shell')
+    expect(historyScrollRegion).toHaveClass('ai-history-scroll-list')
+    expect(historyScrollRegion?.children).toHaveLength(digests.length)
+  })
+
   it('renders structured title-only results and queues a scoped Digest on demand', async () => {
     const digest = {
       id: 'digest-1',
