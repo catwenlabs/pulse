@@ -10,10 +10,12 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AiConversationsRouteImport } from './routes/ai-conversations'
 import { Route as AnnotationsRouteImport } from './routes/annotations'
 import { Route as DigestsRouteImport } from './routes/digests'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as LaterRouteImport } from './routes/later'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SourcesRouteImport } from './routes/sources'
 import { Route as StarredRouteImport } from './routes/starred'
 import { Route as SourcesIndexRouteImport } from './routes/sources.index'
@@ -23,6 +25,11 @@ import { Route as StoriesStoryIDRouteImport } from './routes/stories.$storyID'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AiConversationsRoute = AiConversationsRouteImport.update({
+  id: '/ai-conversations',
+  path: '/ai-conversations',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AnnotationsRoute = AnnotationsRouteImport.update({
@@ -43,6 +50,11 @@ const InboxRoute = InboxRouteImport.update({
 const LaterRoute = LaterRouteImport.update({
   id: '/later',
   path: '/later',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SourcesRoute = SourcesRouteImport.update({
@@ -73,10 +85,12 @@ const StoriesStoryIDRoute = StoriesStoryIDRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/ai-conversations': typeof AiConversationsRoute
   '/annotations': typeof AnnotationsRoute
   '/digests': typeof DigestsRoute
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
+  '/settings': typeof SettingsRoute
   '/sources': typeof SourcesRouteWithChildren
   '/starred': typeof StarredRoute
   '/sources/$sourceID': typeof SourcesSourceIDRoute
@@ -85,10 +99,12 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/ai-conversations': typeof AiConversationsRoute
   '/annotations': typeof AnnotationsRoute
   '/digests': typeof DigestsRoute
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
+  '/settings': typeof SettingsRoute
   '/starred': typeof StarredRoute
   '/sources/$sourceID': typeof SourcesSourceIDRoute
   '/stories/$storyID': typeof StoriesStoryIDRoute
@@ -97,10 +113,12 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/ai-conversations': typeof AiConversationsRoute
   '/annotations': typeof AnnotationsRoute
   '/digests': typeof DigestsRoute
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
+  '/settings': typeof SettingsRoute
   '/sources': typeof SourcesRouteWithChildren
   '/starred': typeof StarredRoute
   '/sources/$sourceID': typeof SourcesSourceIDRoute
@@ -111,10 +129,12 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/ai-conversations'
     | '/annotations'
     | '/digests'
     | '/inbox'
     | '/later'
+    | '/settings'
     | '/sources'
     | '/starred'
     | '/sources/$sourceID'
@@ -123,10 +143,12 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/ai-conversations'
     | '/annotations'
     | '/digests'
     | '/inbox'
     | '/later'
+    | '/settings'
     | '/starred'
     | '/sources/$sourceID'
     | '/stories/$storyID'
@@ -134,10 +156,12 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/ai-conversations'
     | '/annotations'
     | '/digests'
     | '/inbox'
     | '/later'
+    | '/settings'
     | '/sources'
     | '/starred'
     | '/sources/$sourceID'
@@ -147,10 +171,12 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AiConversationsRoute: typeof AiConversationsRoute
   AnnotationsRoute: typeof AnnotationsRoute
   DigestsRoute: typeof DigestsRoute
   InboxRoute: typeof InboxRoute
   LaterRoute: typeof LaterRoute
+  SettingsRoute: typeof SettingsRoute
   SourcesRoute: typeof SourcesRouteWithChildren
   StarredRoute: typeof StarredRoute
   StoriesStoryIDRoute: typeof StoriesStoryIDRoute
@@ -163,6 +189,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ai-conversations': {
+      id: '/ai-conversations'
+      path: '/ai-conversations'
+      fullPath: '/ai-conversations'
+      preLoaderRoute: typeof AiConversationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/annotations': {
@@ -191,6 +224,13 @@ declare module '@tanstack/react-router' {
       path: '/later'
       fullPath: '/later'
       preLoaderRoute: typeof LaterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sources': {
@@ -246,10 +286,12 @@ const SourcesRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AiConversationsRoute: AiConversationsRoute,
   AnnotationsRoute: AnnotationsRoute,
   DigestsRoute: DigestsRoute,
   InboxRoute: InboxRoute,
   LaterRoute: LaterRoute,
+  SettingsRoute: SettingsRoute,
   SourcesRoute: SourcesRouteWithChildren,
   StarredRoute: StarredRoute,
   StoriesStoryIDRoute: StoriesStoryIDRoute,

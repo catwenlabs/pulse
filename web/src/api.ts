@@ -628,3 +628,236 @@ export function reclusterStories(): Promise<{ processed: number }> {
     method: 'POST',
   })
 }
+
+export interface SelectionTool {
+  id: string
+  name: string
+  prompt_template: string
+  enabled: boolean
+  position: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SelectionToolInput {
+  name: string
+  prompt_template: string
+  enabled: boolean
+}
+
+export interface ChatConversation {
+  id: string
+  selected_text: string
+  tool_name: string
+  prompt_template: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ConversationPage {
+  items: ChatConversation[]
+  next_cursor?: string
+  has_more: boolean
+}
+
+export type ChatMessageRole = 'user' | 'assistant'
+export type ChatMessageStatus = 'streaming' | 'completed' | 'cancelled' | 'failed'
+
+export interface ChatMessage {
+  id: string
+  conversation_id: string
+  role: ChatMessageRole
+  content: string
+  status?: ChatMessageStatus
+  provider?: string
+  model?: string
+  prompt_tokens?: number
+  completion_tokens?: number
+  finish_reason?: string
+  error?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ConversationDetail {
+  conversation: ChatConversation
+  messages: ChatMessage[]
+}
+
+export interface ConversationCreated {
+  conversation: ChatConversation
+  user_message: ChatMessage
+}
+
+export interface CreateConversationInput {
+  tool_id: string
+  selection: string
+}
+
+export type ChatStreamEventKind = 'metadata' | 'delta' | 'completed' | 'cancelled' | 'failed'
+
+export interface ChatStreamEvent {
+  kind: ChatStreamEventKind
+  conversation_id?: string
+  message_id?: string
+  delta?: string
+  content?: string
+  status?: ChatMessageStatus
+  provider?: string
+  model?: string
+  prompt_tokens?: number
+  completion_tokens?: number
+  finish_reason?: string
+  error?: string
+}
+
+export function listSelectionTools(): Promise<SelectionTool[]> {
+  return requestList<SelectionTool>('/api/v1/ai/tools')
+}
+
+export function createSelectionTool(input: SelectionToolInput): Promise<SelectionTool> {
+  return request<SelectionTool>('/api/v1/ai/tools', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateSelectionTool(id: string, input: SelectionToolInput): Promise<SelectionTool> {
+  return request<SelectionTool>(`/api/v1/ai/tools/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteSelectionTool(id: string): Promise<void> {
+  return request<void>(`/api/v1/ai/tools/${id}`, { method: 'DELETE' })
+}
+
+export function reorderSelectionTools(toolIds: string[]): Promise<SelectionTool[]> {
+  return request<SelectionTool[]>('/api/v1/ai/tools/order', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tool_ids: toolIds }),
+  })
+}
+
+export function listConversations(limit = 50, cursor = ''): Promise<ConversationPage> {
+  const parameters = new URLSearchParams({ limit: String(limit) })
+  if (cursor) parameters.set('cursor', cursor)
+  return request<ConversationPage>(`/api/v1/ai/conversations?${parameters}`)
+}
+
+export function getConversation(id: string): Promise<ConversationDetail> {
+  return request<ConversationDetail>(`/api/v1/ai/conversations/${id}`)
+}
+
+export function deleteConversation(id: string): Promise<void> {
+  return request<void>(`/api/v1/ai/conversations/${id}`, { method: 'DELETE' })
+}
+
+export function createConversation(input: CreateConversationInput, idempotencyKey: string): Promise<ConversationCreated> {
+  return request<ConversationCreated>('/api/v1/ai/conversations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(input),
+  })
+}
+
+export function sendFollowUp(conversationId: string, content: string, idempotencyKey: string): Promise<ChatMessage> {
+  return request<ChatMessage>(`/api/v1/ai/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ content }),
+  })
+}
+
+export function stopGeneration(conversationId: string): Promise<void> {
+  return request<void>(`/api/v1/ai/conversations/${conversationId}/stop`, { method: 'POST' })
+}
+
+/**
+ * Drives an Assistant generation stream. Resolves with the terminal event
+ * (completed / cancelled / failed). The caller passes an onEvent callback that
+ * receives metadata and delta events as they arrive. An AbortSignal cancels the
+ * underlying fetch, which the server treats as a genuine disconnect (failed).
+ */
+export async function streamAssistant(
+  conversationId: string,
+  mode: 'generate' | 'retry',
+  idempotencyKey: string,
+  onEvent: (event: ChatStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<ChatStreamEvent> {
+  const response = await fetch(`/api/v1/ai/conversations/${conversationId}/${mode}`, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    signal,
+  })
+  if (!response.ok || !response.body) {
+    let detail = `请求失败（${response.status}）`
+    try {
+      const problem = (await response.json()) as Problem
+      if (problem.detail) detail = problem.detail
+    } catch {
+      // Keep the status-based fallback.
+    }
+    throw new APIError(response.status, detail)
+  }
+  return consumeChatStream(response.body, onEvent)
+}
+
+/**
+ * Parses the text/event-stream response into ChatStreamEvents. Exposed for
+ * testing so the parser can be verified without a network round-trip.
+ */
+export async function consumeChatStream(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (event: ChatStreamEvent) => void,
+): Promise<ChatStreamEvent> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let terminal: ChatStreamEvent | undefined
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const frames = buffer.split('\n\n')
+    buffer = frames.pop() ?? ''
+    for (const frame of frames) {
+      const event = parseChatFrame(frame)
+      if (!event) continue
+      onEvent(event)
+      if (event.kind === 'completed' || event.kind === 'cancelled' || event.kind === 'failed') {
+        terminal = event
+      }
+    }
+  }
+  const trailing = parseChatFrame(buffer)
+  if (trailing) {
+    onEvent(trailing)
+    if (trailing.kind === 'completed' || trailing.kind === 'cancelled' || trailing.kind === 'failed') {
+      terminal = trailing
+    }
+  }
+  if (!terminal) {
+    throw new APIError(0, 'AI 流式响应意外结束')
+  }
+  return terminal
+}
+
+function parseChatFrame(frame: string): ChatStreamEvent | undefined {
+  let dataLine = ''
+  for (const line of frame.split('\n')) {
+    if (line.startsWith('data: ')) dataLine += line.slice('data: '.length)
+    else if (line.startsWith('data:')) dataLine += line.slice('data:'.length)
+  }
+  if (!dataLine) return undefined
+  try {
+    return JSON.parse(dataLine) as ChatStreamEvent
+  } catch {
+    return undefined
+  }
+}

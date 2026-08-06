@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/catwenlabs/pulse/internal/ai"
+	"github.com/catwenlabs/pulse/internal/aichat"
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/ingestion"
 	"github.com/catwenlabs/pulse/internal/opml"
@@ -105,6 +106,7 @@ type backend struct {
 	stories       storyRepository
 	reclusterer   storyReclusterer
 	summarization ai.Summarization
+	chat          aichat.Chat
 	publish       func(string)
 }
 
@@ -209,6 +211,107 @@ func newBackend(
 		service.rules = ruleStores[0]
 	}
 	return service
+}
+
+// WithAIChat attaches the independent AI Chat service to a backend constructed
+// by one of the NewBackend* constructors. When chat is nil, chat endpoints
+// report AI as unavailable.
+func WithAIChat(base Backend, chat aichat.Chat) Backend {
+	if service, ok := base.(*backend); ok {
+		service.chat = chat
+	}
+	return base
+}
+
+func (service *backend) ListChatTools(ctx context.Context) ([]aichat.SelectionTool, error) {
+	if service.chat == nil {
+		return nil, aichat.ErrUnavailable
+	}
+	return service.chat.ListTools(ctx)
+}
+
+func (service *backend) CreateChatTool(ctx context.Context, input aichat.ToolInput) (aichat.SelectionTool, error) {
+	if service.chat == nil {
+		return aichat.SelectionTool{}, aichat.ErrUnavailable
+	}
+	return service.chat.CreateTool(ctx, input)
+}
+
+func (service *backend) UpdateChatTool(ctx context.Context, id string, input aichat.ToolInput) (aichat.SelectionTool, error) {
+	if service.chat == nil {
+		return aichat.SelectionTool{}, aichat.ErrUnavailable
+	}
+	return service.chat.UpdateTool(ctx, id, input)
+}
+
+func (service *backend) DeleteChatTool(ctx context.Context, id string) error {
+	if service.chat == nil {
+		return aichat.ErrUnavailable
+	}
+	return service.chat.DeleteTool(ctx, id)
+}
+
+func (service *backend) ReorderChatTools(ctx context.Context, ids []string) ([]aichat.SelectionTool, error) {
+	if service.chat == nil {
+		return nil, aichat.ErrUnavailable
+	}
+	return service.chat.ReorderTools(ctx, ids)
+}
+
+func (service *backend) CreateConversation(ctx context.Context, input aichat.CreateConversationInput, key string) (aichat.Conversation, aichat.Message, error) {
+	if service.chat == nil {
+		return aichat.Conversation{}, aichat.Message{}, aichat.ErrUnavailable
+	}
+	return service.chat.CreateConversation(ctx, input, key)
+}
+
+func (service *backend) ListConversations(ctx context.Context, limit int, cursor string) (aichat.ConversationPage, error) {
+	if service.chat == nil {
+		return aichat.ConversationPage{}, aichat.ErrUnavailable
+	}
+	return service.chat.ListConversations(ctx, limit, cursor)
+}
+
+func (service *backend) GetConversation(ctx context.Context, id string) (aichat.Conversation, []aichat.Message, error) {
+	if service.chat == nil {
+		return aichat.Conversation{}, nil, aichat.ErrUnavailable
+	}
+	return service.chat.GetConversation(ctx, id)
+}
+
+func (service *backend) DeleteConversation(ctx context.Context, id string) error {
+	if service.chat == nil {
+		return aichat.ErrUnavailable
+	}
+	return service.chat.DeleteConversation(ctx, id)
+}
+
+func (service *backend) SendFollowUp(ctx context.Context, conversationID string, input aichat.FollowUpInput, key string) (aichat.Message, error) {
+	if service.chat == nil {
+		return aichat.Message{}, aichat.ErrUnavailable
+	}
+	return service.chat.SendFollowUp(ctx, conversationID, input, key)
+}
+
+func (service *backend) BeginStream(ctx context.Context, conversationID, key string, mode aichat.StreamMode) (*aichat.StreamSession, error) {
+	if service.chat == nil {
+		return nil, aichat.ErrUnavailable
+	}
+	return service.chat.BeginStream(ctx, conversationID, key, mode)
+}
+
+func (service *backend) DriveStream(ctx context.Context, session *aichat.StreamSession, sink func(aichat.ChatStreamEvent) error) error {
+	if service.chat == nil || session == nil {
+		return aichat.ErrUnavailable
+	}
+	return service.chat.DriveStream(ctx, session, sink)
+}
+
+func (service *backend) StopGeneration(ctx context.Context, conversationID string) error {
+	if service.chat == nil {
+		return aichat.ErrUnavailable
+	}
+	return service.chat.Stop(ctx, conversationID)
 }
 
 func (service *backend) RequestStorySummary(ctx context.Context, storyID string) (ai.JobReceipt, error) {

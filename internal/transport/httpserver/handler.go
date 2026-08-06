@@ -22,6 +22,7 @@ import (
 
 	"github.com/catwenlabs/pulse/internal/ai"
 	"github.com/catwenlabs/pulse/internal/annotation"
+	"github.com/catwenlabs/pulse/internal/aichat"
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/events"
 	"github.com/catwenlabs/pulse/internal/ingestion"
@@ -174,6 +175,7 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("POST /api/v1/rules/{id}/preview", previewRule(backend))
 	mux.HandleFunc("POST /api/v1/rules/{id}/replay", replayRule(backend))
 	mux.HandleFunc("GET /api/v1/export/config", exportConfig(backend))
+	registerAIChatRoutes(mux, backend)
 	registerWeb(mux, web)
 	return mux
 }
@@ -1436,6 +1438,10 @@ func writeDomainError(w http.ResponseWriter, err error) {
 	var limitErr *ai.ScopeLimitError
 	var scopeValidationErr *ai.ScopeValidationError
 	var queueLimitErr *ai.QueueLimitError
+	var chatValidationErr *aichat.ValidationError
+	var duplicateToolErr *aichat.DuplicateToolError
+	var selectionSizeErr *aichat.SelectionSizeError
+	var chatBudgetErr *aichat.MemoryBudgetError
 	switch {
 	case errors.As(err, &validationErr):
 		writeProblem(w, http.StatusUnprocessableEntity, "validation_error", validationErr.Message, validationErr.Field)
@@ -1455,7 +1461,7 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusBadRequest, "invalid_cursor", err.Error(), "cursor")
 	case errors.Is(err, story.ErrReclusterUnavailable):
 		writeProblem(w, http.StatusServiceUnavailable, "recluster_unavailable", err.Error(), "")
-	case errors.Is(err, ai.ErrUnavailable):
+	case errors.Is(err, ai.ErrUnavailable), errors.Is(err, aichat.ErrUnavailable):
 		writeProblem(w, http.StatusServiceUnavailable, "ai_unavailable", err.Error(), "")
 	case errors.Is(err, ai.ErrNoStories):
 		writeProblem(w, http.StatusUnprocessableEntity, "ai_no_stories", err.Error(), "")
@@ -1471,6 +1477,28 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusBadGateway, "source_fetch_failed", err.Error(), "")
 	case errors.Is(err, ingestion.ErrParse):
 		writeProblem(w, http.StatusUnprocessableEntity, "source_parse_failed", err.Error(), "")
+	case errors.As(err, &chatValidationErr):
+		writeProblem(w, http.StatusUnprocessableEntity, "validation_error", chatValidationErr.Message, chatValidationErr.Field)
+	case errors.As(err, &duplicateToolErr):
+		writeProblem(w, http.StatusConflict, "ai_tool_exists", duplicateToolErr.Error(), "name")
+	case errors.As(err, &selectionSizeErr):
+		writeProblem(w, http.StatusRequestEntityTooLarge, "selection_too_large", selectionSizeErr.Error(), "selection")
+	case errors.As(err, &chatBudgetErr):
+		writeProblem(w, http.StatusUnprocessableEntity, "ai_memory_budget", chatBudgetErr.Error(), "selection")
+	case errors.Is(err, aichat.ErrToolNotFound):
+		writeProblem(w, http.StatusNotFound, "ai_tool_not_found", err.Error(), "")
+	case errors.Is(err, aichat.ErrConversationNotFound):
+		writeProblem(w, http.StatusNotFound, "ai_conversation_not_found", err.Error(), "")
+	case errors.Is(err, aichat.ErrActiveGeneration):
+		writeProblem(w, http.StatusConflict, "ai_generation_active", err.Error(), "")
+	case errors.Is(err, aichat.ErrNoPendingMessage):
+		writeProblem(w, http.StatusUnprocessableEntity, "ai_no_pending_message", err.Error(), "")
+	case errors.Is(err, aichat.ErrNotRetryable):
+		writeProblem(w, http.StatusUnprocessableEntity, "ai_not_retryable", err.Error(), "")
+	case errors.Is(err, aichat.ErrSelectionRequired):
+		writeProblem(w, http.StatusBadRequest, "validation_error", err.Error(), "selection")
+	case errors.Is(err, aichat.ErrInvalidCursor):
+		writeProblem(w, http.StatusBadRequest, "invalid_cursor", err.Error(), "cursor")
 	default:
 		slog.Error("unhandled domain error", "error", err)
 		writeProblem(w, http.StatusInternalServerError, "internal_error", "internal server error", "")

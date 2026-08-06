@@ -10,11 +10,13 @@ import {
   FolderClosed,
   Inbox,
   Menu,
+  MessageSquareText,
   MoreHorizontal,
   Plus,
   RefreshCw,
   Rss,
   Search,
+  Settings,
   Star,
   Sparkles,
   X,
@@ -25,6 +27,9 @@ import * as api from './api'
 import { DigestPage, isStoredStorySummary, StoryDetailPage, StorySummaryCard } from './AISummarization'
 import type { AnnotationInput, CreateSourceInput, Entry, Folder, PreviewResult, Source, SourceHealth, SourceKind, Story, StoryPatch } from './api'
 import { EntryReader } from './components/EntryReader'
+import { ConversationHistoryPage } from './components/ConversationHistoryPage'
+import { SelectionChatSurface } from './components/SelectionChatSurface'
+import { SelectionToolsSettings } from './components/SelectionToolsSettings'
 import { Button, buttonVariants } from './components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, SheetContent } from './components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu'
@@ -38,7 +43,7 @@ import { useLibraryRealtime, type LibraryRealtimeSignal, type RealtimeConnection
 import { toast } from 'sonner'
 import './styles.css'
 
-export type View = 'sources' | 'inbox' | 'starred' | 'later' | 'annotations' | 'ai' | 'story'
+export type View = 'sources' | 'inbox' | 'starred' | 'later' | 'annotations' | 'ai' | 'story' | 'settings' | 'ai-conversations'
 type SaveRequest = { url: string; title: string }
 type ReaderEntry = Entry & {
   display_title: string
@@ -526,7 +531,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
     }
   }
 
-  function showStream(view: Exclude<View, 'sources' | 'ai' | 'story'>, sourceID = '') {
+  function showStream(view: Exclude<View, 'sources' | 'ai' | 'story' | 'settings' | 'ai-conversations'>, sourceID = '') {
     if (view === 'starred') void navigate({ to: '/starred' })
     else if (view === 'later') void navigate({ to: '/later' })
     else if (view === 'annotations') void navigate({ to: '/annotations' })
@@ -574,6 +579,10 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
               ? 'AI 追更'
               : activeView === 'story'
                 ? 'Story'
+                : activeView === 'settings'
+                  ? '划词工具'
+                  : activeView === 'ai-conversations'
+                    ? 'AI 对话'
             : '全部文章'
     )
 
@@ -784,6 +793,10 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
                   void navigate({ to: '/digests' })
                   closeMobileNavigation()
                 }}><NavIcon name="ai" />AI 追更</DropdownMenuItem>
+                <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'ai-conversations' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'ai-conversations' ? 'page' : undefined} onSelect={() => {
+                  void navigate({ to: '/ai-conversations' })
+                  closeMobileNavigation()
+                }}><NavIcon name="chat" />AI 对话</DropdownMenuItem>
                 <DropdownMenuItem className="min-h-11 gap-3" onSelect={() => {
                   closeMobileNavigation(false)
                   setShowBookmarklet(true)
@@ -792,6 +805,10 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
                   void navigate({ to: '/sources' })
                   closeMobileNavigation()
                 }}><NavIcon name="source" />管理信息源</DropdownMenuItem>
+                <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'settings' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'settings' ? 'page' : undefined} onSelect={() => {
+                  void navigate({ to: '/settings' })
+                  closeMobileNavigation()
+                }}><NavIcon name="settings" />划词工具设置</DropdownMenuItem>
                 <div className="mt-1 flex min-h-11 items-center gap-3 border-t px-3 pt-1 text-xs text-muted-foreground" role="status">
                   <span
                     className={cn(
@@ -814,6 +831,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
               <Link className={navItemClass(activeView === 'later', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/later" onClick={() => closeMobileNavigation()}><NavIcon name="clock" />稍后阅读</Link>
               <Link className={navItemClass(activeView === 'annotations', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/annotations" onClick={() => closeMobileNavigation()}><NavIcon name="book" />阅读笔记</Link>
               <Link className={navItemClass(activeView === 'ai', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/digests" onClick={() => closeMobileNavigation()}><NavIcon name="ai" />AI 追更</Link>
+              <Link className={navItemClass(activeView === 'ai-conversations', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/ai-conversations" onClick={() => closeMobileNavigation()}><NavIcon name="chat" />AI 对话</Link>
             </nav>
             <div className="m-0 grid gap-2 border-t border-[#d8d4ca] px-2 pb-4 pt-2 text-xs leading-5 text-muted-foreground md:col-start-1 md:row-start-3">
               <Button unstyled className={navItemClass(false, 'min-h-[54px] w-full flex-col justify-center gap-1 px-1 text-center text-[10px] leading-none')} ref={bookmarkletButtonRef} aria-label="安装保存书签" onClick={() => setShowBookmarklet(true)}>
@@ -821,6 +839,9 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
               </Button>
               <Button unstyled className={navItemClass(activeView === 'sources', 'min-h-[54px] w-full flex-col justify-center gap-1 px-1 text-center text-[10px] leading-none')} aria-label="管理信息源" onClick={() => void navigate({ to: '/sources' })}>
                 <NavIcon name="source" />管理
+              </Button>
+              <Button unstyled className={navItemClass(activeView === 'settings', 'min-h-[54px] w-full flex-col justify-center gap-1 px-1 text-center text-[10px] leading-none')} aria-label="划词工具设置" onClick={() => void navigate({ to: '/settings' })}>
+                <NavIcon name="settings" />设置
               </Button>
               <span
                 className="flex min-h-11 items-center justify-center px-0 py-1"
@@ -847,11 +868,12 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
       <main
         className={cn(
           'col-start-2 h-dvh min-w-0 overflow-y-auto overscroll-contain bg-background p-0 [scrollbar-gutter:stable]',
-          activeView !== 'sources' && activeView !== 'ai' && activeView !== 'story' && 'overflow-hidden',
-          !isReaderView && activeView !== 'sources' && activeView !== 'ai' && activeView !== 'story' && 'max-md:grid max-md:grid-rows-[auto_minmax(0,1fr)]',
+          activeView !== 'sources' && activeView !== 'ai' && activeView !== 'story' && activeView !== 'settings' && activeView !== 'ai-conversations' && 'overflow-hidden',
+          !isReaderView && activeView !== 'sources' && activeView !== 'ai' && activeView !== 'story' && activeView !== 'settings' && activeView !== 'ai-conversations' && 'max-md:grid max-md:grid-rows-[auto_minmax(0,1fr)]',
           isReaderView && 'max-md:block',
           (activeView === 'ai' || activeView === 'story') && 'max-md:block',
           activeView === 'sources' && 'px-[clamp(24px,4vw,56px)] py-9 max-md:px-0 max-md:py-0',
+          (activeView === 'settings' || activeView === 'ai-conversations') && 'px-[clamp(24px,4vw,56px)] py-9 max-md:px-4 max-md:py-6',
         )}
         inert={isMobile && mobileNavigationOpen ? true : undefined}
       >
@@ -987,6 +1009,14 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
           <DigestPage />
         ) : activeView === 'story' ? (
           <StoryDetailPage storyID={storyID} />
+        ) : activeView === 'settings' ? (
+          <div className="mx-auto w-full max-w-[1280px]">
+            <SelectionToolsSettings />
+          </div>
+        ) : activeView === 'ai-conversations' ? (
+          <div className="mx-auto w-full max-w-[1280px]">
+            <ConversationHistoryPage />
+          </div>
         ) : (
           <Reader
             view={activeView}
@@ -1763,7 +1793,7 @@ function Reader({
   realtimeSignal,
   realtimeConnectionState,
 }: {
-  view: Exclude<View, 'sources' | 'ai' | 'story'>
+  view: Exclude<View, 'sources' | 'ai' | 'story' | 'settings' | 'ai-conversations'>
   sourceID: string
   sourceName?: string
   sources: Source[]
@@ -2627,7 +2657,9 @@ function Reader({
                         </Button>
                       </div>
                     )}
-                    <EntryReader entry={activeEntry!} />
+                    <SelectionChatSurface label="文章正文">
+                      <EntryReader entry={activeEntry!} />
+                    </SelectionChatSurface>
                     {notesOpen && <div className="mt-10 grid max-w-[68ch] gap-4 border-t pt-6">
                       <label>
                         <span>显示标题</span>
@@ -3096,6 +3128,8 @@ function NavIcon({ name }: { name: string }) {
     bookmark: Bookmark,
     book: BookOpen,
     ai: Sparkles,
+    chat: MessageSquareText,
+    settings: Settings,
   }
   const Icon = icons[name] ?? Inbox
   return <Icon className="size-4 shrink-0" strokeWidth={1.8} aria-hidden="true" />
