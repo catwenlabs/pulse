@@ -389,23 +389,6 @@ func (store *AIChatStore) CompleteGeneration(ctx context.Context, messageID stri
 	return nil
 }
 
-func (store *AIChatStore) LastAssistantMessage(ctx context.Context, conversationID string) (aichat.Message, error) {
-	row := store.pool.QueryRow(ctx, messageColumns+`
-		FROM ai_messages
-		WHERE conversation_id = $1 AND role = 'assistant'
-		ORDER BY created_at DESC, id DESC
-		LIMIT 1
-	`, conversationID)
-	message, err := scanMessageRow(row)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return aichat.Message{}, fmt.Errorf("%w: %s", aichat.ErrMessageNotFound, conversationID)
-	}
-	if err != nil {
-		return aichat.Message{}, err
-	}
-	return message, nil
-}
-
 const messageColumns = `
 	SELECT id, conversation_id, role, content, status, provider, model,
 	       prompt_tokens, completion_tokens, finish_reason, error, created_at, updated_at

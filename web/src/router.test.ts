@@ -21,5 +21,11 @@ describe('file-based router', () => {
 
     await router.navigate({ to: '/stories/$storyID', params: { storyID: 'story-1' } })
     expect(router.state.location.pathname).toBe('/stories/story-1')
+
+    await router.navigate({ to: '/settings' })
+    expect(router.state.location.pathname).toBe('/settings')
+
+    await router.navigate({ to: '/ai-conversations' })
+    expect(router.state.location.pathname).toBe('/ai-conversations')
   })
 })

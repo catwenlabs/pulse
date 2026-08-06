@@ -59,7 +59,4 @@ type Store interface {
 	// Provider metadata, token usage, finish reason, and safe error before the
 	// terminal stream event is emitted.
 	CompleteGeneration(ctx context.Context, messageID string, result GenerationResult) error
-	// LastAssistantMessage returns the most recent Assistant Message in the
-	// conversation, used to decide whether a retry is permitted.
-	LastAssistantMessage(ctx context.Context, conversationID string) (Message, error)
 }

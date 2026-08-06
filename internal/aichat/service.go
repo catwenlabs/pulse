@@ -273,6 +273,21 @@ func (s *Service) SendFollowUp(
 	if _, err := s.store.GetConversation(ctx, conversationID); err != nil {
 		return Message{}, err
 	}
+	// Keep messages ordered: a follow-up cannot be appended while an Assistant
+	// generation is still streaming, otherwise it would dangle unanswered when
+	// the subsequent generate call hits the one-active-generation guard.
+	messages, err := s.store.ListMessages(ctx, conversationID)
+	if err != nil {
+		return Message{}, err
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == RoleAssistant {
+			if messages[i].Status == StatusStreaming {
+				return Message{}, ErrActiveGeneration
+			}
+			break
+		}
+	}
 	message, err := s.store.AppendUserMessage(ctx, AppendUserMessageParams{
 		ConversationID: conversationID,
 		IdempotencyKey: boundedIdempotencyKey(idempotencyKey),

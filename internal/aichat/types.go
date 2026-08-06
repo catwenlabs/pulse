@@ -125,10 +125,9 @@ type FollowUpInput struct {
 // ConversationPage is one cursor-paginated slice of history ordered by
 // UpdatedAt descending with a stable ID tie-breaker.
 type ConversationPage struct {
-	Items        []Conversation `json:"items"`
-	NextCursor   string         `json:"next_cursor,omitempty"`
-	HasMore      bool           `json:"has_more"`
-	TotalEstimate int           `json:"total_estimate,omitempty"`
+	Items      []Conversation `json:"items"`
+	NextCursor string         `json:"next_cursor,omitempty"`
+	HasMore    bool           `json:"has_more"`
 }
 
 // GenerationResult is the terminal outcome of an Assistant generation,

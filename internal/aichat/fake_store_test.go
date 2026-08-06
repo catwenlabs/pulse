@@ -360,18 +360,6 @@ func (s *fakeStore) CompleteGeneration(_ context.Context, messageID string, resu
 	return nil
 }
 
-func (s *fakeStore) LastAssistantMessage(_ context.Context, conversationID string) (Message, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	msgs := s.messages[conversationID]
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == RoleAssistant {
-			return msgs[i], nil
-		}
-	}
-	return Message{}, ErrMessageNotFound
-}
-
 func (s *fakeStore) mutateMessage(messageID string, fn func(*Message)) {
 	for convID, msgs := range s.messages {
 		for i := range msgs {

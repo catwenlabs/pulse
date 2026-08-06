@@ -560,6 +560,23 @@ func TestSendFollowUpAppendsUserMessage(t *testing.T) {
 	}
 }
 
+func TestSendFollowUpRejectedWhileGenerationStreaming(t *testing.T) {
+	provider := &fakeProvider{metadata: ProviderMetadata{Name: "fake", Model: "m"}, deltas: []string{"a"}}
+	service, store := newService(t, provider)
+	tool := seedTool(t, store, "AI 解读", "请解释：{{selection}}", true)
+	conv, _ := createConversationForSelection(t, service, tool.ID, "text")
+
+	// Simulate an in-flight Assistant generation without driving the provider.
+	if _, _, err := store.StartGeneration(context.Background(), conv.ID, "inflight"); err != nil {
+		t.Fatalf("StartGeneration() error = %v", err)
+	}
+
+	_, err := service.SendFollowUp(context.Background(), conv.ID, FollowUpInput{Content: "追问"}, "fu-blocked")
+	if !errors.Is(err, ErrActiveGeneration) {
+		t.Fatalf("SendFollowUp() error = %v, want ErrActiveGeneration", err)
+	}
+}
+
 func TestFollowUpMemoryIncludesRecentCompletedTurns(t *testing.T) {
 	provider := &fakeProvider{metadata: ProviderMetadata{Name: "fake", Model: "m"}, deltas: []string{"first-answer"}}
 	service, store := newService(t, provider)

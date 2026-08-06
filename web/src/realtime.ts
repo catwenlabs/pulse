@@ -42,6 +42,11 @@ export function useLibraryRealtime(queryClient: QueryClient) {
       void queryClient.invalidateQueries({ queryKey: ['folders'] })
     }
 
+    const refreshChatChrome = () => {
+      void queryClient.invalidateQueries({ queryKey: ['chat-tools'] })
+      void queryClient.invalidateQueries({ queryKey: ['chat-conversations'] })
+    }
+
     const reconcileAfterReconnect = () => {
       refreshLibraryChrome()
       void queryClient.refetchQueries({ queryKey: ['sources'], type: 'active' })
@@ -62,6 +67,11 @@ export function useLibraryRealtime(queryClient: QueryClient) {
       } catch {
         // A malformed invalidation is harmless; the next reconnect/visibility
         // reconciliation still restores the server state.
+      }
+      if (typeof payload.source_id === 'string' && payload.source_id.startsWith('ai-chat')) {
+        refreshChatChrome()
+        emit('change', payload.source_id)
+        return
       }
       refreshLibraryChrome()
       broadcast(payload.source_id)

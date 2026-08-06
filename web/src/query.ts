@@ -26,6 +26,9 @@ export const queryKeys = {
   digests: ['digests'] as const,
   digest: (id: string) => ['digest', id] as const,
   digestPreview: (scope: { startAt: string; endAt: string; maxStories: string }) => ['digest-preview', scope] as const,
+  chatTools: ['chat-tools'] as const,
+  chatConversations: ['chat-conversations'] as const,
+  chatConversation: (id: string) => ['chat-conversation', id] as const,
   readerRoot: ['reader'] as const,
   reader: (query: EntryQuery & { view: string; state: string; limit: number }) => [
     'reader',
