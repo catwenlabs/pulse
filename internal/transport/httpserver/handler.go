@@ -523,6 +523,12 @@ func reclusterStories(backend Backend) http.HandlerFunc {
 	}
 }
 
+// maxMarkReadStoryIDs bounds how many Story IDs a single mark-read request may
+// carry. It is a request-size guard at the HTTP boundary; the storage layer marks
+// any number of Stories read in one query, so the cap only needs to be large
+// enough to cover realistic digest sizes while rejecting abusive payloads.
+const maxMarkReadStoryIDs = 1000
+
 func markStoriesRead(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
 		var body struct {
@@ -543,8 +549,8 @@ func markStoriesRead(backend Backend) http.HandlerFunc {
 				writeProblem(w, http.StatusBadRequest, "invalid_request", "story_ids must not be empty", "story_ids")
 				return
 			}
-			if len(*body.StoryIDs) > 200 {
-				writeProblem(w, http.StatusBadRequest, "invalid_request", "story_ids must contain at most 200 items", "story_ids")
+			if len(*body.StoryIDs) > maxMarkReadStoryIDs {
+				writeProblem(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("story_ids must contain at most %d items", maxMarkReadStoryIDs), "story_ids")
 				return
 			}
 			storyIDs = *body.StoryIDs

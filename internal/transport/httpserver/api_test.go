@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -816,6 +817,53 @@ func TestMarkEntriesReadCanTargetStoryIDs(t *testing.T) {
 	)
 	if response.Code != http.StatusOK || response.Body.String() != "{\"updated_count\":2}\n" {
 		t.Errorf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestMarkEntriesReadAcceptsMoreThanPreviousLimit(t *testing.T) {
+	backend := completeFakeBackend()
+	// 400 exceeds the old 200-item cap but sits within the new maxMarkReadStoryIDs,
+	// covering the regression where large digests could not be marked read.
+	storyIDs := make([]string, 400)
+	for index := range storyIDs {
+		storyIDs[index] = fmt.Sprintf("story-%d", index)
+	}
+	backend.markStoriesRead = func(_ context.Context, _ string, got []string) (int64, error) {
+		if !reflect.DeepEqual(got, storyIDs) {
+			t.Errorf("story ids length = %d, want %d", len(got), len(storyIDs))
+		}
+		return int64(len(got)), nil
+	}
+	payload, err := json.Marshal(map[string]any{"read": true, "story_ids": storyIDs})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodPatch, "/api/v1/stories", bytes.NewBuffer(payload)),
+	)
+	if response.Code != http.StatusOK || response.Body.String() != "{\"updated_count\":400}\n" {
+		t.Errorf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestMarkEntriesReadRejectsTooManyStoryIDs(t *testing.T) {
+	storyIDs := make([]string, maxMarkReadStoryIDs+1)
+	for index := range storyIDs {
+		storyIDs[index] = fmt.Sprintf("story-%d", index)
+	}
+	payload, err := json.Marshal(map[string]any{"read": true, "story_ids": storyIDs})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	response := httptest.NewRecorder()
+	NewHandler(completeFakeBackend()).ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodPatch, "/api/v1/stories", bytes.NewBuffer(payload)),
+	)
+	if response.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400, body = %s", response.Code, response.Body.String())
 	}
 }
 
