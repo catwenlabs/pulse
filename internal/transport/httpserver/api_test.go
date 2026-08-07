@@ -47,6 +47,7 @@ type fakeBackend struct {
 	updateStory          func(context.Context, story.ID, story.Patch) (story.Story, error)
 	setRepresentative    func(context.Context, story.ID, entry.ID) (story.Story, error)
 	markStoriesRead      func(context.Context, string, []string) (int64, error)
+	markDigestRead       func(context.Context, string) (int64, error)
 	mergeStories         func(context.Context, story.ID, story.ID) (story.Story, error)
 	splitStory           func(context.Context, story.ID, entry.ID) (story.Story, error)
 	recluster            func(context.Context) (int, error)
@@ -230,6 +231,10 @@ func (fake fakeBackend) SetStoryRepresentative(ctx context.Context, storyID stor
 
 func (fake fakeBackend) MarkStoriesRead(ctx context.Context, sourceID string, storyIDs []string) (int64, error) {
 	return fake.markStoriesRead(ctx, sourceID, storyIDs)
+}
+
+func (fake fakeBackend) MarkDigestRead(ctx context.Context, digestID string) (int64, error) {
+	return fake.markDigestRead(ctx, digestID)
 }
 
 func (fake fakeBackend) MergeStories(
@@ -864,6 +869,39 @@ func TestMarkEntriesReadRejectsTooManyStoryIDs(t *testing.T) {
 	)
 	if response.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestMarkDigestReadMarksAllAvailableStories(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.markDigestRead = func(_ context.Context, digestID string) (int64, error) {
+		if digestID != "digest-1" {
+			t.Errorf("digest id = %q, want digest-1", digestID)
+		}
+		return 417, nil
+	}
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodPost, "/api/v1/digests/digest-1/mark-read", nil),
+	)
+	if response.Code != http.StatusOK || response.Body.String() != "{\"updated_count\":417}\n" {
+		t.Errorf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestMarkDigestReadPropagatesDomainError(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.markDigestRead = func(_ context.Context, _ string) (int64, error) {
+		return 0, ai.ErrNotFound
+	}
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodPost, "/api/v1/digests/missing/mark-read", nil),
+	)
+	if response.Code == http.StatusOK {
+		t.Errorf("status = %d, want non-200, body = %s", response.Code, response.Body.String())
 	}
 }
 

@@ -76,7 +76,7 @@ export function DigestPage() {
     },
   })
   const markReadMutation = useMutation({
-    mutationFn: ({ storyIDs }: { digestID: string; storyIDs: string[] }) => api.markStoriesRead({ storyIDs }),
+    mutationFn: ({ digestID }: { digestID: string }) => api.markDigestRead(digestID),
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.readerRoot })
       void queryClient.invalidateQueries({ queryKey: queryKeys.sources })
@@ -347,7 +347,7 @@ export function DigestPage() {
           refreshing={selectedDigestQuery.isFetching && selectedDigestQuery.isPlaceholderData}
           error={selectedDigestQuery.error}
           onRetry={() => void selectedDigestQuery.refetch()}
-          onMarkRead={(digestID, storyIDs) => markReadMutation.mutate({ digestID, storyIDs })}
+          onMarkRead={(digestID) => markReadMutation.mutate({ digestID })}
           markReadPending={markReadMutation.isPending && markReadMutation.variables?.digestID === selectedDigest?.id}
           markReadDone={markedDigestID === selectedDigest?.id}
           markReadError={markReadMutation.variables?.digestID === selectedDigest?.id && markReadMutation.error instanceof Error ? markReadMutation.error : null}
@@ -411,7 +411,7 @@ function DigestResult({
   refreshing?: boolean
   error: Error | null
   onRetry?: () => void
-  onMarkRead?: (digestID: string, storyIDs: string[]) => void
+  onMarkRead?: (digestID: string) => void
   markReadPending?: boolean
   markReadDone?: boolean
   markReadError?: Error | null
@@ -490,7 +490,7 @@ function DigestResult({
               variant="secondary"
               size="sm"
               disabled={markReadPending || markReadDone}
-              onClick={() => onMarkRead?.(digest.id, readableStories.map((story) => story.story_id))}
+              onClick={() => onMarkRead?.(digest.id)}
             >
               {markReadPending
                 ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />

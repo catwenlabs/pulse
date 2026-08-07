@@ -90,7 +90,7 @@ describe('DigestPage', () => {
         }), { status: 200 })
       }
       if (url === '/api/v1/digests/digest-1') return new Response(JSON.stringify(digest), { status: 200 })
-      if (url === '/api/v1/stories' && init?.method === 'PATCH') {
+      if (url === '/api/v1/digests/digest-1/mark-read' && init?.method === 'POST') {
         return new Response('{"updated_count":1}', { status: 200 })
       }
       if (url === '/api/v1/digests' && init?.method === 'POST') {
@@ -119,9 +119,8 @@ describe('DigestPage', () => {
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
 
     fireEvent.click(screen.getByRole('button', { name: '将 1 个 Story 标记为已读' }))
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/stories', expect.objectContaining({
-      method: 'PATCH',
-      body: JSON.stringify({ read: true, story_ids: ['story-1'] }),
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/digests/digest-1/mark-read', expect.objectContaining({
+      method: 'POST',
     })))
     expect(await screen.findByRole('button', { name: '相关 Story 已标为已读' })).toBeDisabled()
 

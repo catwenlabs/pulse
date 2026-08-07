@@ -1211,6 +1211,36 @@ func (store *StoryStore) MarkRead(ctx context.Context, sourceID string, storyIDs
 	return int64(len(ids)), nil
 }
 
+// MarkDigestRead marks every Story referenced by a Digest's snapshot rows as read.
+// Only rows that resolve to a live Story (directly or via an alias) are updated,
+// mirroring the "available" filter the digest UI applies. Unlike MarkRead it does
+// not take an ID list, so it is not bounded by the per-request story_ids limit.
+func (store *StoryStore) MarkDigestRead(ctx context.Context, digestID string) (int64, error) {
+	res, err := store.pool.Exec(ctx, `
+		UPDATE stories AS story
+		SET read_at = now(), updated_at = now()
+		WHERE story.read_at IS NULL
+		  AND EXISTS (
+			SELECT 1
+			FROM ai_digest_stories AS ref
+			WHERE ref.digest_id = $1::uuid
+			  AND (
+				ref.story_id = story.id
+				OR EXISTS (
+					SELECT 1
+					FROM story_aliases AS alias
+					WHERE alias.alias_id = ref.story_id
+					  AND alias.canonical_story_id = story.id
+				)
+			  )
+		  )
+	`, digestID)
+	if err != nil {
+		return 0, fmt.Errorf("mark Digest %s Stories read: %w", digestID, err)
+	}
+	return res.RowsAffected(), nil
+}
+
 func (store *StoryStore) AddTag(ctx context.Context, id story.ID, name string) (entry.Tag, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {

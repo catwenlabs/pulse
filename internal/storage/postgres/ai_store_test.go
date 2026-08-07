@@ -100,3 +100,50 @@ func TestAIStorePersistsStorySummaryAndDigestSnapshots(t *testing.T) {
 		t.Fatalf("Digest = %+v, error = %v", gotDigest, err)
 	}
 }
+
+func TestStoryStoreMarkDigestReadMarksSnapshotStories(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, "TRUNCATE ai_jobs, story_ai_summaries, ai_digests CASCADE"); err != nil {
+		t.Fatalf("truncate AI data: %v", err)
+	}
+
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	entryStore := NewEntryStore(pool)
+	storyStore := NewStoryStore(pool)
+	src := createTestSource(t, sourceStore, "mark-digest-read")
+	acquisition := claimTestAcquisition(t, acquisitionStore, src.ID, "mark-digest-read")
+	if err := entryStore.CommitBatch(ctx, acquisition, "worker", []ingestion.Candidate{
+		{ExternalID: "mark-digest-read", Title: "mark-digest-read"},
+	}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("CommitBatch() error = %v", err)
+	}
+	if _, err := story.NewProcessor(storyStore, nil).RunOnce(ctx, 10); err != nil {
+		t.Fatalf("Story processor RunOnce() error = %v", err)
+	}
+	stories, err := storyStore.Search(ctx, story.Query{Limit: 10, State: "unread"})
+	if err != nil || len(stories) != 1 {
+		t.Fatalf("unread Stories = %+v, error = %v", stories, err)
+	}
+
+	aiStore := NewAIStore(pool, AIStoreOptions{MaxActiveJobs: 4})
+	items, err := aiStore.SnapshotUnreadStories(ctx, ai.DigestScope{})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("Digest snapshot = %+v, error = %v", items, err)
+	}
+	digest, _, err := aiStore.EnqueueDigest(ctx, ai.DigestScope{}, items, "mark-digest-read-fp", ai.ProviderMetadata{Name: "fake", Model: "fake-model"})
+	if err != nil {
+		t.Fatalf("EnqueueDigest() error = %v", err)
+	}
+
+	updated, err := storyStore.MarkDigestRead(ctx, digest.ID)
+	if err != nil || updated != 1 {
+		t.Fatalf("MarkDigestRead() = %d, %v", updated, err)
+	}
+	remaining, err := storyStore.Search(ctx, story.Query{Limit: 10, State: "unread"})
+	if err != nil || len(remaining) != 0 {
+		t.Fatalf("remaining unread = %+v, %v", remaining, err)
+	}
+}
+
