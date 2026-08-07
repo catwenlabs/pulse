@@ -67,6 +67,7 @@ type Backend interface {
 	UpdateStory(context.Context, story.ID, story.Patch) (story.Story, error)
 	SetStoryRepresentative(context.Context, story.ID, entry.ID) (story.Story, error)
 	MarkStoriesRead(context.Context, string, []string) (int64, error)
+	MarkDigestRead(context.Context, string) (int64, error)
 	MergeStories(context.Context, story.ID, story.ID, story.MergeOptions) (story.Story, error)
 	SplitStory(context.Context, story.ID, entry.ID, story.SplitOptions) (story.Story, error)
 	AddStoryTag(context.Context, story.ID, string) (entry.Tag, error)
@@ -154,6 +155,7 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("GET /api/v1/digests/preview", previewDigest(backend))
 	mux.HandleFunc("POST /api/v1/digests", createDigest(backend))
 	mux.HandleFunc("GET /api/v1/digests/{id}", getDigest(backend))
+	mux.HandleFunc("POST /api/v1/digests/{id}/mark-read", markDigestRead(backend))
 	mux.HandleFunc("POST /api/v1/opml/import", importOPML(backend))
 	mux.HandleFunc("GET /api/v1/opml/export", exportOPML(backend))
 	mux.HandleFunc("GET /api/v1/folders", listFolders(backend))
@@ -560,6 +562,17 @@ func markStoriesRead(backend Backend) http.HandlerFunc {
 			request.URL.Query().Get("source_id"),
 			storyIDs,
 		)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]int64{"updated_count": count})
+	}
+}
+
+func markDigestRead(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		count, err := backend.MarkDigestRead(request.Context(), request.PathValue("id"))
 		if err != nil {
 			writeDomainError(w, err)
 			return

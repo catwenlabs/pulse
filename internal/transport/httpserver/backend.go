@@ -49,6 +49,7 @@ type storyRepository interface {
 	Update(context.Context, story.ID, story.Patch) (story.Story, error)
 	SetRepresentative(context.Context, story.ID, entry.ID) (story.Story, error)
 	MarkRead(context.Context, string, []string) (int64, error)
+	MarkDigestRead(context.Context, string) (int64, error)
 	MergeManual(context.Context, story.ID, story.ID, story.MergeOptions) error
 	Split(context.Context, story.ID, entry.ID, story.SplitOptions) (story.ID, error)
 	AddTag(context.Context, story.ID, string) (entry.Tag, error)
@@ -398,6 +399,14 @@ func (service *backend) MarkStoriesRead(ctx context.Context, sourceID string, st
 	count, err := service.stories.MarkRead(ctx, sourceID, storyIDs)
 	if err == nil && count > 0 {
 		service.publishLibraryChange(sourceID)
+	}
+	return count, err
+}
+
+func (service *backend) MarkDigestRead(ctx context.Context, digestID string) (int64, error) {
+	count, err := service.stories.MarkDigestRead(ctx, digestID)
+	if err == nil && count > 0 {
+		service.publishLibraryChange("")
 	}
 	return count, err
 }

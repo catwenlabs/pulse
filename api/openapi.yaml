@@ -727,6 +727,32 @@ paths:
                 $ref: "#/components/schemas/Digest"
         "404":
           $ref: "#/components/responses/Problem"
+  /digests/{digestId}/mark-read:
+    parameters:
+      - name: digestId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: markDigestRead
+      summary: Mark every available Story referenced by a Digest as read
+      description: Marks all Stories in the Digest's snapshot that still resolve to a live Story as read. Unlike PATCH /stories, no ID list is sent, so it is not bounded by the story_ids limit.
+      responses:
+        "200":
+          description: Number of Stories newly marked as read
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated_count]
+                properties:
+                  updated_count:
+                    type: integer
+                    format: int64
+        "404":
+          $ref: "#/components/responses/Problem"
   /entries/{entryId}:
     parameters:
       - name: entryId

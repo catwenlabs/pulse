@@ -578,8 +578,7 @@ export function setStoryRepresentative(storyId: string, entryId: string): Promis
   })
 }
 
-export function markStoriesRead(options: { sourceId?: string; storyIDs?: string[] } = {}): Promise<{ updated_count: number }> {
-  const parameters = new URLSearchParams()
+export function markStoriesRead(options: { sourceId?: string; storyIDs?: string[] } = {}): Promise<{ updated_count: number }> {  const parameters = new URLSearchParams()
   if (options.sourceId) parameters.set('source_id', options.sourceId)
   const suffix = parameters.size > 0 ? `?${parameters}` : ''
   const body = {
@@ -590,6 +589,12 @@ export function markStoriesRead(options: { sourceId?: string; storyIDs?: string[
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+  })
+}
+
+export function markDigestRead(digestId: string): Promise<{ updated_count: number }> {
+  return request<{ updated_count: number }>(`/api/v1/digests/${digestId}/mark-read`, {
+    method: 'POST',
   })
 }
 
