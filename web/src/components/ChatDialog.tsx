@@ -200,9 +200,9 @@ export function ChatDialog({ open, onOpenChange, start, conversationId, tools = 
               <Sparkles className="size-4" />
             </span>
             <div className="min-w-0">
-              <DialogTitle className="truncate text-[15px] font-semibold leading-5">{toolName}</DialogTitle>
+              <DialogTitle className="truncate text-[15px]! font-semibold leading-5">{toolName}</DialogTitle>
               <DialogDescription className="sr-only">与 AI 助手的对话</DialogDescription>
-              <p className="m-0 mt-0.5 text-xs leading-4 text-muted-foreground">
+              <p className="m-0 mt-0.5 text-xs! leading-4 text-muted-foreground">
                 {streaming ? '正在生成回复…' : '基于选中内容的 AI 对话'}
               </p>
             </div>
@@ -230,7 +230,7 @@ export function ChatDialog({ open, onOpenChange, start, conversationId, tools = 
             </div>
 
             <footer className="border-t border-border/70 bg-card px-4 py-3">
-              <form onSubmit={(e) => void sendFollowUp(e)} className="flex items-end gap-2">
+              <form onSubmit={(e) => void sendFollowUp(e)} className="flex! items-end gap-2!">
                 <div className="min-w-0 flex-1">
                   <label htmlFor="chat-follow-up" className="sr-only">追问内容</label>
                   <textarea
@@ -246,7 +246,7 @@ export function ChatDialog({ open, onOpenChange, start, conversationId, tools = 
                     placeholder={canFollowUp ? '继续追问…（Enter 发送，Shift+Enter 换行）' : streaming ? '正在生成…' : '等待回复…'}
                     disabled={!canFollowUp}
                     rows={1}
-                    className="max-h-32 min-h-10 w-full resize-none rounded-xl border-input bg-background px-3.5 py-2.5 text-sm leading-5 shadow-[inset_0_1px_2px_rgba(51,46,36,.04)] outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/70 focus:border-primary focus:ring-3 focus:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="max-h-32 min-h-10 w-full resize-none rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm leading-5 shadow-[inset_0_1px_2px_rgba(51,46,36,.04)] outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/70 focus:border-primary focus:ring-3 focus:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
                   />
                 </div>
                 {streaming ? (
