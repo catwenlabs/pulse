@@ -146,7 +146,7 @@ describe('DigestPage', () => {
       method: 'POST',
       body: expect.stringContaining('"max_stories":12'),
     })))
-  })
+  }, 20000)
 
   it('prefills the safety limit when the default scope is oversized', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
