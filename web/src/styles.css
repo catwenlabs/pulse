@@ -237,7 +237,7 @@
   .ai-eyebrow { @apply mb-2 mt-0 text-[10px] font-bold tracking-[.16em] text-primary; }
   .ai-eyebrow-with-icon { @apply flex items-center gap-1.5; }
   .ai-history-card, .ai-result-card, .ai-summary-card { @apply mx-auto rounded-2xl border border-border bg-card shadow-[0_10px_32px_rgba(51,46,36,.05)]; }
-  .ai-history-card h2, .ai-result-card h2, .ai-summary-card h2 { @apply mb-1 mt-0 font-serif text-2xl font-semibold; }
+  .ai-history-card h2, .ai-result-heading h2, .ai-summary-card h2 { @apply mb-1 mt-0 font-serif text-2xl font-semibold; }
   .ai-scope-dialog { @apply max-h-[calc(100dvh-32px)] max-w-[680px] overflow-y-auto rounded-[24px] border-border/80 bg-card p-0 shadow-[0_24px_80px_rgba(51,46,36,.22)] max-md:max-h-[calc(100dvh-24px)] max-md:max-w-[calc(100vw-24px)] max-md:rounded-2xl; }
   .ai-scope-dialog-header { @apply flex items-start justify-between gap-4 border-b border-border/70 px-6 pb-4 pt-6 max-md:px-4 max-md:pb-3 max-md:pt-4; }
   .ai-scope-dialog-heading { @apply flex min-w-0 items-start gap-3.5; }
@@ -327,13 +327,13 @@
   .ai-subsection-heading h3 { @apply mb-0 mt-0 text-lg font-bold text-foreground; }
   .story-entry-list h2 { @apply mb-0 mt-0 text-sm font-semibold text-foreground; }
   .ai-subsection-heading > span { @apply shrink-0 pt-1.5 text-xs text-muted-foreground; }
-  .ai-priority-list, .ai-theme-list { @apply grid gap-4; }
+  .ai-priority-list, .ai-theme-list { @apply grid gap-3; }
   .ai-priority-item, .ai-theme-list article { @apply py-1; }
   .ai-priority-title { @apply flex items-center gap-3; }
   .ai-priority-title > span { @apply grid size-7 shrink-0 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground; }
-  .ai-priority-item strong, .ai-theme-list strong { @apply text-sm leading-5; }
-  .ai-priority-item p, .ai-theme-list p { @apply mb-0 mt-1 text-sm leading-6 text-muted-foreground; }
-  .ai-reference-list, .ai-source-list { @apply mt-2 grid; }
+  .ai-priority-title strong, .ai-theme-list article > strong { @apply text-sm leading-5; }
+  .ai-priority-item > p, .ai-theme-list article > p { @apply mb-0 mt-1 text-sm leading-6 text-muted-foreground; }
+  .ai-reference-list, .ai-source-list { @apply mt-1 grid; }
   .ai-reference { @apply relative flex min-w-0 max-w-full flex-col rounded-xl border border-border bg-card px-3 py-2.5 pr-9 text-left no-underline transition-colors hover:border-primary/50 hover:bg-primary/5 focus-visible:border-primary/60; }
   .ai-reference-label { @apply text-[10px] font-bold text-primary; }
   .ai-reference > strong { @apply break-words text-sm font-semibold leading-5 text-foreground; }
