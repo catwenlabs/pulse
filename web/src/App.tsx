@@ -881,7 +881,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
         inert={isMobile && mobileNavigationOpen ? true : undefined}
       >
         {isMobile && !isReaderView && (
-          <header className="max-md:z-[7] max-md:grid max-md:min-h-[calc(52px+env(safe-area-inset-top))] max-md:grid-cols-[40px_minmax(0,1fr)] max-md:items-center max-md:gap-2 max-md:border-b max-md:bg-card/95 max-md:px-3.5 max-md:pt-[env(safe-area-inset-top)] max-md:backdrop-blur-xl">
+          <header className="max-md:sticky max-md:top-0 max-md:z-[7] max-md:grid max-md:min-h-[calc(52px+env(safe-area-inset-top))] max-md:grid-cols-[40px_minmax(0,1fr)] max-md:items-center max-md:gap-2 max-md:border-b max-md:bg-card/95 max-md:px-3.5 max-md:pt-[env(safe-area-inset-top)] max-md:backdrop-blur-xl">
             <Button unstyled
               className="grid size-10 cursor-pointer content-center gap-1 rounded-lg border-0 bg-transparent px-[9px] text-foreground hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
               ref={mobileMenuButtonRef}
