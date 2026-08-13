@@ -24,12 +24,14 @@ import {
 } from 'lucide-react'
 
 import * as api from './api'
-import { DigestPage, isStoredStorySummary, StoryDetailPage, StorySummaryCard } from './AISummarization'
+import { DigestPage, StoryDetailPage } from './AISummarization'
 import type { AnnotationInput, CreateSourceInput, Entry, Folder, PreviewResult, Source, SourceHealth, SourceKind, Story, StoryPatch } from './api'
 import { EntryReader } from './components/EntryReader'
 import { ConversationHistoryPage } from './components/ConversationHistoryPage'
 import { SelectionChatSurface } from './components/SelectionChatSurface'
 import { SelectionToolsSettings } from './components/SelectionToolsSettings'
+import { StoryListItem, type StoryListItemChange } from './components/StoryListItem'
+import { isActiveStorySummary, isStoredStorySummary, StorySummaryCard } from './components/storySummary'
 import { Button, buttonVariants } from './components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, SheetContent } from './components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu'
@@ -37,6 +39,7 @@ import { Input } from './components/ui/input'
 import { Select } from './components/ui/select'
 import { Textarea } from './components/ui/textarea'
 import { Toaster } from './components/ui/sonner'
+import { compactTime, HighlightText, scrollWithin } from './lib/readerFormat'
 import { cn } from './lib/utils'
 import { createQueryClient, queryKeys } from './query'
 import { useLibraryRealtime, type LibraryRealtimeSignal, type RealtimeConnectionState } from './realtime'
@@ -1808,20 +1811,7 @@ function Reader({
   const navigate = useNavigate()
   const [entries, setEntries] = useState<ReaderEntry[]>([])
   const [storiesByEntry, setStoriesByEntry] = useState<Record<string, ReaderStory>>({})
-  const [selected, setSelected] = useState<ReaderEntry | null>(null)
-  const [inlineSummaryStoryID, setInlineSummaryStoryID] = useState('')
-  const [actionMenuOpen, setActionMenuOpen] = useState(false)
-  const [notesOpen, setNotesOpen] = useState(false)
-  const [mergePickerOpen, setMergePickerOpen] = useState(false)
-  const [splitRequest, setSplitRequest] = useState<{ entryID: string; options: api.SplitOptions } | null>(null)
-  const [mergeResolution, setMergeResolution] = useState<{
-    source: ReaderStory
-    target: ReaderStory
-    displayTitle: string
-    note: string
-  } | null>(null)
-  const [deleteRequest, setDeleteRequest] = useState<{ entry: ReaderEntry; confirmation?: api.DeletionConfirmation } | null>(null)
-  const [activeEntryId, setActiveEntryId] = useState<string | null>(null)
+  const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
@@ -1829,11 +1819,9 @@ function Reader({
   const [readerNotice, setReaderNotice] = useState('')
   const [pendingNewCount, setPendingNewCount] = useState(0)
   const [highlightedEntryIDs, setHighlightedEntryIDs] = useState<Set<string>>(() => new Set())
-  const selectedEntryElement = useRef<HTMLElement | null>(null)
   const entryStreamElement = useRef<HTMLElement | null>(null)
   const readerNoticeTimeout = useRef<number | undefined>(undefined)
   const readerNoticeVersion = useRef(0)
-  const readingAreaToScroll = useRef('')
   const knownStoryIDs = useRef<Set<string>>(new Set())
   const pendingStoryIDs = useRef<Set<string>>(new Set())
   const hasRenderedServerData = useRef(false)
@@ -1874,27 +1862,6 @@ function Reader({
   const loadingMore = readerQuery.isFetchingNextPage
   const hasMore = Boolean(readerQuery.hasNextPage)
   const error = readerQuery.error instanceof Error ? readerQuery.error.message : ''
-  const selectedStory = selected ? storiesByEntry[selected.id] : undefined
-  const selectedStoryID = selectedStory?.id || ''
-  const storyDetailQuery = useQuery({
-    queryKey: queryKeys.story(selectedStoryID),
-    queryFn: () => api.getStory(selectedStory!.id),
-    enabled: Boolean(selectedStory),
-    refetchInterval: (query) => isActiveStorySummary(query.state.data?.ai_summary) ? 1500 : false,
-  })
-  const storySummaryMutation = useMutation({
-    mutationFn: (storyID: string) => api.requestStorySummary(storyID),
-    onSuccess: (_job, storyID) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.story(storyID) })
-    },
-  })
-  const storedStorySummary = storyDetailQuery.data?.ai_summary
-  const hasStoredStorySummary = isStoredStorySummary(storedStorySummary)
-  const inlineSummaryVisible = Boolean(selectedStoryID && (
-    inlineSummaryStoryID === selectedStoryID
-    || hasStoredStorySummary
-    || storyDetailQuery.error
-  ))
 
   function clearReaderNoticeTimer() {
     if (readerNoticeTimeout.current !== undefined) {
@@ -1925,27 +1892,6 @@ function Reader({
     if (readerNoticeTimeout.current !== undefined) window.clearTimeout(readerNoticeTimeout.current)
   }, [])
 
-  function closeSelectedEntry() {
-    const element = selectedEntryElement.current
-    const trigger = element?.querySelector<HTMLElement>('button[aria-expanded]') ?? null
-    // Move focus to the row trigger before the panel unmounts. Otherwise the
-    // focused close button is removed from the DOM and the browser jump-scrolls,
-    // unlike pressing Escape where the button was never focused.
-    trigger?.focus({ preventScroll: true })
-    setSelected(null)
-    setActionMenuOpen(false)
-    setNotesOpen(false)
-    setMergePickerOpen(false)
-    setActiveEntryId(null)
-    readingAreaToScroll.current = ''
-    window.requestAnimationFrame(() => {
-      if (element) {
-        scrollWithin(entryStreamElement.current, element)
-      }
-      selectedEntryElement.current = null
-    })
-  }
-
   useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedSearch(search.trim()), 250)
     return () => window.clearTimeout(timeout)
@@ -1963,8 +1909,7 @@ function Reader({
     hasRenderedServerData.current = false
     setEntries([])
     setStoriesByEntry({})
-    setSelected(null)
-    setInlineSummaryStoryID('')
+    setExpandedEntryId(null)
     clearReaderNotice()
     entryStreamElement.current?.scrollTo({ top: 0 })
   }, [debouncedSearch, sourceID, view])
@@ -1987,22 +1932,9 @@ function Reader({
       setHighlightedEntryIDs((current) => new Set([...current, ...added]))
     }
     setEntries(orderReaderEntries(items))
-    setStoriesByEntry((current) => Object.fromEntries(stories.map((item) => {
-      const existing = current[item.representative.id]
-      return [item.representative.id, existing?.entries ? { ...item, entries: existing.entries } : item]
-    })))
-    setSelected((current) => items.find((item) => item.id === current?.id) ?? null)
+    setStoriesByEntry(Object.fromEntries(stories.map((item) => [item.representative.id, item])))
+    setExpandedEntryId((current) => current && items.some((item) => item.id === current) ? current : null)
   }, [readerQuery.data])
-
-  useEffect(() => {
-    if (!storyDetailQuery.data || !selected) return
-    setStoriesByEntry((current) => Object.fromEntries(
-      Object.entries(current).map(([entryID, story]) => [
-        entryID,
-        story.id === storyDetailQuery.data!.id ? storyDetailQuery.data : story,
-      ]),
-    ))
-  }, [selected?.id, storyDetailQuery.data])
 
   async function loadMore() {
     try {
@@ -2015,7 +1947,7 @@ function Reader({
   function canAutoRefresh() {
     const stream = entryStreamElement.current
     return document.visibilityState === 'visible' &&
-      selected === null &&
+      expandedEntryId === null &&
       (stream === null || stream.scrollTop <= 80)
   }
 
@@ -2074,20 +2006,9 @@ function Reader({
     }
   }
 
-  useEffect(() => {
-    if (!selected) return
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key !== 'Escape') return
-      closeSelectedEntry()
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [selected])
-
-  async function patch(item: ReaderEntry, change: StoryPatch) {
-    const cluster = storiesByEntry[item.id]
-    if (!cluster) return
-    const updatedStory = await api.updateStory(cluster.id, change)
+  // Per-story mutations run inside StoryListItem and report back here so the
+  // reader list (keyed by representative entry id) stays in sync.
+  function applyStoryUpdate(updatedStory: ReaderStory) {
     setStoriesByEntry((current) => Object.fromEntries(
       Object.entries(current).map(([entryID, story]) => [
         entryID,
@@ -2098,173 +2019,28 @@ function Reader({
       const owner = storiesByEntry[candidate.id]
       return owner?.id === updatedStory.id ? projectReaderEntry(candidate, updatedStory) : candidate
     }))
-    setSelected((current) => {
-      if (!current || current.id !== item.id) return current
-      return projectReaderEntry(current, updatedStory)
+  }
+
+  function handleStoryChanged(change: StoryListItemChange) {
+    if (change.kind === 'patched' || change.kind === 'representative' || change.kind === 'split') {
+      applyStoryUpdate(change.story)
+      if (change.kind === 'patched' && change.patch.read !== undefined) {
+        void refreshSources()
+      }
+      if (change.kind === 'representative') {
+        showReaderNotice('已更新默认来源')
+      }
+    }
+  }
+
+  function handleStoryRemoved(_storyId: string, entryId: string) {
+    setEntries((current) => current.filter((candidate) => candidate.id !== entryId))
+    setStoriesByEntry((current) => {
+      const next = { ...current }
+      delete next[entryId]
+      return next
     })
-    if (change.read !== undefined) {
-      void refreshSources()
-    }
-  }
-
-  async function splitEntryFromStory(entryId: string, options: api.SplitOptions = {}) {
-    if (!selected) return
-    const selectedId = selected.id
-    const story = storiesByEntry[selectedId]
-    if (!story?.entries) return
-    try {
-      await api.splitStory(story.id, entryId, options)
-      setSplitRequest(null)
-      setStoriesByEntry((current) => {
-        const existing = current[selectedId]
-        if (!existing?.entries) return current
-        const remaining = existing.entries.filter((candidate) => candidate.id !== entryId)
-        return {
-          ...current,
-          [selectedId]: {
-            ...existing,
-            entries: remaining,
-            entry_count: remaining.length,
-            source_count: new Set(remaining.map((candidate) => candidate.source_id)).size,
-          },
-        }
-      })
-    } catch (cause) {
-      showReaderNotice(cause instanceof Error ? cause.message : '拆分报道失败')
-    }
-  }
-
-  function openSplitRequest(entryID: string) {
-    if (!storiesByEntry[selected?.id || '']) return
-    setSplitRequest({ entryID, options: {} })
-  }
-
-  function updateSplitOption(option: keyof api.SplitOptions, value: boolean) {
-    setSplitRequest((current) => {
-      if (!current) return current
-      const options = { ...current.options, [option]: value }
-      if (value) {
-        const opposite: Partial<Record<keyof api.SplitOptions, keyof api.SplitOptions>> = {
-          copy_display_title: 'move_display_title',
-          move_display_title: 'copy_display_title',
-          copy_note: 'move_note',
-          move_note: 'copy_note',
-          copy_tags: 'move_tags',
-          move_tags: 'copy_tags',
-        }
-        const other = opposite[option]
-        if (other) options[other] = false
-      }
-      return { ...current, options }
-    })
-  }
-
-  async function setDefaultSource(entryId: string) {
-    if (!selected) return
-    const currentStory = storiesByEntry[selected.id]
-    if (!currentStory) return
-    try {
-      const updatedStory = await api.setStoryRepresentative(currentStory.id, entryId)
-      setStoriesByEntry((current) => Object.fromEntries(
-        Object.entries(current).map(([entryID, story]) => [
-          entryID,
-          story.id === updatedStory.id ? updatedStory : story,
-        ]),
-      ))
-      setEntries((current) => current.map((candidate) => {
-        const owner = storiesByEntry[candidate.id]
-        return owner?.id === updatedStory.id ? projectReaderEntry(candidate, updatedStory) : candidate
-      }))
-      showReaderNotice('已更新默认来源')
-    } catch (cause) {
-      showReaderNotice(cause instanceof Error ? cause.message : '设置默认来源失败')
-    }
-  }
-
-  async function mergeStoryInto(targetStoryId: string) {
-    if (!selected) return
-    const selectedId = selected.id
-    const story = storiesByEntry[selectedId]
-    if (!story || story.id === targetStoryId) return
-    try {
-      await api.mergeStory(story.id, targetStoryId)
-      setMergePickerOpen(false)
-      setEntries((current) => current.filter((candidate) => candidate.id !== selectedId))
-      closeSelectedEntry()
-    } catch (cause) {
-      if (cause instanceof api.APIError && cause.status === 409) {
-        const target = mergeTargets.find((candidate) => candidate.id === targetStoryId)
-        if (target) {
-          setMergePickerOpen(false)
-          setMergeResolution({
-            source: story,
-            target,
-            displayTitle: story.display_title || target.display_title || '',
-            note: story.note || target.note || '',
-          })
-          return
-        }
-      }
-      showReaderNotice(cause instanceof Error ? cause.message : '合并 Story 失败')
-    }
-  }
-
-  async function resolveStoryMerge() {
-    if (!mergeResolution || !selected) return
-    try {
-      await api.mergeStory(mergeResolution.source.id, mergeResolution.target.id, {
-        display_title: mergeResolution.displayTitle,
-        note: mergeResolution.note,
-      })
-      setMergeResolution(null)
-      setEntries((current) => current.filter((candidate) => candidate.id !== selected.id))
-      closeSelectedEntry()
-    } catch (cause) {
-      showReaderNotice(cause instanceof Error ? cause.message : '合并 Story 失败')
-    }
-  }
-
-  function openDeleteRequest() {
-    if (selected) setDeleteRequest({ entry: selected })
-  }
-
-  async function confirmEntryDeletion() {
-    if (!deleteRequest) return
-    try {
-      await api.deleteEntry(deleteRequest.entry.id, Boolean(deleteRequest.confirmation))
-      setEntries((current) => current.filter((candidate) => candidate.id !== deleteRequest.entry.id))
-      setStoriesByEntry((current) => {
-        const next = { ...current }
-        delete next[deleteRequest.entry.id]
-        return next
-      })
-      setDeleteRequest(null)
-      if (selected?.id === deleteRequest.entry.id) closeSelectedEntry()
-    } catch (cause) {
-      if (cause instanceof api.APIError && cause.status === 409) {
-        setDeleteRequest((current) => current ? { ...current, confirmation: cause.problem } : current)
-        return
-      }
-      showReaderNotice(cause instanceof Error ? cause.message : '删除来源内容失败')
-    }
-  }
-
-  function toggleEntry(item: ReaderEntry, element: HTMLElement) {
-    if (selected?.id === item.id) {
-      closeSelectedEntry()
-      return
-    }
-
-    selectedEntryElement.current = element
-    readingAreaToScroll.current = item.id
-    setSelected(item)
-    setActionMenuOpen(false)
-    setNotesOpen(false)
-    setMergePickerOpen(false)
-    setActiveEntryId(item.id)
-    if (!item.read_at) {
-      void patch(item, { read: true })
-    }
+    setExpandedEntryId((current) => current === entryId ? null : current)
   }
 
   async function markAllRead() {
@@ -2280,7 +2056,7 @@ function Reader({
           story.read_at ? story : { ...story, read_at: readAt },
         ]),
       ))
-      setSelected((current) => current && !current.read_at ? { ...current, read_at: readAt } : current)
+      void queryClient.invalidateQueries({ queryKey: ['story'] })
       showReaderNotice(
         result.updated_count > 0 ? `已将 ${result.updated_count} 篇文章标记为已读` : '没有未读文章',
         3500,
@@ -2296,33 +2072,15 @@ function Reader({
   const title = sourceName || (view === 'starred' ? '收藏' : view === 'later' ? '稍后阅读' : '全部文章')
   const sourceNames = Object.fromEntries(sources.map((source) => [source.id, source.name]))
   const orderedEntries = entries
-  const currentStory = selected ? storiesByEntry[selected.id] : undefined
-  const mergeTargets = currentStory
-    ? orderedEntries
-        .map((candidate) => storiesByEntry[candidate.id])
-        .filter((story): story is ReaderStory => Boolean(story) && story.id !== currentStory.id)
-    : []
-  const activeEntry = selected
-    ? (() => {
-        const owner = storiesByEntry[selected.id]
-        const raw = owner?.entries?.find((entry) => entry.id === activeEntryId)
-        return raw && owner ? projectReaderEntry(raw, owner) : selected
-      })()
-    : null
-  const inlineSummary = storyDetailQuery.data?.ai_summary
-  const summaryRequestPending = (
-    (storySummaryMutation.isPending && storySummaryMutation.variables === selectedStoryID)
-    || isActiveStorySummary(inlineSummary)
-  )
-  const summaryActionLabel = summaryRequestPending
-    ? '正在生成…'
-    : hasStoredStorySummary
-      ? '重新生成AI摘要'
-      : '生成AI摘要'
-  const displayedInlineSummary = inlineSummary
-    ?? (summaryRequestPending && selectedStoryID
-      ? { story_id: selectedStoryID, status: 'queued' as const }
-      : undefined)
+  const mergeCandidates = orderedEntries
+    .map((candidate) => storiesByEntry[candidate.id])
+    .filter((story): story is ReaderStory => Boolean(story))
+    .map((story) => ({
+      storyId: story.id,
+      title: story.display_title || story.representative.source_title || '无标题',
+      displayTitle: story.display_title,
+      note: story.note,
+    }))
   return (
     <div className="relative grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
       <header className={cn(
@@ -2443,252 +2201,48 @@ function Reader({
           {loading && <p className="p-8 text-center text-sm text-muted-foreground">正在加载文章…</p>}
           {error && <p className="p-8 text-center text-sm text-muted-foreground text-destructive">{error}</p>}
           {!loading && !error && entries.length === 0 && <p className="p-8 text-center text-sm text-muted-foreground">这里还没有文章。</p>}
-          {orderedEntries.map((item) => (
-            <article
-              data-entry-row={item.id}
-              className={cn(
-                'border-b last:border-b-0',
-                selected?.id === item.id && 'bg-card shadow-[inset_3px_0_hsl(var(--border))]',
-                highlightedEntryIDs.has(item.id) && 'new-content-highlight',
-              )}
-              key={item.id}
-            >
-              <Button unstyled
-                className={cn(
-                  'grid min-h-9 w-full cursor-pointer grid-cols-[8px_minmax(110px,15%)_minmax(220px,1fr)_54px_16px] items-center gap-1.5 border-0 bg-card px-2 text-left hover:bg-muted/60',
-                  'max-md:min-h-11 max-md:grid-cols-[8px_minmax(0,1fr)_48px_14px] max-md:grid-rows-1 max-md:gap-x-1.5 max-md:px-2 max-md:py-0.5',
-                  item.read_at && 'text-muted-foreground [&_strong]:font-normal',
-                )}
-                aria-expanded={selected?.id === item.id}
-                onClick={(event) => toggleEntry(item, event.currentTarget.closest('article')!)}
-              >
-                <span className={cn('size-1.5 rounded-full bg-primary', item.read_at && 'border border-muted-foreground bg-transparent')} aria-hidden="true" />
-                <span className="truncate text-sm font-medium text-[#66717d] max-md:hidden">
-                  <HighlightText
-                    text={storiesByEntry[item.id]?.entry_count > 1
-                      ? storiesByEntry[item.id].source_count > 1
-                        ? `${storiesByEntry[item.id].source_count} 个来源`
-                        : `${storiesByEntry[item.id].entry_count} 个版本`
-                      : sourceNames[item.source_id] || item.author || '未知来源'}
-                    query={debouncedSearch}
-                  />
-                </span>
-                <strong className="min-w-0 truncate text-base font-semibold leading-6 max-md:col-start-2">
-                  <HighlightText text={item.display_title || item.source_title || '无标题'} query={debouncedSearch} />
-                </strong>
-                <time className="text-right text-xs tabular-nums text-muted-foreground max-md:col-start-3" dateTime={item.discovered_at}>{compactTime(item.discovered_at)}</time>
-                <ChevronDown className={cn('size-4 text-muted-foreground transition-transform max-md:col-start-4', selected?.id === item.id && 'rotate-180')} aria-hidden="true" />
-              </Button>
-              {selected?.id === item.id && (
-                <div
-                  data-entry-detail={item.id}
-                  className="min-h-full border-t border-[#e8e9eb] bg-card px-[clamp(24px,8vw,120px)] pb-16 max-md:px-5 max-md:pb-10 max-md:pt-0"
-                  ref={(element) => {
-                    if (!element || readingAreaToScroll.current !== item.id) return
-                    readingAreaToScroll.current = ''
-                    window.requestAnimationFrame(() => {
-                      scrollWithin(entryStreamElement.current, element)
-                    })
-                  }}
-                >
-                  <div className="mx-auto max-w-[72ch]">
-                    <h2 className="mb-4 mt-1 text-xl font-bold leading-snug">
-                      {activeEntry!.canonical_url ? (
-                        <a
-                          className="text-foreground underline-offset-4 hover:underline"
-                          href={activeEntry!.canonical_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="查看原文"
-                        >
-                          {activeEntry!.display_title || activeEntry!.source_title || '无标题'}
-                        </a>
-                      ) : (
-                        activeEntry!.display_title || activeEntry!.source_title || '无标题'
-                      )}
-                    </h2>
-                    {activeEntry!.display_title && activeEntry!.source_title && activeEntry!.display_title !== activeEntry!.source_title && (
-                      <p className="-mt-2 mb-4 text-sm text-muted-foreground">来源标题：{activeEntry!.source_title}</p>
-                    )}
-                    <div className="mb-5 flex min-h-12 flex-wrap items-center justify-between gap-2 border-b border-[#eeeae2] text-sm text-muted-foreground max-md:mb-3">
-                      <span className="min-w-0 truncate">{activeEntry!.author || sourceNames[activeEntry!.source_id] || '未知来源'}</span>
-                      <div className="flex min-w-0 shrink-0 items-center gap-1">
-                        {storiesByEntry[item.id] && (
-                          <Button
-                            unstyled
-                            className="inline-flex min-h-9 min-w-0 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-1.5 text-xs font-medium text-muted-foreground hover:text-primary hover:underline hover:underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                            aria-label={summaryActionLabel}
-                            disabled={summaryRequestPending || storyDetailQuery.isPending}
-                            onClick={() => {
-                              const storyID = storiesByEntry[item.id].id
-                              setInlineSummaryStoryID(storyID)
-                              storySummaryMutation.mutate(storyID)
-                            }}
-                          >
-                            <Sparkles className="size-4 shrink-0" aria-hidden="true" />
-                            <span>{summaryActionLabel}</span>
-                          </Button>
-                        )}
-                        <DropdownMenu open={actionMenuOpen} onOpenChange={setActionMenuOpen}>
-                          <DropdownMenuTrigger asChild>
-                            <Button unstyled className="grid size-10 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="更多操作"><MoreHorizontal className="size-4" aria-hidden="true" /></Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent>
-                            <DropdownMenuItem onSelect={() => void patch(selected, { read: false })}>标记未读</DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => void patch(selected, { starred: !selected.starred_at })}>
-                              {selected.starred_at ? '取消收藏' : '收藏文章'}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => void patch(selected, { later: !selected.later_at })}>
-                              {selected.later_at ? '移出稍后阅读' : '稍后阅读'}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => setNotesOpen((open) => !open)}>
-                              编辑标题与笔记
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => void navigate({
-                              to: '/stories/$storyID',
-                              params: { storyID: storiesByEntry[item.id].id },
-                            })}>
-                              查看 Story 与 AI 摘要
-                            </DropdownMenuItem>
-                            {mergeTargets.length > 0 && (
-                              <DropdownMenuItem onSelect={() => setMergePickerOpen(true)}>合并到其他 Story</DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem onSelect={openDeleteRequest}>永久删除来源内容</DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                        <Button
-                          unstyled
-                          className="grid size-10 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                          aria-label="关闭文章"
-                          onClick={closeSelectedEntry}
-                        >
-                          <X className="size-5" aria-hidden="true" />
-                        </Button>
-                      </div>
-                    </div>
-                    {inlineSummaryVisible && (
-                      <div className="reader-inline-summary">
-                        <StorySummaryCard
-                          summary={displayedInlineSummary}
-                          loading={storyDetailQuery.isPending && !displayedInlineSummary}
-                          loadError={storyDetailQuery.error instanceof Error ? storyDetailQuery.error : null}
-                          onRetry={() => void storyDetailQuery.refetch()}
-                        />
-                        {storySummaryMutation.isError && storySummaryMutation.variables === selectedStoryID && (
-                          <p className="story-request-error" role="alert">{storySummaryMutation.error.message}</p>
-                        )}
-                      </div>
-                    )}
-                    {(storiesByEntry[item.id]?.entries?.length ?? 0) > 1 && (
-                      <div className="mb-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                        <span>同一则新闻 · {storiesByEntry[item.id].entries!.length} 个来源：</span>
-                        {storiesByEntry[item.id].entries!.map((sourceEntry) => {
-                          const sourceName = sourceNames[sourceEntry.source_id] || sourceEntry.author || sourceEntry.source_title || '未知来源'
-                          const isActive = sourceEntry.id === activeEntry?.id
-                          return (
-                            <span className="inline-flex items-center gap-1" key={sourceEntry.id}>
-                              <Button
-                                unstyled
-                                className={cn(
-                                  'cursor-pointer',
-                                  isActive ? 'font-semibold text-foreground underline' : 'text-primary hover:underline',
-                                )}
-                                aria-pressed={isActive}
-                                aria-label={`切换到来源 ${sourceName}`}
-                                onClick={() => setActiveEntryId(sourceEntry.id)}
-                              >
-                                {sourceName}
-                              </Button>
-                              {sourceEntry.canonical_url && (
-                                <a
-                                  className="text-muted-foreground hover:text-foreground"
-                                  href={sourceEntry.canonical_url}
-                                  rel="noreferrer"
-                                  target="_blank"
-                                  aria-label={`在新标签打开 ${sourceName} 原文`}
-                                >
-                                  ↗
-                                </a>
-                              )}
-                              {sourceEntry.id !== storiesByEntry[item.id]?.representative.id && (
-                                <Button
-                                  unstyled
-                                  className="text-xs text-muted-foreground hover:text-foreground"
-                                  aria-label={`设为默认来源 ${sourceName}`}
-                                  onClick={() => void setDefaultSource(sourceEntry.id)}
-                                >
-                                  设为默认
-                                </Button>
-                              )}
-                              {sourceEntry.id !== selected.id && (
-                                <Button
-                                  unstyled
-                                  className="text-xs text-muted-foreground hover:text-foreground"
-                                  aria-label={`分开 ${sourceEntry.source_title || '来源'}`}
-                                  onClick={() => openSplitRequest(sourceEntry.id)}
-                                >
-                                  分开
-                                </Button>
-                              )}
-                            </span>
-                          )
-                        })}
-                      </div>
-                    )}
-                    {mergePickerOpen && mergeTargets.length > 0 && (
-                      <div className="mb-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                        {mergeTargets.map((target) => (
-                          <Button
-                            key={target.id}
-                            unstyled
-                            className="rounded border border-border px-2 py-0.5 text-xs hover:bg-accent"
-                            onClick={() => mergeStoryInto(target.id)}
-                          >
-                            合并到：{target.display_title || target.representative.source_title || '无标题'}
-                          </Button>
-                        ))}
-                        <Button
-                          unstyled
-                          className="text-xs text-muted-foreground hover:text-foreground"
-                          aria-label="取消合并"
-                          onClick={() => setMergePickerOpen(false)}
-                        >
-                          取消
-                        </Button>
-                      </div>
-                    )}
-                    <SelectionChatSurface label="文章正文">
-                      <EntryReader entry={activeEntry!} />
-                    </SelectionChatSurface>
-                    {notesOpen && <div className="mt-10 grid max-w-[68ch] gap-4 border-t pt-6">
-                      <label>
-                        <span>显示标题</span>
-                        <Input
-                          value={selected.display_title}
-                          onChange={(event) => setSelected({ ...selected, display_title: event.target.value })}
-                          placeholder={selected.source_title}
-                        />
-                      </label>
-                      <label>
-                        <span>笔记</span>
-                        <Textarea
-                          value={selected.note}
-                          onChange={(event) => setSelected({ ...selected, note: event.target.value })}
-                          placeholder="记录你的想法…"
-                        />
-                      </label>
-                      <Button variant="secondary" onClick={() => void patch(selected, {
-                        display_title: selected.display_title,
-                        note: selected.note,
-                      })}>
-                        保存标题与笔记
-                      </Button>
-                    </div>}
-                  </div>
-                </div>
-              )}
-            </article>
-          ))}
+          {orderedEntries.map((item) => {
+            const story = storiesByEntry[item.id]
+            return (
+              <StoryListItem
+                key={item.id}
+                storyId={story?.id ?? ''}
+                rowEntryId={item.id}
+                expanded={expandedEntryId === item.id}
+                onExpandedChange={(open) => setExpandedEntryId(open ? item.id : null)}
+                scrollContainerRef={entryStreamElement}
+                sources={sources}
+                mergeCandidates={mergeCandidates}
+                initialStory={story ? {
+                  id: story.id,
+                  display_title: story.display_title,
+                  note: story.note,
+                  tags: story.tags,
+                  representative: item,
+                  entries: [item],
+                  entry_count: story.entry_count,
+                  source_count: story.source_count,
+                  read_at: story.read_at,
+                  starred_at: story.starred_at,
+                  hidden_at: story.hidden_at,
+                  later_at: story.later_at,
+                } : undefined}
+                row={{
+                  title: item.display_title || item.source_title || '无标题',
+                  sourceLabel: story && story.entry_count > 1
+                    ? (story.source_count > 1 ? `${story.source_count} 个来源` : `${story.entry_count} 个版本`)
+                    : (sourceNames[item.source_id] || item.author || '未知来源'),
+                  timestamp: item.discovered_at,
+                  read: Boolean(item.read_at),
+                  highlightQuery: debouncedSearch,
+                  emphasized: highlightedEntryIDs.has(item.id),
+                }}
+                onChanged={handleStoryChanged}
+                onRemoved={handleStoryRemoved}
+                onError={showReaderNotice}
+              />
+            )
+          })}
           {!loading && !error && hasMore && (
             <div className="flex min-h-[80dvh] justify-center border-t px-4 py-5">
               <Button variant="secondary" disabled={loadingMore} onClick={() => void loadMore()}>
@@ -2700,125 +2254,8 @@ function Reader({
             <div className="min-h-[80dvh]" aria-hidden="true" />
           )}
       </section>
-      <Dialog open={splitRequest !== null} onOpenChange={(open) => !open && setSplitRequest(null)}>
-        {splitRequest && (
-          <DialogContent>
-            <DialogTitle>拆分来源内容？</DialogTitle>
-            <DialogDescription className="mb-5 mt-2 text-sm leading-6 text-muted-foreground">
-              新 Story 会继承当前阅读状态；标题、笔记和标签默认保留在原 Story。需要移动或复制的元数据请在这里明确选择。
-            </DialogDescription>
-            <div className="grid gap-3 text-sm">
-              {([
-                ['copy_display_title', '复制显示标题'],
-                ['move_display_title', '移动显示标题'],
-                ['copy_note', '复制笔记'],
-                ['move_note', '移动笔记'],
-                ['copy_tags', '复制标签'],
-                ['move_tags', '移动标签'],
-              ] as const).map(([option, label]) => (
-                <label className="flex items-center gap-2" key={option}>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(splitRequest.options[option])}
-                    onChange={(event) => updateSplitOption(option, event.target.checked)}
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <DialogClose asChild><Button variant="secondary">取消</Button></DialogClose>
-              <Button onClick={() => void splitEntryFromStory(splitRequest.entryID, splitRequest.options)}>确认拆分</Button>
-            </div>
-          </DialogContent>
-        )}
-      </Dialog>
-      <Dialog open={mergeResolution !== null} onOpenChange={(open) => !open && setMergeResolution(null)}>
-        {mergeResolution && (
-          <DialogContent>
-            <DialogTitle>解决 Story 元数据冲突</DialogTitle>
-            <DialogDescription className="mb-5 mt-2 text-sm leading-6 text-muted-foreground">
-              两个 Story 的自定义元数据不同。请明确选择合并后保留的标题和笔记。
-            </DialogDescription>
-            <div className="grid gap-4">
-              <label>
-                <span>合并后的显示标题</span>
-                <Input
-                  value={mergeResolution.displayTitle}
-                  onChange={(event) => setMergeResolution((current) => current ? { ...current, displayTitle: event.target.value } : current)}
-                />
-              </label>
-              <label>
-                <span>合并后的笔记</span>
-                <Textarea
-                  value={mergeResolution.note}
-                  onChange={(event) => setMergeResolution((current) => current ? { ...current, note: event.target.value } : current)}
-                />
-              </label>
-            </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <DialogClose asChild><Button variant="secondary">取消</Button></DialogClose>
-              <Button onClick={() => void resolveStoryMerge()}>确认合并</Button>
-            </div>
-          </DialogContent>
-        )}
-      </Dialog>
-      <Dialog open={deleteRequest !== null} onOpenChange={(open) => !open && setDeleteRequest(null)}>
-        {deleteRequest && (
-          <DialogContent>
-            <DialogTitle>{deleteRequest.confirmation ? '确认删除最后一条来源内容？' : '永久删除来源内容？'}</DialogTitle>
-            <DialogDescription className="mb-5 mt-2 text-sm leading-6 text-muted-foreground">
-              {deleteRequest.confirmation
-                ? `这会同时删除 Story「${deleteRequest.confirmation.display_title || '无标题'}」及其笔记；此操作不可撤销。`
-                : '这会写入 Tombstone，防止来源内容被再次摄取恢复。普通阅读移除请使用隐藏。'}
-            </DialogDescription>
-            {deleteRequest.confirmation?.note && (
-              <p className="mb-4 rounded-md bg-muted px-3 py-2 text-sm">Story 笔记：{deleteRequest.confirmation.note}</p>
-            )}
-            <div className="flex justify-end gap-2">
-              <DialogClose asChild><Button variant="secondary">取消</Button></DialogClose>
-              <Button variant="destructive" onClick={() => void confirmEntryDeletion()}>确认永久删除</Button>
-            </div>
-          </DialogContent>
-        )}
-      </Dialog>
     </div>
   )
-}
-
-function scrollWithin(container: HTMLElement | null, element: HTMLElement) {
-  if (!container) return
-  container.scrollTo({
-    top: container.scrollTop + element.getBoundingClientRect().top - container.getBoundingClientRect().top,
-    behavior: 'smooth',
-  })
-}
-
-function HighlightText({ text, query }: { text: string; query: string }) {
-  if (!query) return text
-  const index = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase())
-  if (index < 0) return text
-  const end = index + query.length
-  return (
-    <>
-      {text.slice(0, index)}
-      <mark className="rounded-sm bg-amber-200/70 px-0.5 text-inherit">{text.slice(index, end)}</mark>
-      {text.slice(end)}
-    </>
-  )
-}
-
-function compactTime(value: string): string {
-  const date = new Date(value)
-  const today = new Date()
-  if (date.toDateString() === today.toDateString()) {
-    return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(date)
-  }
-  return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(date)
-}
-
-function isActiveStorySummary(summary?: api.StoryAISummary) {
-  return summary?.status === 'queued' || summary?.status === 'running'
 }
 
 function CreateSourceDialog({

@@ -112,7 +112,13 @@ describe('DigestPage', () => {
     expect(screen.getByLabelText('最晚时间（可选）')).toHaveAttribute('aria-haspopup', 'dialog')
     expect(screen.getByLabelText('最早时间（可选）')).toHaveClass('w-full')
     expect(screen.getByLabelText('最晚时间（可选）')).toHaveClass('w-full')
-    expect(screen.getAllByRole('link', { name: /标题一/ })[0]).toHaveAttribute('href', '/stories/story-1')
+    expect(screen.getAllByText('标题一').length).toBeGreaterThan(0)
+    // The label (S1) is a separate badge and the title is not duplicated into
+    // the source column. Available references render as expandable rows (no
+    // navigation links); collapsed rows must not fetch each Story (N+1 guard).
+    expect(screen.queryByText('S1 · 标题一')).toBeNull()
+    expect(document.querySelector('a[href="/stories/story-1"]')).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/v1/stories/story-1', undefined)
     expect(screen.getAllByText(/S2 · 标题二/).every((element) => element.closest('a') === null)).toBe(true)
     expect(screen.getByText('主题一')).toBeInTheDocument()
     expect(screen.getByText(/先看标题一/)).toBeInTheDocument()
@@ -210,7 +216,7 @@ describe('DigestPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '生成追更摘要' }))
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/digests', expect.objectContaining({
       method: 'POST',
-      body: '{}',
+      body: '{"order":"oldest"}',
     })))
   })
 
@@ -341,6 +347,67 @@ describe('DigestPage', () => {
     expect(within(historyItem).getByText('生成中')).toBeInTheDocument()
     await waitFor(() => expect(within(historyItem).getByText('已完成')).toBeInTheDocument(), { timeout: 4000 })
     expect(listCalls).toBeGreaterThan(1)
+  })
+
+  it('expands a referenced Story in place and refreshes the digest after an edit', async () => {
+    const digest = {
+      id: 'digest-1',
+      status: 'completed',
+      mode: 'catch_up',
+      story_count: 1,
+      created_at: '2026-08-04T09:00:00Z',
+      stories: [
+        { label: 'S1', story_id: 'story-1', title: '标题一', entry_count: 1, source_count: 1, available: true, source_title: '来源一', sort_time: '2026-08-04T09:00:00Z' },
+      ],
+      themes: [{ title: '主题一', summary: '归类。', story_ids: ['story-1'] }],
+      priorities: [{ rank: 1, title: '先看标题一', reason: '重要。', story_ids: ['story-1'] }],
+    }
+    let digestCalls = 0
+    const entry = {
+      id: 'entry-1', source_id: 'source-1', identity_key: 'k1', source_title: '来源一',
+      content_html: '<p>引用原文正文</p>', discovered_at: '2026-08-04T09:00:00Z',
+    }
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/v1/digests?limit=50') return new Response(JSON.stringify([digest]), { status: 200 })
+      if (url === '/api/v1/digests/digest-1') {
+        digestCalls += 1
+        return new Response(JSON.stringify(digest), { status: 200 })
+      }
+      if (url === '/api/v1/stories/story-1' && init?.method === 'PATCH') {
+        return new Response(JSON.stringify({ id: 'story-1', representative: entry, entries: [entry], entry_count: 1, source_count: 1, starred_at: '2026-08-04T10:00:00Z' }), { status: 200 })
+      }
+      if (url === '/api/v1/stories/story-1') {
+        return new Response(JSON.stringify({ id: 'story-1', representative: entry, entries: [entry], entry_count: 1, source_count: 1 }), { status: 200 })
+      }
+      if (url.startsWith('/api/v1/digests/preview')) {
+        return new Response('{"scope":{},"matching_stories":0,"matching_stories_truncated":false,"selected_stories":0,"safety_limit":100,"can_queue":true}', { status: 200 })
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderWithQueryClient(<DigestPage />)
+    await screen.findByText('主题一')
+    const digestCallsBeforeExpand = digestCalls
+
+    // Collapsed rows must not fetch each Story (N+1 guard).
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/v1/stories/story-1', undefined)
+
+    // Expanding renders the article body in place (no navigation link followed).
+    fireEvent.click(screen.getAllByText('标题一')[0])
+    expect(await screen.findByText('引用原文正文')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/stories/story-1', undefined)
+    expect(document.querySelector('a[href="/stories/story-1"]')).toBeNull()
+
+    // Mark-read-on-expand fires but must NOT reload the digest card.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/stories/story-1', expect.objectContaining({ method: 'PATCH' })))
+    expect(digestCalls).toBe(digestCallsBeforeExpand)
+
+    // A real edit (star) refreshes the digest.
+    fireEvent.pointerDown(screen.getByRole('button', { name: '更多操作' }), { button: 0 })
+    fireEvent.click(await screen.findByRole('menuitem', { name: '收藏文章' }))
+    await waitFor(() => expect(digestCalls).toBeGreaterThan(digestCallsBeforeExpand))
   })
 })
 
