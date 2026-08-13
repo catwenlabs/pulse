@@ -29,7 +29,7 @@
 @layer base {
   * { @apply box-border border-border; }
   html { @apply bg-background text-foreground; font-size: 16px; line-height: 1.5; }
-  body { @apply m-0 min-h-screen min-w-80 overflow-hidden bg-background font-sans text-base leading-6 text-foreground antialiased; }
+  body { @apply m-0 min-h-dvh min-w-80 overflow-hidden bg-background font-sans text-base leading-6 text-foreground antialiased; }
   button, input, select, textarea { font: inherit; }
   button, a { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   :focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
@@ -447,7 +447,7 @@
   .stream-entry-summary time { @apply text-right text-[11px] text-[#9b978e] max-md:col-start-3 max-md:row-start-1 max-md:self-start max-md:text-[10px]; }
   .expand-chevron { @apply text-[#aaa59a] transition-transform max-md:col-start-4 max-md:row-span-2 max-md:self-center; }
   .stream-entry.expanded .expand-chevron { @apply rotate-180; }
-  .stream-entry-detail { @apply min-h-[calc(100vh-100px)] border-t border-[#e8e9eb] bg-white px-[clamp(28px,8vw,120px)] pb-16 max-md:px-[18px] max-md:pb-[38px] max-md:pt-[18px]; }
+  .stream-entry-detail { @apply min-h-[calc(100dvh-100px)] border-t border-[#e8e9eb] bg-white px-[clamp(28px,8vw,120px)] pb-16 max-md:px-[18px] max-md:pb-[38px] max-md:pt-[18px]; }
   .entry-reading-column { @apply mx-auto max-w-[820px]; }
   .entry-reading-column > h2 { @apply mb-3 mt-0 text-[clamp(28px,3vw,40px)] font-bold leading-[1.18] tracking-[-.024em]; }
   .entry-detail-bar { @apply mb-7 flex min-h-12 items-center justify-between border-b border-[#eeeae2] text-xs text-[#8c887f] max-md:mb-[22px]; }
