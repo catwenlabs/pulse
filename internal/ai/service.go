@@ -193,5 +193,19 @@ func validateDigestScope(scope DigestScope, limit int) error {
 	if scope.MaxStories > limit {
 		return &ScopeLimitError{Count: scope.MaxStories, Limit: limit}
 	}
+	switch scope.Order {
+	case "", DigestOrderOldest, DigestOrderNewest:
+	default:
+		return &ScopeValidationError{Field: "order", Message: "Digest order must be \"oldest\" or \"newest\""}
+	}
 	return nil
+}
+
+// ResolvedOrder defaults an empty scope order to oldest-first so catch-up
+// digests consume the backlog chronologically.
+func (scope DigestScope) ResolvedOrder() DigestOrder {
+	if scope.Order == DigestOrderNewest {
+		return DigestOrderNewest
+	}
+	return DigestOrderOldest
 }

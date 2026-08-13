@@ -130,7 +130,13 @@ func (store *AIStore) SnapshotUnreadStories(ctx context.Context, scope ai.Digest
 	if limit <= 0 {
 		limit = defaultAIDigestLimit
 	}
-	rows, err := store.pool.Query(ctx, `
+	// The ORDER BY clause is selected from a fixed whitelist — never built from
+	// user input — so the scope's order cannot inject SQL.
+	orderClause := "story.sort_time ASC, story.id ASC"
+	if scope.ResolvedOrder() == ai.DigestOrderNewest {
+		orderClause = "story.sort_time DESC, story.id DESC"
+	}
+	query := fmt.Sprintf(`
 		SELECT
 			story.id,
 			coalesce(nullif(story.display_title, ''), nullif(entry.source_title, ''), ''),
@@ -152,9 +158,10 @@ func (store *AIStore) SnapshotUnreadStories(ctx context.Context, scope ai.Digest
 		  AND story.hidden_at IS NULL
 		  AND ($1::timestamptz IS NULL OR story.sort_time >= $1)
 		  AND ($2::timestamptz IS NULL OR story.sort_time < $2)
-		ORDER BY story.sort_time DESC, story.id DESC
+		ORDER BY %s
 		LIMIT $3
-	`, scope.StartAt, scope.EndAt, limit)
+	`, orderClause)
+	rows, err := store.pool.Query(ctx, query, scope.StartAt, scope.EndAt, limit)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot unread Stories for Digest: %w", err)
 	}
@@ -317,8 +324,15 @@ func (store *AIStore) GetDigest(ctx context.Context, digestID string) (ai.Digest
 		SELECT
 			ref.label, ref.story_id, ref.story_title, ref.entry_count, ref.source_count,
 			(EXISTS (SELECT 1 FROM stories WHERE id = ref.story_id)
-			 OR EXISTS (SELECT 1 FROM story_aliases WHERE alias_id = ref.story_id))
+			 OR EXISTS (SELECT 1 FROM story_aliases WHERE alias_id = ref.story_id)),
+			ref.sort_time,
+			coalesce(rep_entry.source_title, '')
 		FROM ai_digest_stories AS ref
+		LEFT JOIN stories AS story
+			ON story.id = coalesce(
+				(SELECT canonical_story_id FROM story_aliases WHERE alias_id = ref.story_id),
+				ref.story_id)
+		LEFT JOIN entries AS rep_entry ON rep_entry.id = story.representative_entry_id
 		WHERE ref.digest_id = $1
 		ORDER BY ref.label
 	`, digestID)
@@ -328,7 +342,7 @@ func (store *AIStore) GetDigest(ctx context.Context, digestID string) (ai.Digest
 	defer rows.Close()
 	for rows.Next() {
 		var story ai.DigestStory
-		if err := rows.Scan(&story.Label, &story.StoryID, &story.Title, &story.EntryCount, &story.SourceCount, &story.Available); err != nil {
+		if err := rows.Scan(&story.Label, &story.StoryID, &story.Title, &story.EntryCount, &story.SourceCount, &story.Available, &story.SortTime, &story.SourceTitle); err != nil {
 			return ai.Digest{}, fmt.Errorf("scan Digest Story reference: %w", err)
 		}
 		item.Stories = append(item.Stories, story)

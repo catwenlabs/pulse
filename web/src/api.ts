@@ -166,10 +166,13 @@ export interface StoryAISummary {
   updated_at?: string
 }
 
+export type DigestOrder = 'oldest' | 'newest'
+
 export interface DigestScope {
   start_at?: string
   end_at?: string
   max_stories?: number
+  order?: DigestOrder
 }
 
 export interface DigestPreview {
@@ -201,6 +204,8 @@ export interface DigestStory {
   entry_count: number
   source_count: number
   available: boolean
+  source_title?: string
+  sort_time?: string
 }
 
 export interface DigestOmission {
@@ -538,6 +543,7 @@ export function previewDigest(scope: DigestScope = {}): Promise<DigestPreview> {
   if (scope.start_at) parameters.set('start_at', scope.start_at)
   if (scope.end_at) parameters.set('end_at', scope.end_at)
   if (scope.max_stories !== undefined) parameters.set('max_stories', String(scope.max_stories))
+  if (scope.order) parameters.set('order', scope.order)
   const suffix = parameters.size > 0 ? `?${parameters}` : ''
   return request<DigestPreview>(`/api/v1/digests/preview${suffix}`)
 }

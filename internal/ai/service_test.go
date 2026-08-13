@@ -125,3 +125,33 @@ func TestServiceDoesNotTreatDigestAsReadOperation(t *testing.T) {
 		t.Errorf("digest job = %+v", store.digestJob)
 	}
 }
+
+func TestServiceRejectsUnknownDigestOrder(t *testing.T) {
+	_, err := NewService(&fakeStore{}, fakeProvider{}, ServiceOptions{}).RequestDigest(context.Background(), DigestScope{
+		MaxStories: 1,
+		Order:      DigestOrder("sideways"),
+	})
+	var validationErr *ScopeValidationError
+	if !errors.As(err, &validationErr) || validationErr.Field != "order" {
+		t.Fatalf("RequestDigest() error = %v, want order validation", err)
+	}
+}
+
+func TestDigestScopeResolvedOrderDefaultsToOldest(t *testing.T) {
+	cases := []struct {
+		name  string
+		scope DigestScope
+		want  DigestOrder
+	}{
+		{name: "empty defaults to oldest", scope: DigestScope{}, want: DigestOrderOldest},
+		{name: "explicit oldest", scope: DigestScope{Order: DigestOrderOldest}, want: DigestOrderOldest},
+		{name: "explicit newest", scope: DigestScope{Order: DigestOrderNewest}, want: DigestOrderNewest},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := testCase.scope.ResolvedOrder(); got != testCase.want {
+				t.Fatalf("ResolvedOrder() = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}

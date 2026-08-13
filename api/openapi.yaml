@@ -696,6 +696,12 @@ paths:
           schema:
             type: integer
             minimum: 0
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [oldest, newest]
+            default: oldest
       responses:
         "200":
           description: Matching unread Story count and queueability
@@ -1803,6 +1809,11 @@ components:
           type: integer
           minimum: 0
           description: 0 uses the default scope and requires narrowing when it exceeds the configured safety limit.
+        order:
+          type: string
+          enum: [oldest, newest]
+          default: oldest
+          description: Which end of the unread backlog to consume first when the scope is limited. Defaults to oldest-first (chronological catch-up).
     DigestPreview:
       type: object
       required: [scope, matching_stories, matching_stories_truncated, selected_stories, safety_limit, can_queue]
@@ -1924,6 +1935,12 @@ components:
           type: integer
         available:
           type: boolean
+        source_title:
+          type: string
+          description: Representative entry's feed title, resolved live via story_id. Empty when the story is unavailable.
+        sort_time:
+          type: string
+          format: date-time
     DigestOmission:
       type: object
       required: [label, title, reason]

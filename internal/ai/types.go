@@ -142,10 +142,21 @@ type DigestStorySnapshot struct {
 	InputFingerprint string     `json:"input_fingerprint,omitempty"`
 }
 
+// DigestOrder controls which end of the unread backlog a Digest consumes first.
+type DigestOrder string
+
+const (
+	// DigestOrderOldest consumes the oldest unread Stories first (catch-up order).
+	DigestOrderOldest DigestOrder = "oldest"
+	// DigestOrderNewest consumes the newest unread Stories first.
+	DigestOrderNewest DigestOrder = "newest"
+)
+
 type DigestScope struct {
-	StartAt    *time.Time `json:"start_at,omitempty"`
-	EndAt      *time.Time `json:"end_at,omitempty"`
-	MaxStories int        `json:"max_stories,omitempty"`
+	StartAt    *time.Time  `json:"start_at,omitempty"`
+	EndAt      *time.Time  `json:"end_at,omitempty"`
+	MaxStories int         `json:"max_stories,omitempty"`
+	Order      DigestOrder `json:"order,omitempty"`
 }
 
 type DigestPreview struct {
@@ -215,12 +226,14 @@ type DigestPriority struct {
 }
 
 type DigestStory struct {
-	Label       string `json:"label"`
-	StoryID     string `json:"story_id"`
-	Title       string `json:"title"`
-	EntryCount  int    `json:"entry_count"`
-	SourceCount int    `json:"source_count"`
-	Available   bool   `json:"available"`
+	Label       string     `json:"label"`
+	StoryID     string     `json:"story_id"`
+	Title       string     `json:"title"`
+	EntryCount  int        `json:"entry_count"`
+	SourceCount int        `json:"source_count"`
+	Available   bool       `json:"available"`
+	SourceTitle string     `json:"source_title,omitempty"`
+	SortTime    *time.Time `json:"sort_time,omitempty"`
 }
 
 type DigestOmission struct {

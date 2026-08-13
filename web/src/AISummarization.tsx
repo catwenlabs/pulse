@@ -3,33 +3,33 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ArrowUpRight, BookOpen, CalendarDays, CheckCircle2, ChevronDown, Clock3, FileText, Info, Loader2, RefreshCw, Sparkles, Star, Tag, X } from 'lucide-react'
 
 import * as api from './api'
-import type { Digest, DigestPriority, DigestStory, DigestTheme, Entry, Story, StoryAISummary } from './api'
+import type { Digest, DigestPriority, DigestStory, DigestTheme, Entry } from './api'
 import { EntryReader } from './components/EntryReader'
+import { StoryListItem, type StoryListItemChange, type StoryMergeCandidate } from './components/StoryListItem'
+import { isActiveStorySummary, isStoredStorySummary, statusLabels, StorySummaryCard } from './components/storySummary'
 import { Button } from './components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog'
 import { DateTimePicker } from './components/ui/date-time-picker'
 import { Input } from './components/ui/input'
+import { Select } from './components/ui/select'
 import { queryKeys } from './query'
 
 const activeJobStatuses = new Set(['pending', 'running', 'retry', 'queued'])
 const digestScrollTopGap = 24
 
-export function isStoredStorySummary(summary?: StoryAISummary) {
-  return Boolean(summary && summary.status !== 'not_requested')
-}
-
-const statusLabels: Record<string, string> = {
-  not_requested: '尚未生成',
-  queued: '排队中',
-  pending: '排队中',
-  running: '生成中',
-  retry: '等待重试',
-  completed: '已完成',
-  partial: '部分完成',
-  failed: '生成失败',
-  dead: '已停止',
-  stale: '内容已变化',
-  unavailable: 'AI 不可用',
+// Context threaded through every place a digest references a Story, so each
+// reference renders the same self-contained, expandable list item as the
+// homepage reader (no navigation). Expansion is tracked per reference occurrence
+// (not per story id) so the same Story referenced in several sections expands
+// independently; the getStory fetch is still deduped by story id.
+interface DigestReferenceContext {
+  digestId: string
+  mergeCandidates: StoryMergeCandidate[]
+  expandedKeys: Set<string>
+  toggleExpanded: (referenceKey: string, open: boolean) => void
+  onChanged: (change: StoryListItemChange) => void
+  onRemoved: (storyId: string) => void
+  onError: (message: string) => void
 }
 
 export function DigestPage() {
@@ -38,6 +38,7 @@ export function DigestPage() {
   const [maxStories, setMaxStories] = useState('')
   const [startAt, setStartAt] = useState('')
   const [endAt, setEndAt] = useState('')
+  const [order, setOrder] = useState<api.DigestOrder>('oldest')
   const [formError, setFormError] = useState('')
   const [markedDigestID, setMarkedDigestID] = useState('')
   const [scopeDialogOpen, setScopeDialogOpen] = useState(false)
@@ -49,14 +50,15 @@ export function DigestPage() {
     start_at: localDateTimeToISOString(startAt),
     end_at: localDateTimeToISOString(endAt),
     max_stories: parsedMaxStories,
-  }), [endAt, parsedMaxStories, startAt])
+    order,
+  }), [endAt, order, parsedMaxStories, startAt])
   const digestsQuery = useQuery({
     queryKey: queryKeys.digests,
     queryFn: () => api.listDigests(),
     refetchInterval: (query) => query.state.data?.some((digest) => isActiveStatus(digest.status)) ? 1500 : false,
   })
   const previewQuery = useQuery({
-    queryKey: queryKeys.digestPreview({ startAt, endAt, maxStories }),
+    queryKey: queryKeys.digestPreview({ startAt, endAt, maxStories, order }),
     queryFn: () => api.previewDigest(draftScope),
     enabled: maxStoriesValid,
     placeholderData: (previousData) => previousData,
@@ -178,28 +180,40 @@ export function DigestPage() {
             {formatDigestSubtitle(preview, previewQuery.isPending, previewQuery.error)}
           </p>
         </div>
-        <Button
-          className="ai-header-action min-w-[148px] cursor-pointer"
-          disabled={digestActionDisabled}
-          onClick={() => {
-            if (previewQuery.error) {
-              void previewQuery.refetch()
-            } else if (scopeDialogRequired) {
-              setScopeDialogOpen(true)
-            } else {
-              void createDigest()
-            }
-          }}
-        >
-          {createMutation.isPending || previewQuery.isPending
-            ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-            : previewQuery.error
-              ? <RefreshCw className="size-4" aria-hidden="true" />
-              : scopeDialogRequired
-                ? <CalendarDays className="size-4" aria-hidden="true" />
-                : <Sparkles className="size-4" aria-hidden="true" />}
-          <span>{digestActionLabel}</span>
-        </Button>
+        <div className="ai-header-actions">
+          <Button
+            type="button"
+            variant="secondary"
+            className="cursor-pointer"
+            aria-label="设置追更范围"
+            onClick={() => setScopeDialogOpen(true)}
+          >
+            <CalendarDays className="size-4" aria-hidden="true" />
+            <span>范围</span>
+          </Button>
+          <Button
+            className="ai-header-action min-w-[148px] cursor-pointer"
+            disabled={digestActionDisabled}
+            onClick={() => {
+              if (previewQuery.error) {
+                void previewQuery.refetch()
+              } else if (scopeDialogRequired) {
+                setScopeDialogOpen(true)
+              } else {
+                void createDigest()
+              }
+            }}
+          >
+            {createMutation.isPending || previewQuery.isPending
+              ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              : previewQuery.error
+                ? <RefreshCw className="size-4" aria-hidden="true" />
+                : scopeDialogRequired
+                  ? <CalendarDays className="size-4" aria-hidden="true" />
+                  : <Sparkles className="size-4" aria-hidden="true" />}
+            <span>{digestActionLabel}</span>
+          </Button>
+        </div>
       </header>
 
       <Dialog
@@ -259,6 +273,16 @@ export function DigestPage() {
                     <Input id="digest-max-stories" inputMode="numeric" min={1} placeholder="默认安全上限" aria-describedby="digest-max-stories-hint digest-scope-hint" value={maxStories} onChange={(event) => setMaxStories(event.target.value)} />
                   </label>
                   <p className="ai-field-hint" id="digest-max-stories-hint">控制本次最多处理的数量</p>
+                </div>
+                <div className="ai-scope-field">
+                  <label htmlFor="digest-order">
+                    <span className="ai-field-label"><Clock3 size={16} aria-hidden="true" />处理顺序</span>
+                    <Select id="digest-order" aria-describedby="digest-order-hint digest-scope-hint" value={order} onChange={(event) => setOrder(event.target.value as api.DigestOrder)}>
+                      <option value="oldest">从旧到新（先补最早的）</option>
+                      <option value="newest">从新到旧（先看最新的）</option>
+                    </Select>
+                  </label>
+                  <p className="ai-field-hint" id="digest-order-hint">数量受限时决定从哪一端开始处理</p>
                 </div>
               </div>
             </fieldset>
@@ -393,6 +417,7 @@ function digestScopesEqual(left: api.DigestScope, right: api.DigestScope) {
   return (left.start_at ?? '') === (right.start_at ?? '')
     && (left.end_at ?? '') === (right.end_at ?? '')
     && (left.max_stories ?? 0) === (right.max_stories ?? 0)
+    && (left.order ?? 'oldest') === (right.order ?? 'oldest')
 }
 
 function DigestResult({
@@ -458,6 +483,38 @@ function DigestResult({
     && !processing
     && (digest.status === 'completed' || digest.status === 'partial')
     && readableStories.length > 0
+
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set())
+  const [storyNotice, setStoryNotice] = useState('')
+  const queryClient = useQueryClient()
+  const mergeCandidates = readableStories.map((story) => ({
+    storyId: story.story_id,
+    title: story.title || '无标题',
+  }))
+  const referenceContext: DigestReferenceContext = {
+    digestId: digest.id,
+    mergeCandidates,
+    expandedKeys,
+    toggleExpanded: (referenceKey, open) => setExpandedKeys((current) => {
+      if (open ? current.has(referenceKey) : !current.has(referenceKey)) return current
+      const next = new Set(current)
+      if (open) next.add(referenceKey); else next.delete(referenceKey)
+      return next
+    }),
+    onChanged: (change) => {
+      // Skip the auto mark-read-on-expand (a read-only patch) so expanding a row
+      // doesn't reload the whole digest card; any other change refreshes it so
+      // availability and counts stay in sync.
+      if (change.kind === 'patched' && Object.keys(change.patch).length === 1 && change.patch.read !== undefined) return
+      void queryClient.invalidateQueries({ queryKey: queryKeys.digest(digest.id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.digests })
+    },
+    onRemoved: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.digest(digest.id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.digests })
+    },
+    onError: (message) => setStoryNotice(message),
+  }
   return (
     <section className="ai-result-card" aria-labelledby="digest-result-title" aria-live={processing || refreshing ? 'polite' : undefined}>
       {refreshing && (
@@ -482,6 +539,7 @@ function DigestResult({
       </div>
       {processing && <p className="ai-processing-note"><Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />正在整理标题级速览，完成后会自动更新。</p>}
       {digest.error && <p className="ai-error-box" role="alert">{digest.error}</p>}
+      {storyNotice && <p className="ai-result-action-error" role="alert">{storyNotice}</p>}
       {canMarkRead && (
         <>
           <div className="ai-result-actions">
@@ -508,10 +566,10 @@ function DigestResult({
         </div>
       )}
       {digest.priorities && digest.priorities.length > 0 && (
-        <DigestPriorities priorities={digest.priorities} storyByID={storyByID} />
+        <DigestPriorities priorities={digest.priorities} storyByID={storyByID} referenceContext={referenceContext} />
       )}
       {digest.themes && digest.themes.length > 0 && (
-        <DigestThemes themes={digest.themes} storyByID={storyByID} />
+        <DigestThemes themes={digest.themes} storyByID={storyByID} referenceContext={referenceContext} />
       )}
       <section className="ai-source-section" aria-labelledby="digest-sources-title">
         <div className="ai-subsection-heading">
@@ -522,7 +580,7 @@ function DigestResult({
           <span>{stories.length} 个</span>
         </div>
         <div className="ai-source-list">
-          {stories.map((story) => <StoryReference key={story.story_id} story={story} />)}
+          {stories.map((story) => <StoryReference key={story.story_id} story={story} referenceKey={`index:${story.story_id}`} referenceContext={referenceContext} />)}
         </div>
       </section>
       {digest.omissions && digest.omissions.length > 0 && (
@@ -534,26 +592,35 @@ function DigestResult({
             </div>
             <span>{digest.omissions.length} 个</span>
           </div>
-          <ul className="ai-omission-list">
+          <div className="ai-source-list">
             {digest.omissions.map((item) => {
               const snapshot = item.story_id ? storyByID.get(item.story_id) : undefined
-              return <li key={`${item.label}-${item.story_id || item.title}`}><StoryReference story={{
-                label: item.label,
-                story_id: item.story_id || '',
-                title: item.title,
-                entry_count: snapshot?.entry_count ?? 0,
-                source_count: snapshot?.source_count ?? 0,
-                available: snapshot?.available ?? false,
-              }} />：{item.reason}</li>
+              return (
+                <StoryReference
+                  key={`omission-${item.label}-${item.story_id || item.title}`}
+                  story={{
+                    label: item.label,
+                    story_id: item.story_id || '',
+                    title: item.title,
+                    entry_count: snapshot?.entry_count ?? 0,
+                    source_count: snapshot?.source_count ?? 0,
+                    available: snapshot?.available ?? false,
+                    source_title: snapshot?.source_title,
+                    sort_time: snapshot?.sort_time,
+                  }}
+                  referenceKey={`omission:${item.label}:${item.story_id || item.title}`}
+                  referenceContext={referenceContext}
+                />
+              )
             })}
-          </ul>
+          </div>
         </section>
       )}
     </section>
   )
 }
 
-function DigestPriorities({ priorities, storyByID }: { priorities: DigestPriority[]; storyByID: Map<string, DigestStory> }) {
+function DigestPriorities({ priorities, storyByID, referenceContext }: { priorities: DigestPriority[]; storyByID: Map<string, DigestStory>; referenceContext: DigestReferenceContext }) {
   return (
     <section className="ai-section" aria-labelledby="digest-priorities-title">
       <div className="ai-subsection-heading">
@@ -571,7 +638,7 @@ function DigestPriorities({ priorities, storyByID }: { priorities: DigestPriorit
               <strong>{priority.title}</strong>
             </div>
             <p>{priority.reason}</p>
-            <StoryReferenceList ids={priority.story_ids} storyByID={storyByID} />
+            <StoryReferenceList ids={priority.story_ids} storyByID={storyByID} origin={`priority:${priority.rank}`} referenceContext={referenceContext} />
           </article>
         ))}
       </div>
@@ -579,7 +646,7 @@ function DigestPriorities({ priorities, storyByID }: { priorities: DigestPriorit
   )
 }
 
-function DigestThemes({ themes, storyByID }: { themes: DigestTheme[]; storyByID: Map<string, DigestStory> }) {
+function DigestThemes({ themes, storyByID, referenceContext }: { themes: DigestTheme[]; storyByID: Map<string, DigestStory>; referenceContext: DigestReferenceContext }) {
   return (
     <section className="ai-section" aria-labelledby="digest-themes-title">
       <div className="ai-subsection-heading">
@@ -594,7 +661,7 @@ function DigestThemes({ themes, storyByID }: { themes: DigestTheme[]; storyByID:
           <article key={theme.title}>
             <strong>{theme.title}</strong>
             <p>{theme.summary}</p>
-            <StoryReferenceList ids={theme.story_ids} storyByID={storyByID} />
+            <StoryReferenceList ids={theme.story_ids} storyByID={storyByID} origin={`theme:${theme.title}`} referenceContext={referenceContext} />
           </article>
         ))}
       </div>
@@ -602,24 +669,39 @@ function DigestThemes({ themes, storyByID }: { themes: DigestTheme[]; storyByID:
   )
 }
 
-function StoryReferenceList({ ids, storyByID }: { ids: string[]; storyByID: Map<string, DigestStory> }) {
+function StoryReferenceList({ ids, storyByID, origin, referenceContext }: { ids: string[]; storyByID: Map<string, DigestStory>; origin: string; referenceContext: DigestReferenceContext }) {
   return <div className="ai-reference-list">{ids.map((id) => {
     const story = storyByID.get(id)
-    return story ? <StoryReference key={id} story={story} /> : <a href={`/stories/${id}`} key={id}>查看 Story</a>
+    return story
+      ? <StoryReference key={id} story={story} referenceKey={`${origin}:${id}`} referenceContext={referenceContext} />
+      : <a href={`/stories/${id}`} key={id}>查看 Story</a>
   })}</div>
 }
 
-function StoryReference({ story }: { story: DigestStory }) {
+function StoryReference({ story, referenceKey, referenceContext }: { story: DigestStory; referenceKey: string; referenceContext: DigestReferenceContext }) {
 	if (!story.story_id || !story.available) {
 		return <span className="ai-reference ai-reference-unavailable">{story.label} · {story.title || '来源 Story 已不可用'}</span>
 	}
   return (
-    <a className="ai-reference" href={`/stories/${story.story_id}`}>
-      <span className="ai-reference-label">{story.label}</span>
-      <strong>{story.title || '无标题'}</strong>
-      {story.entry_count > 0 && <small>{story.entry_count} 个 Entry · {story.source_count} 个来源</small>}
-      <ArrowUpRight className="ai-reference-arrow" size={15} aria-hidden="true" />
-    </a>
+    <StoryListItem
+      storyId={story.story_id}
+      row={{
+        label: story.label,
+        title: story.title || '无标题',
+        // Only multi-source stories carry distinct source info; a single source's
+        // source_title is the article title itself, so showing it would duplicate
+        // the title column.
+        sourceLabel: story.source_count > 1 ? `${story.source_count} 个来源` : '',
+        timestamp: story.sort_time ?? '',
+        read: false,
+      }}
+      expanded={referenceContext.expandedKeys.has(referenceKey)}
+      onExpandedChange={(open) => referenceContext.toggleExpanded(referenceKey, open)}
+      mergeCandidates={referenceContext.mergeCandidates}
+      onChanged={referenceContext.onChanged}
+      onRemoved={() => referenceContext.onRemoved(story.story_id)}
+      onError={referenceContext.onError}
+    />
   )
 }
 
@@ -628,7 +710,7 @@ export function StoryDetailPage({ storyID }: { storyID: string }) {
   const storyQuery = useQuery({
     queryKey: queryKeys.story(storyID),
     queryFn: () => api.getStory(storyID),
-    refetchInterval: (query) => storySummaryIsActive(query.state.data?.ai_summary) ? 1500 : false,
+    refetchInterval: (query) => isActiveStorySummary(query.state.data?.ai_summary) ? 1500 : false,
   })
   const requestMutation = useMutation({
     mutationFn: () => api.requestStorySummary(storyID),
@@ -643,7 +725,7 @@ export function StoryDetailPage({ storyID }: { storyID: string }) {
   const summary = story.ai_summary
   const title = story.display_title || story.representative.source_title || '无标题'
   const storyDate = story.first_published_at || story.representative.published_at || story.representative.discovered_at
-  const summaryPending = requestMutation.isPending || storySummaryIsActive(summary)
+  const summaryPending = requestMutation.isPending || isActiveStorySummary(summary)
   return (
     <div className="ai-page story-detail-page">
       <div className="story-detail-shell">
@@ -728,113 +810,6 @@ export function StoryDetailPage({ storyID }: { storyID: string }) {
   )
 }
 
-export function StorySummaryCard({
-  summary,
-  loading = false,
-  loadError = null,
-  onRetry,
-}: {
-  summary?: StoryAISummary
-  loading?: boolean
-  loadError?: Error | null
-  onRetry?: () => void
-}) {
-  if (loading) {
-    return (
-      <section className="ai-summary-card story-summary-card" aria-live="polite" role="status">
-        <div className="ai-loading-state">
-          <span className="ai-loading-icon" aria-hidden="true"><Loader2 size={22} className="animate-spin motion-reduce:animate-none" /></span>
-          <strong>正在加载 AI 摘要</strong>
-          <p>正在读取这个 Story 的摘要状态，请稍候。</p>
-        </div>
-      </section>
-    )
-  }
-  if (loadError) {
-    return (
-      <section className="ai-summary-card story-summary-card" role="alert">
-        <div className="ai-loading-state ai-error">
-          <strong>暂时无法加载 AI 摘要</strong>
-          <p>{loadError.message}</p>
-          {onRetry && <Button variant="secondary" size="sm" onClick={onRetry}>重试加载</Button>}
-        </div>
-      </section>
-    )
-  }
-  if (!summary || summary.status === 'not_requested') {
-    return (
-      <section className="ai-summary-card story-summary-card pb-6" aria-labelledby="story-summary-title">
-        <header className="ai-card-heading story-summary-heading">
-          <div className="ai-card-heading-title">
-            <span className="ai-card-icon" aria-hidden="true"><FileText size={18} /></span>
-            <div>
-              <p className="ai-eyebrow">AI STORY SUMMARY</p>
-              <h2 id="story-summary-title">内容摘要</h2>
-            </div>
-          </div>
-          <span className="story-summary-request-status">按需生成</span>
-        </header>
-        <p className="story-summary-empty-copy">还没有摘要。点击「生成AI摘要」后，AI 才会读取这个 Story 的内容。</p>
-      </section>
-    )
-  }
-  return (
-    <section className="ai-summary-card story-summary-card pb-6" aria-labelledby="story-summary-title">
-      <header className="ai-card-heading story-summary-heading">
-        <div className="ai-card-heading-title">
-          <span className="ai-card-icon" aria-hidden="true"><FileText size={18} /></span>
-          <div>
-            <p className="ai-eyebrow">AI STORY SUMMARY</p>
-            <h2 id="story-summary-title">内容摘要</h2>
-          </div>
-        </div>
-        <span className={`ai-status ai-status-${summary.status}`}>{statusLabels[summary.status] ?? summary.status}</span>
-      </header>
-      {summary.error && <p className="ai-error-box">{summary.error}</p>}
-      {storySummaryIsActive(summary) && (
-        <p className="story-summary-processing" role="status">
-          <Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-          摘要正在生成，完成后会自动更新。
-        </p>
-      )}
-      {summary.overview && (
-        <div className="ai-overview">
-          <span className="ai-overview-label">AI 速览</span>
-          <p>{summary.overview}</p>
-        </div>
-      )}
-      {summary.key_points && summary.key_points.length > 0 && (
-        <section className="story-summary-section" aria-labelledby="story-key-points-title">
-          <div className="story-summary-section-heading">
-            <h3 id="story-key-points-title">重点提要</h3>
-            <span>{summary.key_points.length} 条</span>
-          </div>
-          <ul className="ai-key-point-list">{summary.key_points.map((point) => <li key={point}>{point}</li>)}</ul>
-        </section>
-      )}
-      {summary.sources && summary.sources.length > 0 && (
-        <section className="ai-source-section story-summary-sources" aria-labelledby="story-summary-sources-title">
-          <div className="ai-subsection-heading">
-            <div>
-              <p className="ai-eyebrow">REFERENCES</p>
-              <h3 id="story-summary-sources-title">来源说明</h3>
-            </div>
-            <span>{summary.sources.length} 个</span>
-          </div>
-          <div className="ai-summary-source-list">
-            {summary.sources.map((source) => (
-              <a className="ai-summary-source" href={`#entry-${source.entry_id}`} key={source.entry_id}>
-                <strong>{source.label} · {source.title}</strong>
-                <span>{source.note || '来源已纳入摘要'}</span>
-              </a>
-            ))}
-          </div>
-        </section>
-      )}
-    </section>
-  )
-}
-
 function EntryCard({ entry, index }: { entry: Entry; index: number }) {
   return (
     <article className="story-entry-card" id={`entry-${entry.id}`}>
@@ -864,10 +839,6 @@ function EntryCard({ entry, index }: { entry: Entry; index: number }) {
 
 function isActiveStatus(status?: string) {
   return Boolean(status && activeJobStatuses.has(status))
-}
-
-function storySummaryIsActive(summary?: StoryAISummary) {
-  return isActiveStatus(summary?.status)
 }
 
 function formatDate(value?: string) {
