@@ -99,6 +99,9 @@ func TestAIStorePersistsStorySummaryAndDigestSnapshots(t *testing.T) {
 	if err != nil || gotDigest.Status != ai.StatusCompleted || len(gotDigest.Stories) != 1 || !gotDigest.Stories[0].Available {
 		t.Fatalf("Digest = %+v, error = %v", gotDigest, err)
 	}
+	if gotDigest.Stories[0].SortTime == nil || gotDigest.Stories[0].SourceTitle == "" {
+		t.Fatalf("Digest Story enrichment = %+v, want non-nil SortTime and non-empty SourceTitle", gotDigest.Stories[0])
+	}
 }
 
 func TestStoryStoreMarkDigestReadMarksSnapshotStories(t *testing.T) {
@@ -144,6 +147,61 @@ func TestStoryStoreMarkDigestReadMarksSnapshotStories(t *testing.T) {
 	remaining, err := storyStore.Search(ctx, story.Query{Limit: 10, State: "unread"})
 	if err != nil || len(remaining) != 0 {
 		t.Fatalf("remaining unread = %+v, %v", remaining, err)
+	}
+}
+
+func TestAIStoreSnapshotUnreadStoriesOrdersByScope(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, "TRUNCATE ai_jobs, story_ai_summaries, ai_digests CASCADE"); err != nil {
+		t.Fatalf("truncate AI data: %v", err)
+	}
+
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	entryStore := NewEntryStore(pool)
+	storyStore := NewStoryStore(pool)
+	src := createTestSource(t, sourceStore, "digest-order")
+	acquisition := claimTestAcquisition(t, acquisitionStore, src.ID, "digest-order")
+	if err := entryStore.CommitBatch(ctx, acquisition, "worker", []ingestion.Candidate{
+		{ExternalID: "digest-order-1", Title: "digest-order-1"},
+		{ExternalID: "digest-order-2", Title: "digest-order-2"},
+	}, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("CommitBatch() error = %v", err)
+	}
+	if _, err := story.NewProcessor(storyStore, nil).RunOnce(ctx, 10); err != nil {
+		t.Fatalf("Story processor RunOnce() error = %v", err)
+	}
+	stories, err := storyStore.Search(ctx, story.Query{Limit: 10, State: "unread"})
+	if err != nil || len(stories) != 2 {
+		t.Fatalf("unread Stories = %+v, error = %v", stories, err)
+	}
+
+	// Pin distinct sort_times so ordering is deterministic regardless of insert timing.
+	older := time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)
+	newer := older.Add(time.Hour)
+	if _, err := pool.Exec(ctx, "UPDATE stories SET sort_time = $1 WHERE id = $2", older, stories[0].ID); err != nil {
+		t.Fatalf("pin older sort_time: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE stories SET sort_time = $1 WHERE id = $2", newer, stories[1].ID); err != nil {
+		t.Fatalf("pin newer sort_time: %v", err)
+	}
+
+	aiStore := NewAIStore(pool, AIStoreOptions{MaxActiveJobs: 4})
+	oldestFirst, err := aiStore.SnapshotUnreadStories(ctx, ai.DigestScope{})
+	if err != nil || len(oldestFirst) != 2 {
+		t.Fatalf("oldest-first snapshot = %+v, error = %v", oldestFirst, err)
+	}
+	if !oldestFirst[0].SortTime.Equal(older) || !oldestFirst[1].SortTime.Equal(newer) {
+		t.Fatalf("default order = %v then %v, want oldest first", oldestFirst[0].SortTime, oldestFirst[1].SortTime)
+	}
+
+	newestFirst, err := aiStore.SnapshotUnreadStories(ctx, ai.DigestScope{Order: ai.DigestOrderNewest})
+	if err != nil || len(newestFirst) != 2 {
+		t.Fatalf("newest-first snapshot = %+v, error = %v", newestFirst, err)
+	}
+	if !newestFirst[0].SortTime.Equal(newer) || !newestFirst[1].SortTime.Equal(older) {
+		t.Fatalf("newest order = %v then %v, want newest first", newestFirst[0].SortTime, newestFirst[1].SortTime)
 	}
 }
 

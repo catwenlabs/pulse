@@ -339,6 +339,9 @@ func digestScopeFromQuery(request *http.Request) (ai.DigestScope, error) {
 		}
 		scope.MaxStories = parsed
 	}
+	if value := strings.TrimSpace(request.URL.Query().Get("order")); value != "" {
+		scope.Order = ai.DigestOrder(value)
+	}
 	return scope, nil
 }
 
