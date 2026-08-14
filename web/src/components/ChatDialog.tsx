@@ -230,7 +230,7 @@ export function ChatDialog({ open, onOpenChange, start, conversationId, tools = 
             </div>
 
             <footer className="border-t border-border/70 bg-card px-4 py-3">
-              <form onSubmit={(e) => void sendFollowUp(e)} className="flex! items-end gap-2!">
+              <form onSubmit={(e) => void sendFollowUp(e)} className="flex! items-stretch gap-2!">
                 <div className="min-w-0 flex-1">
                   <label htmlFor="chat-follow-up" className="sr-only">追问内容</label>
                   <textarea
@@ -256,7 +256,7 @@ export function ChatDialog({ open, onOpenChange, start, conversationId, tools = 
                     size="icon"
                     onClick={() => void stop()}
                     aria-label="停止生成"
-                    className="size-10 shrink-0 rounded-xl"
+                    className="w-10 shrink-0 rounded-xl"
                   >
                     <Square className="size-3.5 fill-current" aria-hidden="true" />
                   </Button>
@@ -266,7 +266,7 @@ export function ChatDialog({ open, onOpenChange, start, conversationId, tools = 
                     size="icon"
                     disabled={!canFollowUp || !followUp.trim()}
                     aria-label="发送追问"
-                    className="size-10 shrink-0 rounded-xl"
+                    className="w-10 shrink-0 rounded-xl"
                   >
                     <SendHorizontal className="size-4" aria-hidden="true" />
                   </Button>
