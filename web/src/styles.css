@@ -328,7 +328,6 @@
   .story-entry-list h2 { @apply mb-0 mt-0 text-sm font-semibold text-foreground; }
   .ai-subsection-heading > span { @apply shrink-0 pt-1.5 text-xs text-muted-foreground; }
   .ai-priority-list, .ai-theme-list { @apply grid gap-3; }
-  .ai-priority-item, .ai-theme-list article { @apply py-1; }
   .ai-priority-title { @apply flex items-center gap-3; }
   .ai-priority-title > span { @apply grid size-7 shrink-0 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground; }
   .ai-priority-title strong, .ai-theme-list article > strong { @apply text-sm leading-5; }
