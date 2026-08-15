@@ -1,7 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  createDocumentNote,
   createManualEntry,
+  getDocument,
+  importDocument,
+  importDocumentNotes,
+  linkDocumentNote,
+  listAllNotes,
+  listDocumentNotes,
+  listDocuments,
+  listUnmatchedNotes,
+  saveDocumentProgress,
   createSource,
   addStoryTag,
   createDigest,
@@ -274,6 +284,61 @@ describe('AI summarization API', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/digests', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ max_stories: 20, start_at: '2026-08-01T00:00:00Z' }),
+    }))
+  })
+})
+
+describe('document API', () => {
+  it('uses the expected REST endpoints', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('[]', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"id":"doc-1","title":"书","chapters":[]}', { status: 201 }))
+      .mockResolvedValueOnce(new Response('{"id":"doc-1","title":"书","chapters":[{"index":0,"title":"一","content_html":"<p>x</p>"}]}', { status: 200 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response('{"id":"note-1","chapter_index":0,"highlight":"高亮"}', { status: 201 }))
+      .mockResolvedValueOnce(new Response('[]', { status: 200 }))
+      .mockResolvedValueOnce(new Response('[]', { status: 200 }))
+      .mockResolvedValueOnce(new Response('[]', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"imported":2,"unmatched":1}', { status: 200 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await listDocuments('复杂性')
+    await importDocument(new File(['data'], 'book.epub'))
+    await getDocument('doc-1')
+    await saveDocumentProgress('doc-1', { chapter_index: 2, scroll_ratio: 0.5 })
+    await createDocumentNote('doc-1', { chapter_index: 0, highlight: '高亮', note: '想法' })
+    await listDocumentNotes('doc-1')
+    await listAllNotes('复杂性')
+    await listUnmatchedNotes()
+    await importDocumentNotes([{ book_title: '书', highlight: '高亮' }])
+    await linkDocumentNote('note-1', 'doc-1')
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/documents?search=%E5%A4%8D%E6%9D%82%E6%80%A7', undefined)
+    const uploadCall = fetchMock.mock.calls[1]
+    expect(uploadCall[0]).toBe('/api/v1/documents')
+    expect(uploadCall[1].method).toBe('POST')
+    expect(uploadCall[1].body).toBeInstanceOf(FormData)
+    expect((uploadCall[1].body as FormData).get('file')).toBeTruthy()
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/documents/doc-1', undefined)
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/documents/doc-1/progress', expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ chapter_index: 2, scroll_ratio: 0.5 }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/documents/doc-1/notes', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ chapter_index: 0, highlight: '高亮', note: '想法' }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(6, '/api/v1/documents/doc-1/notes', undefined)
+    expect(fetchMock).toHaveBeenNthCalledWith(7, '/api/v1/notes?search=%E5%A4%8D%E6%9D%82%E6%80%A7', undefined)
+    expect(fetchMock).toHaveBeenNthCalledWith(8, '/api/v1/documents/notes/unmatched', undefined)
+    expect(fetchMock).toHaveBeenNthCalledWith(9, '/api/v1/documents/notes/import', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ notes: [{ book_title: '书', highlight: '高亮' }] }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(10, '/api/v1/documents/notes/note-1/link', expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ document_id: 'doc-1' }),
     }))
   })
 })
