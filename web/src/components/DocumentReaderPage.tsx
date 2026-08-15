@@ -156,6 +156,12 @@ function ReaderBody({ document: doc }: { document: Document }) {
           >
             笔记 ({notes.length})
           </button>
+          <a
+            className="mb-4 ml-2 inline-block rounded-md border border-border px-2 py-1 text-xs text-muted-foreground"
+            href={`/api/v1/documents/${doc.id}/original`}
+          >
+            下载原件
+          </a>
           {panelOpen && (
             <section aria-label="本书笔记" className="mb-6 rounded-lg border border-border p-3">
               {notes.length === 0 ? (

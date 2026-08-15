@@ -48,6 +48,14 @@ describe('DocumentReaderPage', () => {
     expect(headings).toHaveLength(3)
   })
 
+  it('links to the original file download', async () => {
+    renderPage()
+
+    await screen.findByRole('heading', { name: '测试之书' })
+    const link = screen.getByRole('link', { name: '下载原件' })
+    expect(link.getAttribute('href')).toBe('/api/v1/documents/doc-1/original')
+  })
+
   it('restores the saved reading position', async () => {
     const scrollSpy = vi.fn()
     Element.prototype.scrollIntoView = scrollSpy
