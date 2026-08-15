@@ -990,10 +990,12 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '', doc
               </IconNavTooltip>
               <IconNavTooltip label="稍后阅读">
                 <Link className={iconNavItemClass(activeView === 'later')} to="/later" aria-label="稍后阅读" onClick={() => closeMobileNavigation()}><NavIcon name="clock" /></Link>
+              </IconNavTooltip>
+              <IconNavTooltip label="文档库">
                 <Link className={iconNavItemClass(activeView === 'documents')} to="/documents" aria-label="文档库" onClick={() => closeMobileNavigation()}><NavIcon name="book" /></Link>
-                <Link className={iconNavItemClass(activeView === 'notes')} to="/notes" aria-label="阅读笔记" onClick={() => closeMobileNavigation()}><NavIcon name="quote" /></Link>
               </IconNavTooltip>
               <IconNavTooltip label="阅读笔记">
+                <Link className={iconNavItemClass(activeView === 'notes')} to="/notes" aria-label="阅读笔记" onClick={() => closeMobileNavigation()}><NavIcon name="quote" /></Link>
               </IconNavTooltip>
               <IconNavTooltip label="设置">
                 <Button unstyled className={iconNavItemClass(activeView === 'tools')} aria-label="设置" onClick={() => void navigate({ to: '/tools' })}>

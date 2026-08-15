@@ -1209,6 +1209,19 @@ describe('App', () => {
     })
   })
 
+  it('lays out the desktop rail icons one control per cell', async () => {
+    window.history.replaceState(null, '', '/')
+
+    renderApp()
+    await screen.findByText('Reader article')
+
+    for (const label of ['收藏', '稍后阅读', '文档库', '阅读笔记', '设置']) {
+      const control = screen.getByLabelText(label)
+      const cell = control.parentElement
+      expect(cell?.querySelectorAll('a, button'), label).toHaveLength(1)
+    }
+  })
+
   it('uses an accessible off-canvas navigation drawer on mobile', async () => {
     vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
       matches: query === '(max-width: 767px)',
