@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import { getDocument, saveDocumentProgress, type Document } from '../api'
+import { SelectionChatSurface } from './SelectionChatSurface'
 
 const PROGRESS_SAVE_DELAY_MS = 1200
 
@@ -129,10 +130,15 @@ function ReaderBody({ document: doc }: { document: Document }) {
             >
               <h2 className="mb-4 text-xl font-semibold">{chapter.title}</h2>
               {/* Chapter HTML is sanitized at import; Pulse owns the reading style. */}
-              <div
-                className="document-content leading-7"
-                dangerouslySetInnerHTML={{ __html: chapter.content_html }}
-              />
+              <SelectionChatSurface
+                label={`${doc.title} ${chapter.title || `第 ${chapter.index + 1} 章`}`}
+                context={{ document_id: doc.id, chapter_index: chapter.index }}
+              >
+                <div
+                  className="document-content leading-7"
+                  dangerouslySetInnerHTML={{ __html: chapter.content_html }}
+                />
+              </SelectionChatSurface>
             </section>
           ))}
         </div>

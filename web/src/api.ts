@@ -659,9 +659,15 @@ export interface ConversationCreated {
   user_message: ChatMessage
 }
 
+export interface ConversationContext {
+  document_id: string
+  chapter_index: number
+}
+
 export interface CreateConversationInput {
   tool_id: string
   selection: string
+  context?: ConversationContext
 }
 
 export type ChatStreamEventKind = 'metadata' | 'delta' | 'completed' | 'cancelled' | 'failed'

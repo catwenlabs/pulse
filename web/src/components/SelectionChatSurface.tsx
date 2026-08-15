@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
-import type { SelectionTool } from '../api'
+import type { ConversationContext, SelectionTool } from '../api'
 import { listSelectionTools } from '../api'
 import { queryKeys } from '../query'
 import { ChatDialog, type ChatDialogStart } from './ChatDialog'
@@ -16,9 +16,13 @@ import { SelectionTarget } from './SelectionTarget'
 export function SelectionChatSurface({
   children,
   label,
+  context,
 }: {
   children: ReactNode
   label?: string
+  /** Document coordinates forwarded to conversation creation when this
+      surface covers one chapter of an imported document. */
+  context?: ConversationContext
 }) {
   const toolsQuery = useQuery({
     queryKey: queryKeys.chatTools,
@@ -30,7 +34,7 @@ export function SelectionChatSurface({
   const tools = toolsQuery.data ?? []
 
   function handleSelect(tool: SelectionTool, selection: string) {
-    setStart({ tool, selection })
+    setStart({ tool, selection, context })
   }
 
   return (

@@ -71,6 +71,28 @@ describe('ChatDialog', () => {
     )
   })
 
+  it('forwards document context when the start carries one', async () => {
+    streamOnce([], { kind: 'completed', content: 'ok', status: 'completed' })
+
+    render(
+      <ChatDialog
+        open
+        onOpenChange={() => {}}
+        start={{ tool, selection: '该机制', context: { document_id: 'doc-1', chapter_index: 7 } }}
+      />,
+    )
+
+    await screen.findByText('ok')
+    expect(vi.mocked(api.createConversation)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tool_id: 't1',
+        selection: '该机制',
+        context: { document_id: 'doc-1', chapter_index: 7 },
+      }),
+      expect.any(String),
+    )
+  })
+
   it('calls stopGeneration when the stop button is pressed', async () => {
     // Keep the stream pending so the stop button stays visible.
     vi.mocked(api.streamAssistant).mockImplementation(() => new Promise(() => {}))
