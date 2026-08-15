@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 
 import * as api from './api'
-import { DigestPage, StoryDetailPage } from './AISummarization'
+import { DigestPage, DigestHistoryPanel, StoryDetailPage } from './AISummarization'
 import type { AnnotationInput, CreateSourceInput, Entry, Folder, PreviewResult, Source, SourceHealth, SourceKind, Story, StoryPatch } from './api'
 import { EntryReader } from './components/EntryReader'
 import { ConversationHistoryPage } from './components/ConversationHistoryPage'
@@ -46,7 +46,8 @@ import { useLibraryRealtime, type LibraryRealtimeSignal, type RealtimeConnection
 import { toast } from 'sonner'
 import './styles.css'
 
-export type View = 'sources' | 'inbox' | 'starred' | 'later' | 'annotations' | 'ai' | 'story' | 'settings' | 'ai-conversations'
+export type View = 'sources' | 'inbox' | 'starred' | 'later' | 'annotations' | 'ai' | 'story' | 'settings' | 'ai-conversations' | 'tools'
+export type ToolKey = 'ai-conversations' | 'sources' | 'settings'
 type SaveRequest = { url: string; title: string }
 type ReaderEntry = Entry & {
   display_title: string
@@ -121,6 +122,124 @@ function navItemClass(active: boolean, className?: string) {
     'flex min-h-10 cursor-pointer items-center gap-3 rounded-lg px-3 text-sm font-medium leading-5 text-muted-foreground no-underline transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
     active && 'bg-sidebar-accent text-sidebar-accent-foreground',
     className,
+  )
+}
+
+// Compact icon-only navigation item for the secondary (bottom) rail group.
+function iconNavItemClass(active: boolean, className?: string) {
+  return cn(
+    'grid size-10 w-full cursor-pointer place-items-center rounded-lg text-muted-foreground no-underline transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+    active && 'bg-sidebar-accent text-sidebar-accent-foreground',
+    className,
+  )
+}
+
+// Reveals an icon-only nav item's name on hover (and keyboard focus) with a
+// styled tooltip to the right of the rail.
+function IconNavTooltip({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <span className="group relative grid size-10 w-full place-items-center">
+      {children}
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        {label}
+      </span>
+    </span>
+  )
+}
+
+// Shared middle-column panel (the rail companion) used by the subscription
+// tree, the settings menu, and the digest history. Keeping the three-column
+// layout in one component makes the convention apply consistently to every
+// view instead of duplicating the grid classes per panel.
+function RailPanel({ labelledBy, children }: { labelledBy?: string; children: ReactNode }) {
+  return (
+    <section
+      aria-labelledby={labelledBy}
+      className="mt-6 flex min-h-0 flex-1 flex-col overflow-hidden px-2 max-md:order-2 max-md:mt-0 md:col-start-2 md:row-span-3 md:row-start-1 md:mt-0 md:border-l md:bg-[#f2f0e9] md:px-3 md:py-5"
+    >
+      {children}
+    </section>
+  )
+}
+
+// Shared chrome for the stream views (the reader for inbox/starred/later and
+// the reading-notes view): a sticky app header (title + count + actions) above
+// a scrollable card content area. Reader and AnnotationsPage render through
+// this so every secondary view keeps one consistent layout instead of each
+// re-implementing the header and scroll region.
+function StreamShell({
+  title,
+  count,
+  actions,
+  banners,
+  floating,
+  contentLabel = '文章列表',
+  contentRef,
+  mobile,
+  mobileMenuButtonRef,
+  mobileNavigationOpen,
+  onOpenMobileNavigation,
+  children,
+}: {
+  title: string
+  count?: string
+  actions?: ReactNode
+  banners?: ReactNode
+  floating?: ReactNode
+  contentLabel?: string
+  contentRef?: { current: HTMLElement | null }
+  mobile: boolean
+  mobileMenuButtonRef: { current: HTMLButtonElement | null }
+  mobileNavigationOpen: boolean
+  onOpenMobileNavigation: () => void
+  children: ReactNode
+}) {
+  return (
+    <div className="relative grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+      <header className={cn(
+        'z-[3] flex min-h-16 items-center justify-between gap-6 border-b bg-card/95 px-5 py-2 shadow-[0_1px_3px_rgba(42,48,58,.04)]',
+        mobile && 'max-md:grid max-md:grid-cols-[40px_minmax(0,1fr)_auto] max-md:gap-1.5 max-md:min-h-[calc(52px+env(safe-area-inset-top))] max-md:px-3.5 max-md:pt-[env(safe-area-inset-top)]',
+      )}>
+        {mobile && (
+          <Button
+            unstyled
+            className="grid size-10 cursor-pointer content-center place-items-center rounded-lg border-0 bg-transparent px-[9px] text-foreground hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+            ref={mobileMenuButtonRef}
+            aria-label="打开导航"
+            aria-controls="mobile-navigation"
+            aria-expanded={mobileNavigationOpen}
+            onClick={onOpenMobileNavigation}
+          >
+            <Menu className="size-5" aria-hidden="true" />
+          </Button>
+        )}
+        <div className={cn(
+          'flex min-w-0 items-baseline gap-3',
+          mobile ? 'max-md:min-w-0' : 'max-md:hidden',
+        )}>
+          <h1 className="m-0 truncate text-lg font-[650] leading-[1.1] max-md:text-[15px]">{title}</h1>
+          {!mobile && count && <span className="flex-none text-xs text-muted-foreground">{count}</span>}
+        </div>
+        <div className={cn(
+          'flex w-[min(680px,68%)] items-center justify-end gap-2.5',
+          mobile && 'max-md:col-start-3 max-md:w-auto max-md:gap-0.5',
+        )}>
+          {actions}
+        </div>
+      </header>
+      {banners}
+      {floating}
+      <section
+        aria-label={contentLabel}
+        ref={contentRef}
+        className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain border-0 bg-card shadow-none [scrollbar-gutter:stable] max-md:[-webkit-overflow-scrolling:touch] max-md:[scrollbar-gutter:auto]"
+      >
+        {children}
+      </section>
+    </div>
   )
 }
 
@@ -242,6 +361,8 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
   const [serviceConnected, setServiceConnected] = useState<boolean | null>(null)
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const [showBookmarklet, setShowBookmarklet] = useState(false)
+  const [tool, setTool] = useState<ToolKey>('settings')
+  const [selectedDigestID, setSelectedDigestID] = useState('')
   const [saveRequest, setSaveRequest] = useState<SaveRequest | null>(() => readSaveRequest())
   const [navigationDropTarget, setNavigationDropTarget] = useState<NavigationDragItem | null>(null)
   const isMobile = useMediaQuery('(max-width: 767px)')
@@ -557,8 +678,12 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
   }
 
   const activeView = view
-  const isReaderView = activeView === 'inbox' || activeView === 'starred' || activeView === 'later'
-  const showSourceTree = isMobile || activeView === 'inbox'
+  const isReaderView = activeView === 'inbox' || activeView === 'starred' || activeView === 'later' || activeView === 'annotations'
+  const isToolsView = activeView === 'tools'
+  const showSourceTree = activeView !== 'tools' && activeView !== 'ai' && (isMobile || activeView === 'inbox')
+  const showToolsMenu = activeView === 'tools' && !isMobile
+  const showDigestsHistory = activeView === 'ai'
+  const showMiddlePanel = showSourceTree || showToolsMenu || showDigestsHistory
   const activeSourceName = sources.find((source) => source.id === selectedSourceID)?.name
   const assignedSourceIDs = new Set(folders.flatMap((folder) => folder.source_ids))
   const rootSources = sources.filter((source) => !assignedSourceIDs.has(source.id))
@@ -582,10 +707,12 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
               ? 'AI 追更'
               : activeView === 'story'
                 ? 'Story'
-                : activeView === 'settings'
-                  ? '划词工具'
-                  : activeView === 'ai-conversations'
-                    ? 'AI 对话'
+                : activeView === 'tools'
+                  ? '设置'
+                  : activeView === 'settings'
+                    ? '划词工具'
+                    : activeView === 'ai-conversations'
+                      ? 'AI 对话'
             : '全部文章'
     )
 
@@ -621,7 +748,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
     <Toaster />
     <div className={cn(
       'grid h-dvh min-h-0 overflow-hidden max-md:block max-md:w-full',
-      showSourceTree ? 'grid-cols-[288px_minmax(0,1fr)]' : 'grid-cols-[72px_minmax(0,1fr)]',
+      showMiddlePanel ? 'grid-cols-[288px_minmax(0,1fr)]' : 'grid-cols-[72px_minmax(0,1fr)]',
     )}>
       <SheetContent
         persistent={!isMobile}
@@ -637,7 +764,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
       <aside
         className={cn(
           'fixed inset-y-0 left-0 z-30 flex w-56 flex-col border-r bg-sidebar px-3 pb-0 pt-[max(0.25rem,env(safe-area-inset-top))] text-sidebar-foreground transition-[width,transform] motion-reduce:transition-none md:grid md:grid-rows-[auto_minmax(0,1fr)_auto] md:p-0 md:translate-x-0 max-md:w-[min(86vw,20rem)] max-md:-translate-x-full max-md:shadow-xl data-[state=open]:translate-x-0',
-          showSourceTree ? 'md:w-72 md:grid-cols-[72px_216px]' : 'md:w-[72px] md:grid-cols-[72px]',
+          showMiddlePanel ? 'md:w-72 md:grid-cols-[72px_216px]' : 'md:w-[72px] md:grid-cols-[72px]',
         )}
         id="mobile-navigation"
         role="navigation"
@@ -651,15 +778,17 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
             <span className="md:hidden">Pulse</span>
           </Link>
           <div className="flex items-center gap-1.5">
-            <Button unstyled className="group grid size-11 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-white md:size-10 md:bg-primary md:hover:bg-primary-hover" aria-label="添加信息源" onClick={() => {
-              closeMobileNavigation(false)
-              setShowCreate(true)
-            }}>
-              <span className="grid size-7 place-items-center rounded-md bg-primary transition-colors group-hover:bg-primary-hover md:contents">
-                <Plus className="size-3.5 md:size-4" aria-hidden="true" />
-              </span>
-              <span className="sr-only">添加信息源</span>
-            </Button>
+            {isMobile && (
+              <Button unstyled className="group grid size-11 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-white" aria-label="添加信息源" onClick={() => {
+                closeMobileNavigation(false)
+                setShowCreate(true)
+              }}>
+                <span className="grid size-7 place-items-center rounded-md bg-primary transition-colors group-hover:bg-primary-hover">
+                  <Plus className="size-3.5" aria-hidden="true" />
+                </span>
+                <span className="sr-only">添加信息源</span>
+              </Button>
+            )}
             {isMobile && (
               <Button unstyled
                 className="group hidden size-11 cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-[#66635b] max-md:grid"
@@ -675,7 +804,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
           </div>
         </div>
 
-        {showSourceTree && <section className="mt-6 flex min-h-0 flex-1 flex-col overflow-hidden px-2 max-md:order-2 max-md:mt-0 md:col-start-2 md:row-span-3 md:row-start-1 md:mt-0 md:border-l md:bg-[#f2f0e9] md:px-3 md:py-5" aria-labelledby="source-tree-label">
+        {showSourceTree && <RailPanel labelledBy="source-tree-label">
           <div className="mb-3 flex items-center justify-between px-1 text-xs text-muted-foreground">
             <p className="m-0 text-sm font-semibold text-foreground md:text-base" id="source-tree-label">订阅源</p>
             <span>{sources.length}</span>
@@ -769,7 +898,34 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
               </div>
             ))}
           </div>
-        </section>}
+        </RailPanel>}
+
+        {showToolsMenu && <RailPanel labelledBy="tools-menu-label">
+          <div className="mb-3 flex items-center justify-between px-1 text-xs text-muted-foreground">
+            <p className="m-0 text-sm font-semibold text-foreground md:text-base" id="tools-menu-label">设置</p>
+          </div>
+          <div className="mb-3 border-b border-border/70 pb-3">
+            <Button unstyled className={navItemClass(tool === 'ai-conversations', 'w-full justify-start')} aria-current={tool === 'ai-conversations' ? 'page' : undefined} onClick={() => setTool('ai-conversations')}>
+              <NavIcon name="chat" />AI 对话
+            </Button>
+            <Button unstyled className={navItemClass(tool === 'sources', 'w-full justify-start')} aria-current={tool === 'sources' ? 'page' : undefined} onClick={() => setTool('sources')}>
+              <NavIcon name="source" />管理信息源
+            </Button>
+            <Button unstyled className={navItemClass(tool === 'settings', 'w-full justify-start')} aria-current={tool === 'settings' ? 'page' : undefined} onClick={() => setTool('settings')}>
+              <NavIcon name="settings" />划词工具设置
+            </Button>
+            <Button unstyled ref={bookmarkletButtonRef} className={navItemClass(false, 'w-full justify-start')} onClick={() => setShowBookmarklet(true)}>
+              <NavIcon name="bookmark" />安装保存书签
+            </Button>
+          </div>
+        </RailPanel>}
+
+        {showDigestsHistory && <RailPanel labelledBy="digest-history-label">
+          <DigestHistoryPanel digestID={selectedDigestID} onSelect={(digestID) => {
+            setSelectedDigestID(digestID)
+            if (isMobile) closeMobileNavigation()
+          }} />
+        </RailPanel>}
 
         {isMobile ? (
           <div className={cn(
@@ -796,22 +952,10 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
                   void navigate({ to: '/digests' })
                   closeMobileNavigation()
                 }}><NavIcon name="ai" />AI 追更</DropdownMenuItem>
-                <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'ai-conversations' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'ai-conversations' ? 'page' : undefined} onSelect={() => {
-                  void navigate({ to: '/ai-conversations' })
+                <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'tools' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'tools' ? 'page' : undefined} onSelect={() => {
+                  void navigate({ to: '/tools' })
                   closeMobileNavigation()
-                }}><NavIcon name="chat" />AI 对话</DropdownMenuItem>
-                <DropdownMenuItem className="min-h-11 gap-3" onSelect={() => {
-                  closeMobileNavigation(false)
-                  setShowBookmarklet(true)
-                }}><NavIcon name="bookmark" />安装保存书签</DropdownMenuItem>
-                <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'sources' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'sources' ? 'page' : undefined} onSelect={() => {
-                  void navigate({ to: '/sources' })
-                  closeMobileNavigation()
-                }}><NavIcon name="source" />管理信息源</DropdownMenuItem>
-                <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'settings' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'settings' ? 'page' : undefined} onSelect={() => {
-                  void navigate({ to: '/settings' })
-                  closeMobileNavigation()
-                }}><NavIcon name="settings" />划词工具设置</DropdownMenuItem>
+                }}><NavIcon name="settings" />设置</DropdownMenuItem>
                 <div className="mt-1 flex min-h-11 items-center gap-3 border-t px-3 pt-1 text-xs text-muted-foreground" role="status">
                   <span
                     className={cn(
@@ -830,22 +974,30 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
         ) : (
           <>
             <nav className="grid min-h-0 content-start gap-1 overflow-y-auto px-2 py-3 md:col-start-1 md:row-start-2" aria-label="主导航">
-              <Link className={navItemClass(activeView === 'starred', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/starred" onClick={() => closeMobileNavigation()}><NavIcon name="star" />收藏</Link>
-              <Link className={navItemClass(activeView === 'later', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/later" onClick={() => closeMobileNavigation()}><NavIcon name="clock" />稍后阅读</Link>
-              <Link className={navItemClass(activeView === 'annotations', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/annotations" onClick={() => closeMobileNavigation()}><NavIcon name="book" />阅读笔记</Link>
               <Link className={navItemClass(activeView === 'ai', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/digests" onClick={() => closeMobileNavigation()}><NavIcon name="ai" />AI 追更</Link>
-              <Link className={navItemClass(activeView === 'ai-conversations', 'min-h-[54px] flex-col justify-center gap-1 px-1 text-[10px] leading-none')} to="/ai-conversations" onClick={() => closeMobileNavigation()}><NavIcon name="chat" />AI 对话</Link>
+              <Button unstyled className={navItemClass(false, 'min-h-[54px] w-full flex-col justify-center gap-1 px-1 text-center text-[10px] leading-none')} aria-label="添加信息源" onClick={() => {
+                closeMobileNavigation(false)
+                setShowCreate(true)
+              }}>
+                <Plus className="size-4 shrink-0" strokeWidth={1.8} aria-hidden="true" />
+                <span>添加</span>
+              </Button>
             </nav>
             <div className="m-0 grid gap-2 border-t border-[#d8d4ca] px-2 pb-4 pt-2 text-xs leading-5 text-muted-foreground md:col-start-1 md:row-start-3">
-              <Button unstyled className={navItemClass(false, 'min-h-[54px] w-full flex-col justify-center gap-1 px-1 text-center text-[10px] leading-none')} ref={bookmarkletButtonRef} aria-label="安装保存书签" onClick={() => setShowBookmarklet(true)}>
-                <NavIcon name="bookmark" />书签
-              </Button>
-              <Button unstyled className={navItemClass(activeView === 'sources', 'min-h-[54px] w-full flex-col justify-center gap-1 px-1 text-center text-[10px] leading-none')} aria-label="管理信息源" onClick={() => void navigate({ to: '/sources' })}>
-                <NavIcon name="source" />管理
-              </Button>
-              <Button unstyled className={navItemClass(activeView === 'settings', 'min-h-[54px] w-full flex-col justify-center gap-1 px-1 text-center text-[10px] leading-none')} aria-label="划词工具设置" onClick={() => void navigate({ to: '/settings' })}>
-                <NavIcon name="settings" />设置
-              </Button>
+              <IconNavTooltip label="收藏">
+                <Link className={iconNavItemClass(activeView === 'starred')} to="/starred" aria-label="收藏" onClick={() => closeMobileNavigation()}><NavIcon name="star" /></Link>
+              </IconNavTooltip>
+              <IconNavTooltip label="稍后阅读">
+                <Link className={iconNavItemClass(activeView === 'later')} to="/later" aria-label="稍后阅读" onClick={() => closeMobileNavigation()}><NavIcon name="clock" /></Link>
+              </IconNavTooltip>
+              <IconNavTooltip label="阅读笔记">
+                <Link className={iconNavItemClass(activeView === 'annotations')} to="/annotations" aria-label="阅读笔记" onClick={() => closeMobileNavigation()}><NavIcon name="book" /></Link>
+              </IconNavTooltip>
+              <IconNavTooltip label="设置">
+                <Button unstyled className={iconNavItemClass(activeView === 'tools')} aria-label="设置" onClick={() => void navigate({ to: '/tools' })}>
+                  <NavIcon name="settings" />
+                </Button>
+              </IconNavTooltip>
               <span
                 className="flex min-h-11 items-center justify-center px-0 py-1"
                 title={serviceConnected === null ? '正在检查本地服务' : serviceConnected ? '本地服务已连接' : '本地服务不可用'}
@@ -871,12 +1023,12 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
       <main
         className={cn(
           'col-start-2 h-dvh min-w-0 overflow-y-auto overscroll-contain bg-background p-0 [scrollbar-gutter:stable]',
-          activeView !== 'sources' && activeView !== 'ai' && activeView !== 'story' && activeView !== 'settings' && activeView !== 'ai-conversations' && 'overflow-hidden',
-          !isReaderView && activeView !== 'sources' && activeView !== 'ai' && activeView !== 'story' && activeView !== 'settings' && activeView !== 'ai-conversations' && 'max-md:grid max-md:grid-rows-[auto_minmax(0,1fr)]',
+          activeView !== 'sources' && activeView !== 'ai' && activeView !== 'story' && activeView !== 'settings' && activeView !== 'ai-conversations' && activeView !== 'tools' && 'overflow-hidden',
+          !isReaderView && activeView !== 'sources' && activeView !== 'ai' && activeView !== 'story' && activeView !== 'settings' && activeView !== 'ai-conversations' && activeView !== 'tools' && 'max-md:grid max-md:grid-rows-[auto_minmax(0,1fr)]',
           isReaderView && 'max-md:block',
           (activeView === 'ai' || activeView === 'story') && 'max-md:block',
           activeView === 'sources' && 'px-[clamp(24px,4vw,56px)] py-9 max-md:px-0 max-md:py-0',
-          (activeView === 'settings' || activeView === 'ai-conversations') && 'px-[clamp(24px,4vw,56px)] py-9 max-md:px-4 max-md:py-6',
+          (activeView === 'settings' || activeView === 'ai-conversations' || activeView === 'tools') && 'px-[clamp(24px,4vw,56px)] py-9 max-md:px-4 max-md:py-6',
         )}
         inert={isMobile && mobileNavigationOpen ? true : undefined}
       >
@@ -895,7 +1047,15 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
             <h1>{mobileTitle}</h1>
           </header>
         )}
-        {activeView === 'sources' ? (
+        {isMobile && activeView === 'tools' && (
+          <nav className="mx-auto mb-6 flex w-full max-w-[1280px] items-center gap-2 overflow-x-auto px-1 md:hidden" aria-label="工具导航">
+            <Button unstyled className={cn('min-h-10 shrink-0 rounded-full px-4 text-sm font-medium', tool === 'ai-conversations' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent')} aria-current={tool === 'ai-conversations' ? 'page' : undefined} onClick={() => setTool('ai-conversations')}>AI 对话</Button>
+            <Button unstyled className={cn('min-h-10 shrink-0 rounded-full px-4 text-sm font-medium', tool === 'sources' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent')} aria-current={tool === 'sources' ? 'page' : undefined} onClick={() => setTool('sources')}>管理信息源</Button>
+            <Button unstyled className={cn('min-h-10 shrink-0 rounded-full px-4 text-sm font-medium', tool === 'settings' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent')} aria-current={tool === 'settings' ? 'page' : undefined} onClick={() => setTool('settings')}>划词工具设置</Button>
+            <Button unstyled className="min-h-10 shrink-0 rounded-full bg-muted px-4 text-sm font-medium text-muted-foreground hover:bg-accent" onClick={() => setShowBookmarklet(true)}>安装保存书签</Button>
+          </nav>
+        )}
+        {activeView === 'sources' || (activeView === 'tools' && tool === 'sources') ? (
           <>
         <header className="mx-auto mb-8 flex w-full max-w-[1280px] items-end justify-between gap-6 max-md:mb-6 max-md:flex-col max-md:items-stretch max-md:px-4 max-md:pt-6">
           <div>
@@ -1000,6 +1160,10 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
           )}
         </section>
           </>
+        ) : activeView === 'tools' ? (
+          <div className="mx-auto w-full max-w-[1280px]">
+            {tool === 'ai-conversations' ? <ConversationHistoryPage /> : <SelectionToolsSettings />}
+          </div>
         ) : activeView === 'annotations' ? (
           <AnnotationsPage
             sources={sources}
@@ -1007,9 +1171,13 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
             onSourceUpdated={(updated) => setSources((current) => (
               current.map((source) => source.id === updated.id ? updated : source)
             ))}
+            mobile={isMobile}
+            mobileMenuButtonRef={mobileMenuButtonRef}
+            mobileNavigationOpen={mobileNavigationOpen}
+            onOpenMobileNavigation={() => setMobileNavigationOpen(true)}
           />
         ) : activeView === 'ai' ? (
-          <DigestPage />
+          <DigestPage digestID={selectedDigestID} onSelectDigest={setSelectedDigestID} />
         ) : activeView === 'story' ? (
           <StoryDetailPage storyID={storyID} />
         ) : activeView === 'settings' ? (
@@ -1082,10 +1250,18 @@ function AnnotationsPage({
   sources,
   onSourceCreated,
   onSourceUpdated,
+  mobile,
+  mobileMenuButtonRef,
+  mobileNavigationOpen,
+  onOpenMobileNavigation,
 }: {
   sources: Source[]
   onSourceCreated: (source: Source) => void
   onSourceUpdated: (source: Source) => void
+  mobile: boolean
+  mobileMenuButtonRef: { current: HTMLButtonElement | null }
+  mobileNavigationOpen: boolean
+  onOpenMobileNavigation: () => void
 }) {
   const annotationSources = sources.filter((source) => source.kind === 'annotations')
   const [entries, setEntries] = useState<Entry[]>([])
@@ -1172,18 +1348,17 @@ function AnnotationsPage({
   }
 
   return (
-    <div className="min-h-0 overflow-y-auto bg-[#f4f1ea] px-[clamp(24px,5vw,72px)] pb-18 pt-10 max-md:px-4 max-md:pb-10 max-md:pt-6">
-      <header className="mx-auto mb-8 flex items-end justify-between gap-6 max-md:flex-col max-md:items-start max-md:gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">READING NOTES</p>
-          <h1>阅读笔记</h1>
-          <p className="mb-0 mt-3 text-base leading-6 text-muted-foreground">集中保存 Apple Books、Kindle 和其他阅读器中的高亮与批注。</p>
-        </div>
-        <Button onClick={() => setShowImport((current) => !current)}>
-          {showImport ? '收起导入' : '导入批注'}
-        </Button>
-      </header>
-
+    <StreamShell
+      title="阅读笔记"
+      count={books.length > 0 ? `${books.length} 本` : undefined}
+      actions={<Button onClick={() => setShowImport((current) => !current)}>{showImport ? '收起导入' : '导入批注'}</Button>}
+      contentLabel="书籍批注"
+      mobile={mobile}
+      mobileMenuButtonRef={mobileMenuButtonRef}
+      mobileNavigationOpen={mobileNavigationOpen}
+      onOpenMobileNavigation={onOpenMobileNavigation}
+    >
+      <div className="px-[clamp(16px,4vw,48px)] py-8 max-md:px-4 max-md:py-5">
       {showImport && (
         <section className="mx-auto mb-8 grid max-w-[1040px] grid-cols-[minmax(180px,.7fr)_minmax(320px,1.3fr)] gap-8 rounded-2xl border bg-white p-8 shadow-[0_10px_32px_rgba(51,46,36,.06)] max-md:grid-cols-1 max-md:gap-6 max-md:p-5" aria-labelledby="annotation-import-title">
           <div>
@@ -1293,7 +1468,8 @@ function AnnotationsPage({
           ))}
         </section>
       )}
-    </div>
+      </div>
+    </StreamShell>
   )
 }
 
@@ -2082,35 +2258,14 @@ function Reader({
       note: story.note,
     }))
   return (
-    <div className="relative grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-      <header className={cn(
-        'z-[3] flex min-h-16 items-center justify-between gap-6 border-b bg-card/95 px-5 py-2 shadow-[0_1px_3px_rgba(42,48,58,.04)]',
-        mobile && 'max-md:grid max-md:grid-cols-[40px_minmax(0,1fr)_auto] max-md:gap-1.5 max-md:min-h-[calc(52px+env(safe-area-inset-top))] max-md:px-3.5 max-md:pt-[env(safe-area-inset-top)]',
-      )}>
-        {mobile && (
-          <Button
-            unstyled
-            className="grid size-10 cursor-pointer content-center place-items-center rounded-lg border-0 bg-transparent px-[9px] text-foreground hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
-            ref={mobileMenuButtonRef}
-            aria-label="打开导航"
-            aria-controls="mobile-navigation"
-            aria-expanded={mobileNavigationOpen}
-            onClick={onOpenMobileNavigation}
-          >
-            <Menu className="size-5" aria-hidden="true" />
-          </Button>
-        )}
-        <div className={cn(
-          'flex min-w-0 items-baseline gap-3',
-          mobile ? 'max-md:min-w-0' : 'max-md:hidden',
-        )}>
-          <h1 className="m-0 truncate text-lg font-[650] leading-[1.1] max-md:text-[15px]">{title}</h1>
-          {!mobile && <span className="flex-none text-xs text-muted-foreground">{loading ? '正在更新…' : `${totalCount} 篇`}</span>}
-        </div>
-        <div className={cn(
-          'flex w-[min(680px,68%)] items-center justify-end gap-2.5',
-          mobile && 'max-md:col-start-3 max-md:w-auto max-md:gap-0.5',
-        )}>
+    <StreamShell
+      title={title}
+      count={!mobile ? (loading ? '正在更新…' : `${totalCount} 篇`) : undefined}
+      mobile={mobile}
+      mobileMenuButtonRef={mobileMenuButtonRef}
+      mobileNavigationOpen={mobileNavigationOpen}
+      onOpenMobileNavigation={onOpenMobileNavigation}
+      actions={<>
           <Button
             variant="secondary"
             size="sm"
@@ -2173,31 +2328,29 @@ function Reader({
               />
             </label>
           )}
-        </div>
-      </header>
-      {pendingNewCount > 0 && (
-        <div className="border-b bg-amber-50 px-4 py-2 text-sm text-amber-950" role="status" aria-live="polite">
-          <Button
-            unstyled
-            className="w-full cursor-pointer text-left font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={`加载 ${pendingNewCount} 条新内容`}
-            onClick={() => void acceptNewContent()}
-          >
-            有 {pendingNewCount} 条新内容
-          </Button>
-        </div>
-      )}
-      {realtimeConnectionState === 'degraded' && (
-        <div className="border-b bg-muted/60 px-4 py-1.5 text-xs text-muted-foreground" aria-live="polite">
-          实时更新已断开，正在重连…
-        </div>
-      )}
-      {readerNotice && <div className="absolute right-4 top-[72px] z-[5] rounded-lg border border-[#dce1e5] bg-white/95 px-3 py-2 text-sm text-[#55606b] shadow-[0_8px_24px_rgba(45,51,60,.1)]" role="status">{readerNotice}</div>}
-      <section
-        className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain border-0 bg-card shadow-none [scrollbar-gutter:stable] max-md:[-webkit-overflow-scrolling:touch] max-md:[scrollbar-gutter:auto]"
-        aria-label="文章列表"
-        ref={entryStreamElement}
-      >
+      </>}
+      banners={<>
+        {pendingNewCount > 0 && (
+          <div className="border-b bg-amber-50 px-4 py-2 text-sm text-amber-950" role="status" aria-live="polite">
+            <Button
+              unstyled
+              className="w-full cursor-pointer text-left font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={`加载 ${pendingNewCount} 条新内容`}
+              onClick={() => void acceptNewContent()}
+            >
+              有 {pendingNewCount} 条新内容
+            </Button>
+          </div>
+        )}
+        {realtimeConnectionState === 'degraded' && (
+          <div className="border-b bg-muted/60 px-4 py-1.5 text-xs text-muted-foreground" aria-live="polite">
+            实时更新已断开，正在重连…
+          </div>
+        )}
+      </>}
+      floating={readerNotice ? <div className="absolute right-4 top-[72px] z-[5] rounded-lg border border-[#dce1e5] bg-white/95 px-3 py-2 text-sm text-[#55606b] shadow-[0_8px_24px_rgba(45,51,60,.1)]" role="status">{readerNotice}</div> : undefined}
+      contentRef={entryStreamElement}
+    >
           {loading && <p className="p-8 text-center text-sm text-muted-foreground">正在加载文章…</p>}
           {error && <p className="p-8 text-center text-sm text-muted-foreground text-destructive">{error}</p>}
           {!loading && !error && entries.length === 0 && <p className="p-8 text-center text-sm text-muted-foreground">这里还没有文章。</p>}
@@ -2253,8 +2406,7 @@ function Reader({
           {!loading && !error && !hasMore && entries.length > 0 && (
             <div className="min-h-[80dvh]" aria-hidden="true" />
           )}
-      </section>
-    </div>
+    </StreamShell>
   )
 }
 

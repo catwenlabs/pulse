@@ -503,7 +503,8 @@ describe('App', () => {
     renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })
 
-    fireEvent.click(screen.getByRole('button', { name: '管理信息源' }))
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    fireEvent.click(await screen.findByRole('button', { name: '管理信息源' }))
     fireEvent.click(await screen.findByRole('button', { name: '整理 Example Feed 到文件夹' }))
 
     const tech = screen.getByRole('checkbox', { name: /Tech/ })
@@ -655,7 +656,8 @@ describe('App', () => {
   it('triggers a manual refresh', async () => {
     renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })
-    fireEvent.click(screen.getByRole('button', { name: '管理信息源' }))
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    fireEvent.click(await screen.findByRole('button', { name: '管理信息源' }))
 
     fireEvent.click(await screen.findByRole('button', { name: '刷新 Example Feed' }))
 
@@ -667,7 +669,8 @@ describe('App', () => {
   it('pauses an enabled source', async () => {
     renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })
-    fireEvent.click(screen.getByRole('button', { name: '管理信息源' }))
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    fireEvent.click(await screen.findByRole('button', { name: '管理信息源' }))
 
     fireEvent.click(await screen.findByRole('button', { name: '暂停 Example Feed' }))
 
@@ -679,7 +682,8 @@ describe('App', () => {
   it('edits a source name and locator', async () => {
     renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })
-    fireEvent.click(screen.getByRole('button', { name: '管理信息源' }))
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    fireEvent.click(await screen.findByRole('button', { name: '管理信息源' }))
 
     fireEvent.click(await screen.findByRole('button', { name: '编辑 Example Feed' }))
     const dialog = screen.getByRole('dialog', { name: '编辑信息源' })
@@ -698,7 +702,8 @@ describe('App', () => {
   it('confirms and archives a source while preserving its entries', async () => {
     renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })
-    fireEvent.click(screen.getByRole('button', { name: '管理信息源' }))
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    fireEvent.click(await screen.findByRole('button', { name: '管理信息源' }))
 
     fireEvent.click(await screen.findByRole('button', { name: '删除 Example Feed' }))
     expect(screen.getByRole('dialog', { name: '删除信息源？' })).toBeInTheDocument()
@@ -1303,7 +1308,8 @@ describe('App', () => {
     renderApp()
     await screen.findByText('Reader article')
 
-    const installButton = screen.getByRole('button', { name: '安装保存书签' })
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    const installButton = await screen.findByRole('button', { name: '安装保存书签' })
     installButton.focus()
     fireEvent.click(installButton)
 
@@ -1348,12 +1354,13 @@ describe('App', () => {
     const menuButton = screen.getByRole('button', { name: '打开导航' })
     fireEvent.click(menuButton)
     fireEvent.pointerDown(screen.getByRole('button', { name: '更多导航' }), { button: 0 })
-    fireEvent.click(screen.getByRole('menuitem', { name: '安装保存书签' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '设置' }))
+    fireEvent.click(await screen.findByRole('button', { name: '安装保存书签' }))
     const dialog = screen.getByRole('dialog', { name: '安装“保存到 Pulse”' })
     fireEvent.keyDown(dialog, { key: 'Escape' })
 
     expect(dialog).not.toBeInTheDocument()
-    expect(menuButton).toHaveFocus()
+    expect(screen.getByRole('button', { name: '打开导航' })).toHaveFocus()
   })
 
   it('navigates from the compact mobile menu and dismisses only the menu on Escape', async () => {
@@ -1722,6 +1729,7 @@ describe('App', () => {
     })
 
     renderApp()
+    fireEvent.click(await screen.findByRole('button', { name: '设置' }))
     fireEvent.click(await screen.findByRole('button', { name: '管理信息源' }))
     expect(await screen.findByText('还没有信息源')).toBeInTheDocument()
 
