@@ -415,3 +415,70 @@ func TestDocumentStoreLinkNoteAssignsUnmatchedNote(t *testing.T) {
 		t.Errorf("LinkNote(missing note) error = %v, want document.ErrNotFound", err)
 	}
 }
+
+func TestDocumentStoreListAllNotesAcrossBooksAndSearch(t *testing.T) {
+	pool := testPool(t)
+	store := NewDocumentStore(pool)
+	ctx := context.Background()
+
+	doc, err := store.Import(ctx, document.ImportRequest{
+		Filename: "思考的书.txt",
+		Content:  []byte("内容。"),
+	})
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	if _, err := store.CreateNote(ctx, doc.ID, document.NoteInput{ChapterIndex: 0, Highlight: "系统一自动运行"}); err != nil {
+		t.Fatalf("CreateNote() error = %v", err)
+	}
+	if _, err := store.ImportNotes(ctx, document.NoteImportFile{Notes: []document.NoteImport{
+		{BookTitle: "思考的书", Highlight: "直觉判断", Note: "和复杂性呼应"},
+		{BookTitle: "另一本书", Highlight: "第二本书的高亮"},
+	}}); err != nil {
+		t.Fatalf("ImportNotes() error = %v", err)
+	}
+
+	notes, err := store.ListAllNotes(ctx, "")
+	if err != nil {
+		t.Fatalf("ListAllNotes() error = %v", err)
+	}
+	if len(notes) != 3 {
+		t.Fatalf("ListAllNotes() = %d notes, want 3: %+v", len(notes), notes)
+	}
+	var linked, importedLinked, unmatched *document.Note
+	for index := range notes {
+		switch notes[index].Highlight {
+		case "系统一自动运行":
+			linked = &notes[index]
+		case "直觉判断":
+			importedLinked = &notes[index]
+		case "第二本书的高亮":
+			unmatched = &notes[index]
+		}
+	}
+	if linked == nil || linked.DocumentID != doc.ID || linked.Source != "pulse" || linked.BookTitle != "思考的书" {
+		t.Errorf("pulse note = %+v, want linked to the document with its book identity", linked)
+	}
+	if importedLinked == nil || importedLinked.DocumentID != doc.ID || importedLinked.Source != "import" {
+		t.Errorf("imported note = %+v, want linked and marked import", importedLinked)
+	}
+	if unmatched == nil || unmatched.DocumentID != "" || unmatched.BookTitle != "另一本书" {
+		t.Errorf("unmatched note = %+v, want book identity and no document", unmatched)
+	}
+
+	matched, err := store.ListAllNotes(ctx, "复杂性")
+	if err != nil {
+		t.Fatalf("ListAllNotes(search) error = %v", err)
+	}
+	if len(matched) != 1 || matched[0].Highlight != "直觉判断" {
+		t.Errorf("ListAllNotes(复杂性) = %+v, want the note whose note text matches", matched)
+	}
+
+	byBook, err := store.ListAllNotes(ctx, "另一本")
+	if err != nil {
+		t.Fatalf("ListAllNotes(search book) error = %v", err)
+	}
+	if len(byBook) != 1 || byBook[0].BookTitle != "另一本书" {
+		t.Errorf("ListAllNotes(另一本) = %+v, want the unmatched book's note", byBook)
+	}
+}

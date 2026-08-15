@@ -395,3 +395,42 @@ func scanNote(row pgx.Row) (document.Note, error) {
 	}
 	return note, nil
 }
+
+// ListAllNotes returns every note — Pulse-written and imported, matched and
+// unmatched — for the grouped notes view. Book identity falls back to the
+// linked document so Pulse notes group with their book. The optional search
+// term matches highlight, note text, and book title case-insensitively.
+func (store *DocumentStore) ListAllNotes(ctx context.Context, search string) ([]document.Note, error) {
+	rows, err := store.pool.Query(ctx, `
+		SELECT n.id, n.document_id,
+		       coalesce(nullif(n.book_identifier, ''), d.identifier, ''),
+		       coalesce(nullif(n.book_title, ''), d.title, ''),
+		       coalesce(nullif(n.book_author, ''), d.author, ''),
+		       n.chapter_index, n.location, n.highlight, n.note, n.highlight_color,
+		       n.source, n.highlighted_at
+		FROM document_notes n
+		LEFT JOIN documents d ON d.id = n.document_id
+		WHERE ($1 = '' OR lower(
+			n.highlight || ' ' || n.note || ' ' ||
+			coalesce(n.book_title, '') || ' ' || coalesce(d.title, '')
+		) LIKE '%' || lower($1) || '%')
+		ORDER BY coalesce(nullif(n.book_title, ''), d.title),
+		         n.document_id, n.chapter_index, n.highlighted_at, n.id
+	`, search)
+	if err != nil {
+		return nil, fmt.Errorf("list all notes: %w", err)
+	}
+	defer rows.Close()
+	notes := []document.Note{}
+	for rows.Next() {
+		note, err := scanNote(rows)
+		if err != nil {
+			return nil, err
+		}
+		notes = append(notes, note)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate all notes: %w", err)
+	}
+	return notes, nil
+}

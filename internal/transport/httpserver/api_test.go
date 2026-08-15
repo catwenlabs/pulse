@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
@@ -26,47 +27,48 @@ import (
 )
 
 type fakeBackend struct {
-	createSource         func(context.Context, source.Spec) (source.Source, error)
-	listSources          func(context.Context) ([]source.Source, error)
-	getSource            func(context.Context, source.ID) (source.Source, error)
-	updateSource         func(context.Context, source.ID, string, string) (source.Source, error)
-	setEnabled           func(context.Context, source.ID, bool) (source.Source, error)
-	archiveSource        func(context.Context, source.ID) error
-	setSecret            func(context.Context, source.ID, string) error
-	getSourceHealth      func(context.Context, source.ID) (source.Health, error)
-	listFolders          func(context.Context) ([]organization.Folder, error)
-	reorderRootSources   func(context.Context, []source.ID) error
-	reorderFolders       func(context.Context, []string) error
-	reorderFolderSources func(context.Context, string, []source.ID) error
-	enqueue              func(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error)
-	importDocument       func(context.Context, document.ImportRequest) (document.Document, error)
-	listDocuments        func(context.Context) ([]document.Summary, error)
-	getDocument          func(context.Context, document.ID) (document.Document, error)
-	saveProgress         func(context.Context, document.ID, document.Progress) error
-	getDocumentAsset     func(context.Context, document.ID, string) ([]byte, string, error)
-	createDocumentNote   func(context.Context, document.ID, document.NoteInput) (document.Note, error)
-	listDocumentNotes    func(context.Context, document.ID) ([]document.Note, error)
-	importDocumentNotes  func(context.Context, document.NoteImportFile) (document.NoteImportSummary, error)
+	createSource               func(context.Context, source.Spec) (source.Source, error)
+	listSources                func(context.Context) ([]source.Source, error)
+	getSource                  func(context.Context, source.ID) (source.Source, error)
+	updateSource               func(context.Context, source.ID, string, string) (source.Source, error)
+	setEnabled                 func(context.Context, source.ID, bool) (source.Source, error)
+	archiveSource              func(context.Context, source.ID) error
+	setSecret                  func(context.Context, source.ID, string) error
+	getSourceHealth            func(context.Context, source.ID) (source.Health, error)
+	listFolders                func(context.Context) ([]organization.Folder, error)
+	reorderRootSources         func(context.Context, []source.ID) error
+	reorderFolders             func(context.Context, []string) error
+	reorderFolderSources       func(context.Context, string, []source.ID) error
+	enqueue                    func(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error)
+	importDocument             func(context.Context, document.ImportRequest) (document.Document, error)
+	listDocuments              func(context.Context) ([]document.Summary, error)
+	getDocument                func(context.Context, document.ID) (document.Document, error)
+	saveProgress               func(context.Context, document.ID, document.Progress) error
+	getDocumentAsset           func(context.Context, document.ID, string) ([]byte, string, error)
+	createDocumentNote         func(context.Context, document.ID, document.NoteInput) (document.Note, error)
+	listDocumentNotes          func(context.Context, document.ID) ([]document.Note, error)
+	importDocumentNotes        func(context.Context, document.NoteImportFile) (document.NoteImportSummary, error)
+	listAllDocumentNotes       func(context.Context, string) ([]document.Note, error)
 	listUnmatchedDocumentNotes func(context.Context) ([]document.Note, error)
-	linkDocumentNote     func(context.Context, string, document.ID) error
-	listSourceEntries    func(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
-	listSourceEntryPage  func(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
-	getEntry             func(context.Context, entry.ID) (entry.Entry, error)
-	deleteEntry          func(context.Context, entry.ID, bool) error
-	listStories          func(context.Context, story.Query) ([]story.Story, error)
-	listStoryPage        func(context.Context, story.Query) (story.Page, error)
-	getStory             func(context.Context, story.ID) (story.Story, error)
-	updateStory          func(context.Context, story.ID, story.Patch) (story.Story, error)
-	setRepresentative    func(context.Context, story.ID, entry.ID) (story.Story, error)
-	markStoriesRead      func(context.Context, string, []string) (int64, error)
-	markDigestRead       func(context.Context, string) (int64, error)
-	mergeStories         func(context.Context, story.ID, story.ID) (story.Story, error)
-	splitStory           func(context.Context, story.ID, entry.ID) (story.Story, error)
-	recluster            func(context.Context) (int, error)
-	importOPML           func(context.Context, []opml.Subscription) (opml.ImportResult, error)
-	exportOPML           func(context.Context) ([]opml.Subscription, error)
-	previewSource        func(context.Context, source.Spec) (preview.Result, error)
-	replayRule           func(context.Context, string, bool) (rule.ReplayResult, error)
+	linkDocumentNote           func(context.Context, string, document.ID) error
+	listSourceEntries          func(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
+	listSourceEntryPage        func(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
+	getEntry                   func(context.Context, entry.ID) (entry.Entry, error)
+	deleteEntry                func(context.Context, entry.ID, bool) error
+	listStories                func(context.Context, story.Query) ([]story.Story, error)
+	listStoryPage              func(context.Context, story.Query) (story.Page, error)
+	getStory                   func(context.Context, story.ID) (story.Story, error)
+	updateStory                func(context.Context, story.ID, story.Patch) (story.Story, error)
+	setRepresentative          func(context.Context, story.ID, entry.ID) (story.Story, error)
+	markStoriesRead            func(context.Context, string, []string) (int64, error)
+	markDigestRead             func(context.Context, string) (int64, error)
+	mergeStories               func(context.Context, story.ID, story.ID) (story.Story, error)
+	splitStory                 func(context.Context, story.ID, entry.ID) (story.Story, error)
+	recluster                  func(context.Context) (int, error)
+	importOPML                 func(context.Context, []opml.Subscription) (opml.ImportResult, error)
+	exportOPML                 func(context.Context) ([]opml.Subscription, error)
+	previewSource              func(context.Context, source.Spec) (preview.Result, error)
+	replayRule                 func(context.Context, string, bool) (rule.ReplayResult, error)
 }
 
 type aiFakeBackend struct {
@@ -217,6 +219,10 @@ func (fake fakeBackend) ListDocumentNotes(ctx context.Context, id document.ID) (
 
 func (fake fakeBackend) ImportDocumentNotes(ctx context.Context, file document.NoteImportFile) (document.NoteImportSummary, error) {
 	return fake.importDocumentNotes(ctx, file)
+}
+
+func (fake fakeBackend) ListAllDocumentNotes(ctx context.Context, search string) ([]document.Note, error) {
+	return fake.listAllDocumentNotes(ctx, search)
 }
 
 func (fake fakeBackend) ListUnmatchedDocumentNotes(ctx context.Context) ([]document.Note, error) {
@@ -1382,6 +1388,9 @@ func completeFakeBackend() fakeBackend {
 		importDocumentNotes: func(context.Context, document.NoteImportFile) (document.NoteImportSummary, error) {
 			return document.NoteImportSummary{}, errors.New("unexpected ImportDocumentNotes")
 		},
+		listAllDocumentNotes: func(context.Context, string) ([]document.Note, error) {
+			return nil, errors.New("unexpected ListAllDocumentNotes")
+		},
 		listUnmatchedDocumentNotes: func(context.Context) ([]document.Note, error) {
 			return nil, errors.New("unexpected ListUnmatchedDocumentNotes")
 		},
@@ -1811,5 +1820,29 @@ func TestLinkDocumentNote(t *testing.T) {
 	})))
 	if resp.Code != http.StatusNotFound {
 		t.Fatalf("missing-note status = %d, want 404", resp.Code)
+	}
+}
+
+func TestListAllDocumentNotesWithSearch(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.listAllDocumentNotes = func(_ context.Context, search string) ([]document.Note, error) {
+		if search != "复杂性" {
+			t.Errorf("ListAllDocumentNotes search = %q, want 复杂性", search)
+		}
+		return []document.Note{{ID: "note-1", BookTitle: "书", Highlight: "高亮"}}, nil
+	}
+	handler := newHandler(backend, nil, nil)
+
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/notes?search="+url.QueryEscape("复杂性"), nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", resp.Code, resp.Body.String())
+	}
+	var notes []document.Note
+	if err := json.Unmarshal(resp.Body.Bytes(), &notes); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(notes) != 1 || notes[0].ID != "note-1" {
+		t.Errorf("notes = %+v, want the searched note", notes)
 	}
 }

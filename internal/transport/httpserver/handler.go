@@ -66,6 +66,7 @@ type Backend interface {
 	ListDocumentNotes(context.Context, document.ID) ([]document.Note, error)
 	ImportDocumentNotes(context.Context, document.NoteImportFile) (document.NoteImportSummary, error)
 	ListUnmatchedDocumentNotes(context.Context) ([]document.Note, error)
+	ListAllDocumentNotes(context.Context, string) ([]document.Note, error)
 	LinkDocumentNote(context.Context, string, document.ID) error
 	ListSourceEntries(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
 	ListSourceEntryPage(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
@@ -143,6 +144,7 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("GET /api/v1/documents/{id}/notes", listDocumentNotes(backend))
 	mux.HandleFunc("POST /api/v1/documents/notes/import", importDocumentNotes(backend))
 	mux.HandleFunc("GET /api/v1/documents/notes/unmatched", listUnmatchedDocumentNotes(backend))
+	mux.HandleFunc("GET /api/v1/notes", listAllDocumentNotes(backend))
 	mux.HandleFunc("PUT /api/v1/documents/notes/{id}/link", linkDocumentNote(backend))
 	mux.HandleFunc("POST /api/v1/sources/preview", previewSource(backend))
 	mux.HandleFunc("GET /api/v1/sources", listSources(backend))
@@ -1248,6 +1250,19 @@ func importDocumentNotes(backend Backend) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, summary)
+	}
+}
+
+// listAllDocumentNotes serves the grouped notes hub: every note across
+// books, optionally filtered by a search term.
+func listAllDocumentNotes(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		notes, err := backend.ListAllDocumentNotes(request.Context(), strings.TrimSpace(request.URL.Query().Get("search")))
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, notes)
 	}
 }
 

@@ -239,6 +239,7 @@ type documentRepository interface {
 	ListNotes(context.Context, document.ID) ([]document.Note, error)
 	ImportNotes(context.Context, document.NoteImportFile) (document.NoteImportSummary, error)
 	ListUnmatchedNotes(context.Context) ([]document.Note, error)
+	ListAllNotes(context.Context, string) ([]document.Note, error)
 	LinkNote(context.Context, string, document.ID) error
 }
 
@@ -312,6 +313,13 @@ func (service *backend) ListUnmatchedDocumentNotes(ctx context.Context) ([]docum
 		return nil, document.ErrUnavailable
 	}
 	return service.documents.ListUnmatchedNotes(ctx)
+}
+
+func (service *backend) ListAllDocumentNotes(ctx context.Context, search string) ([]document.Note, error) {
+	if service.documents == nil {
+		return nil, document.ErrUnavailable
+	}
+	return service.documents.ListAllNotes(ctx, search)
 }
 
 func (service *backend) LinkDocumentNote(ctx context.Context, noteID string, id document.ID) error {
