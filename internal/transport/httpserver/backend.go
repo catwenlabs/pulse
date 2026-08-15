@@ -235,6 +235,8 @@ type documentRepository interface {
 	Get(context.Context, document.ID) (document.Document, error)
 	SaveProgress(context.Context, document.ID, document.Progress) error
 	ReadAsset(context.Context, document.ID, string) ([]byte, string, error)
+	CreateNote(context.Context, document.ID, document.NoteInput) (document.Note, error)
+	ListNotes(context.Context, document.ID) ([]document.Note, error)
 }
 
 // WithDocuments attaches the document store to a backend constructed by one
@@ -279,6 +281,20 @@ func (service *backend) GetDocumentAsset(ctx context.Context, id document.ID, en
 		return nil, "", document.ErrUnavailable
 	}
 	return service.documents.ReadAsset(ctx, id, entry)
+}
+
+func (service *backend) CreateDocumentNote(ctx context.Context, id document.ID, input document.NoteInput) (document.Note, error) {
+	if service.documents == nil {
+		return document.Note{}, document.ErrUnavailable
+	}
+	return service.documents.CreateNote(ctx, id, input)
+}
+
+func (service *backend) ListDocumentNotes(ctx context.Context, id document.ID) ([]document.Note, error) {
+	if service.documents == nil {
+		return nil, document.ErrUnavailable
+	}
+	return service.documents.ListNotes(ctx, id)
 }
 
 func (service *backend) ListChatTools(ctx context.Context) ([]aichat.SelectionTool, error) {

@@ -265,3 +265,51 @@ func TestDocumentStoreReadsAssetsFromOriginal(t *testing.T) {
 		t.Errorf("ReadAsset(missing document) error = %v, want document.ErrNotFound", err)
 	}
 }
+
+func TestDocumentStoreNotes(t *testing.T) {
+	pool := testPool(t)
+	store := NewDocumentStore(pool)
+	ctx := context.Background()
+
+	saved, err := store.Import(ctx, document.ImportRequest{
+		Filename: "reading-notes.txt",
+		Content:  []byte("第一段内容。"),
+	})
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+
+	created, err := store.CreateNote(ctx, saved.ID, document.NoteInput{
+		ChapterIndex: 0, Highlight: "第一段内容。", Text: "重要",
+	})
+	if err != nil {
+		t.Fatalf("CreateNote() error = %v", err)
+	}
+	if created.ID == "" || created.DocumentID != saved.ID || created.HighlightedAt == nil {
+		t.Errorf("created = %+v, want ID, DocumentID, HighlightedAt", created)
+	}
+
+	notes, err := store.ListNotes(ctx, saved.ID)
+	if err != nil {
+		t.Fatalf("ListNotes() error = %v", err)
+	}
+	if len(notes) != 1 || notes[0].ID != created.ID || notes[0].Text != "重要" {
+		t.Errorf("notes = %+v", notes)
+	}
+
+	// A chapter beyond the document's chapter count is rejected.
+	_, err = store.CreateNote(ctx, saved.ID, document.NoteInput{ChapterIndex: 5, Highlight: "越界"})
+	var validationErr *document.ValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("out-of-range CreateNote() error = %v, want document.ValidationError", err)
+	}
+
+	// Notes on unknown documents are not found.
+	missing := document.ID("00000000-0000-0000-0000-000000000000")
+	if _, err := store.CreateNote(ctx, missing, document.NoteInput{ChapterIndex: 0, Highlight: "x"}); err != document.ErrNotFound {
+		t.Errorf("CreateNote(missing) error = %v, want document.ErrNotFound", err)
+	}
+	if _, err := store.ListNotes(ctx, missing); err != document.ErrNotFound {
+		t.Errorf("ListNotes(missing) error = %v, want document.ErrNotFound", err)
+	}
+}

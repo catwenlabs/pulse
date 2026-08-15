@@ -44,6 +44,8 @@ type fakeBackend struct {
 	getDocument          func(context.Context, document.ID) (document.Document, error)
 	saveProgress         func(context.Context, document.ID, document.Progress) error
 	getDocumentAsset     func(context.Context, document.ID, string) ([]byte, string, error)
+	createDocumentNote   func(context.Context, document.ID, document.NoteInput) (document.Note, error)
+	listDocumentNotes    func(context.Context, document.ID) ([]document.Note, error)
 	listSourceEntries    func(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
 	listSourceEntryPage  func(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
 	getEntry             func(context.Context, entry.ID) (entry.Entry, error)
@@ -200,6 +202,14 @@ func (fake fakeBackend) SaveDocumentProgress(ctx context.Context, id document.ID
 
 func (fake fakeBackend) GetDocumentAsset(ctx context.Context, id document.ID, entry string) ([]byte, string, error) {
 	return fake.getDocumentAsset(ctx, id, entry)
+}
+
+func (fake fakeBackend) CreateDocumentNote(ctx context.Context, id document.ID, input document.NoteInput) (document.Note, error) {
+	return fake.createDocumentNote(ctx, id, input)
+}
+
+func (fake fakeBackend) ListDocumentNotes(ctx context.Context, id document.ID) ([]document.Note, error) {
+	return fake.listDocumentNotes(ctx, id)
 }
 
 func (fake fakeBackend) ListSourceEntries(ctx context.Context, sourceID source.ID, query entry.Query) ([]story.SourceEntry, error) {
@@ -1433,6 +1443,12 @@ func completeFakeBackend() fakeBackend {
 		getDocumentAsset: func(context.Context, document.ID, string) ([]byte, string, error) {
 			return nil, "", document.ErrNotFound
 		},
+		createDocumentNote: func(context.Context, document.ID, document.NoteInput) (document.Note, error) {
+			return document.Note{}, errors.New("unexpected CreateDocumentNote")
+		},
+		listDocumentNotes: func(context.Context, document.ID) ([]document.Note, error) {
+			return nil, document.ErrNotFound
+		},
 		getEntry: func(context.Context, entry.ID) (entry.Entry, error) {
 			return entry.Entry{}, entry.ErrNotFound
 		},
@@ -1694,5 +1710,71 @@ func TestGetDocumentAssetReturnsNotFound(t *testing.T) {
 
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", response.Code)
+	}
+}
+
+func TestCreateAndListDocumentNotes(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.createDocumentNote = func(_ context.Context, id document.ID, input document.NoteInput) (document.Note, error) {
+		if id != "doc-1" {
+			t.Errorf("ID = %q, want doc-1", id)
+		}
+		if input.ChapterIndex != 2 || input.Highlight != "重要段落" || input.Text != "我的批注" {
+			t.Errorf("input = %+v", input)
+		}
+		return document.Note{
+			ID: "note-1", DocumentID: id, ChapterIndex: input.ChapterIndex,
+			Highlight: input.Highlight, Text: input.Text,
+		}, nil
+	}
+	backend.listDocumentNotes = func(_ context.Context, id document.ID) ([]document.Note, error) {
+		return []document.Note{{ID: "note-1", DocumentID: id, Highlight: "重要段落"}}, nil
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/documents/doc-1/notes",
+		bytes.NewBufferString(`{"chapter_index":2,"highlight":"重要段落","note":"我的批注"}`))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(response, req)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var created document.Note
+	if err := json.NewDecoder(response.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created: %v", err)
+	}
+	if created.ID != "note-1" || created.Highlight != "重要段落" {
+		t.Errorf("created = %+v", created)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/documents/doc-1/notes", nil)
+	response = httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var listed []document.Note
+	if err := json.NewDecoder(response.Body).Decode(&listed); err != nil {
+		t.Fatalf("decode listed: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != "note-1" {
+		t.Errorf("listed = %+v", listed)
+	}
+}
+
+func TestCreateDocumentNoteRejectsEmptyHighlight(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.createDocumentNote = func(context.Context, document.ID, document.NoteInput) (document.Note, error) {
+		t.Fatal("create must not run for an invalid payload")
+		return document.Note{}, nil
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/documents/doc-1/notes",
+		bytes.NewBufferString(`{"chapter_index":0,"highlight":"  "}`))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(response, req)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", response.Code)
 	}
 }

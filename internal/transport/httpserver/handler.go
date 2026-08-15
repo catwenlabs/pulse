@@ -63,6 +63,8 @@ type Backend interface {
 	GetDocument(context.Context, document.ID) (document.Document, error)
 	SaveDocumentProgress(context.Context, document.ID, document.Progress) error
 	GetDocumentAsset(context.Context, document.ID, string) ([]byte, string, error)
+	CreateDocumentNote(context.Context, document.ID, document.NoteInput) (document.Note, error)
+	ListDocumentNotes(context.Context, document.ID) ([]document.Note, error)
 	ListSourceEntries(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
 	ListSourceEntryPage(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
 	GetEntry(context.Context, entry.ID) (entry.Entry, error)
@@ -135,6 +137,8 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("GET /api/v1/documents/{id}", getDocument(backend))
 	mux.HandleFunc("PUT /api/v1/documents/{id}/progress", saveDocumentProgress(backend))
 	mux.HandleFunc("GET /api/v1/documents/{id}/asset/{path...}", getDocumentAsset(backend))
+	mux.HandleFunc("POST /api/v1/documents/{id}/notes", createDocumentNote(backend))
+	mux.HandleFunc("GET /api/v1/documents/{id}/notes", listDocumentNotes(backend))
 	mux.HandleFunc("POST /api/v1/sources/preview", previewSource(backend))
 	mux.HandleFunc("GET /api/v1/sources", listSources(backend))
 	mux.HandleFunc("PUT /api/v1/sources/order", reorderRootSources(backend))
@@ -1223,6 +1227,40 @@ func getDocumentAsset(backend Backend) http.HandlerFunc {
 		if _, err := w.Write(content); err != nil {
 			slog.Warn("write document asset", "error", err)
 		}
+	}
+}
+
+func createDocumentNote(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		request.Body = http.MaxBytesReader(w, request.Body, 1<<20)
+		var input document.NoteInput
+		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		created, err := backend.CreateDocumentNote(
+			request.Context(), document.ID(request.PathValue("id")), input,
+		)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, created)
+	}
+}
+
+func listDocumentNotes(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		notes, err := backend.ListDocumentNotes(request.Context(), document.ID(request.PathValue("id")))
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, notes)
 	}
 }
 

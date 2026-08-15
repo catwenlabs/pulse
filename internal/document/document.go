@@ -4,7 +4,12 @@
 // chapters", not an e-book library.
 package document
 
-import "errors"
+import (
+	"errors"
+	"strconv"
+	"strings"
+	"time"
+)
 
 var (
 	// ErrNotFound is returned when a Document does not exist.
@@ -78,4 +83,41 @@ func (progress Progress) Validate() error {
 		return &ValidationError{Field: "scroll_ratio", Message: "must be between 0 and 1"}
 	}
 	return nil
+}
+
+// MaxNoteHighlightCharacters bounds the highlighted text of one note.
+const MaxNoteHighlightCharacters = 10000
+
+// NoteInput carries one highlight written while reading in Pulse.
+type NoteInput struct {
+	ChapterIndex int    `json:"chapter_index"`
+	Highlight    string `json:"highlight"`
+	Text         string `json:"note,omitempty"`
+	Color        string `json:"highlight_color,omitempty"`
+}
+
+// Validate checks the note bounds.
+func (input NoteInput) Validate() error {
+	if input.ChapterIndex < 0 {
+		return &ValidationError{Field: "chapter_index", Message: "must not be negative"}
+	}
+	highlight := strings.TrimSpace(input.Highlight)
+	if highlight == "" {
+		return &ValidationError{Field: "highlight", Message: "must not be empty"}
+	}
+	if len([]rune(highlight)) > MaxNoteHighlightCharacters {
+		return &ValidationError{Field: "highlight", Message: "must not exceed " + strconv.Itoa(MaxNoteHighlightCharacters) + " characters"}
+	}
+	return nil
+}
+
+// Note is one highlight (with optional personal note) on a document.
+type Note struct {
+	ID            string     `json:"id"`
+	DocumentID    ID         `json:"document_id"`
+	ChapterIndex  int        `json:"chapter_index"`
+	Highlight     string     `json:"highlight"`
+	Text          string     `json:"note,omitempty"`
+	Color         string     `json:"highlight_color,omitempty"`
+	HighlightedAt *time.Time `json:"highlighted_at,omitempty"`
 }

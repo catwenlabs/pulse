@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/catwenlabs/pulse/internal/document"
 	"github.com/jackc/pgx/v5"
@@ -193,4 +194,67 @@ func (store *DocumentStore) List(ctx context.Context) ([]document.Summary, error
 		return nil, fmt.Errorf("iterate document summaries: %w", err)
 	}
 	return summaries, nil
+}
+
+// CreateNote persists one highlight written while reading. The chapter must
+// exist in the document.
+func (store *DocumentStore) CreateNote(ctx context.Context, id document.ID, input document.NoteInput) (document.Note, error) {
+	if err := input.Validate(); err != nil {
+		return document.Note{}, err
+	}
+	note := document.Note{DocumentID: id, ChapterIndex: input.ChapterIndex, Highlight: strings.TrimSpace(input.Highlight), Text: strings.TrimSpace(input.Text), Color: strings.TrimSpace(input.Color)}
+	err := store.pool.QueryRow(ctx, `
+		INSERT INTO document_notes (document_id, chapter_index, highlight, note, highlight_color)
+		SELECT $1, $2, $3, $4, $5
+		WHERE EXISTS (
+			SELECT 1 FROM document_chapters
+			WHERE document_id = $1 AND chapter_index = $2
+		)
+		RETURNING id, highlighted_at
+	`, id, input.ChapterIndex, note.Highlight, note.Text, note.Color).Scan(&note.ID, &note.HighlightedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Either the document does not exist or the chapter is out of range.
+		var chapters int
+		countErr := store.pool.QueryRow(ctx, `
+			SELECT COUNT(*) FROM document_chapters WHERE document_id = $1
+		`, id).Scan(&chapters)
+		if countErr != nil || chapters == 0 {
+			return document.Note{}, document.ErrNotFound
+		}
+		return document.Note{}, &document.ValidationError{Field: "chapter_index", Message: "chapter does not exist in this document"}
+	}
+	if err != nil {
+		return document.Note{}, fmt.Errorf("insert document note: %w", err)
+	}
+	return note, nil
+}
+
+// ListNotes returns all notes of a document in chapter order.
+func (store *DocumentStore) ListNotes(ctx context.Context, id document.ID) ([]document.Note, error) {
+	rows, err := store.pool.Query(ctx, `
+		SELECT id, document_id, chapter_index, highlight, note, highlight_color, highlighted_at
+		FROM document_notes WHERE document_id = $1
+		ORDER BY chapter_index, highlighted_at
+	`, id)
+	if err != nil {
+		return nil, fmt.Errorf("list document notes: %w", err)
+	}
+	defer rows.Close()
+	notes := []document.Note{}
+	for rows.Next() {
+		var note document.Note
+		if err := rows.Scan(&note.ID, &note.DocumentID, &note.ChapterIndex, &note.Highlight, &note.Text, &note.Color, &note.HighlightedAt); err != nil {
+			return nil, fmt.Errorf("scan document note: %w", err)
+		}
+		notes = append(notes, note)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate document notes: %w", err)
+	}
+	if len(notes) == 0 {
+		if _, err := store.Get(ctx, id); err != nil {
+			return nil, err
+		}
+	}
+	return notes, nil
 }
