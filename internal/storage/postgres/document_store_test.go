@@ -1,6 +1,8 @@
 package postgres
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -73,6 +75,56 @@ func TestDocumentStoreRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDocumentStoreImportRejectsDuplicateBook(t *testing.T) {
+	pool := testPool(t)
+	store := NewDocumentStore(pool)
+	ctx := context.Background()
+
+	book := document.ImportRequest{
+		Filename: "reading-notes.txt",
+		Content:  []byte("第一段内容。"),
+	}
+	first, err := store.Import(ctx, book)
+	if err != nil {
+		t.Fatalf("first Import() error = %v", err)
+	}
+	if _, err := store.Import(ctx, book); !errors.Is(err, document.ErrDuplicate) {
+		t.Fatalf("second Import() error = %v, want document.ErrDuplicate", err)
+	}
+
+	// The same title under a different filename is still the same document.
+	if _, err := store.Import(ctx, document.ImportRequest{
+		Filename: "reading-notes.txt", Content: book.Content,
+	}); !errors.Is(err, document.ErrDuplicate) {
+		t.Fatalf("same-title Import() error = %v, want document.ErrDuplicate", err)
+	}
+
+	// An epub keeps its OPF identifier, so a renamed file is still the same
+	// book even though the filename (and derived txt title) would differ.
+	epub := document.ImportRequest{Filename: "book.epub", Content: buildTestEpub(t)}
+	if _, err := store.Import(ctx, epub); err != nil {
+		t.Fatalf("epub Import() error = %v", err)
+	}
+	epub.Filename = "renamed-book.epub"
+	if _, err := store.Import(ctx, epub); !errors.Is(err, document.ErrDuplicate) {
+		t.Fatalf("renamed epub Import() error = %v, want document.ErrDuplicate", err)
+	}
+
+	// A different title imports fine.
+	other := document.ImportRequest{Filename: "other.txt", Content: []byte("别的内容。")}
+	if _, err := store.Import(ctx, other); err != nil {
+		t.Fatalf("other Import() error = %v", err)
+	}
+
+	// Importing after deleting the original is allowed again.
+	if err := store.Delete(ctx, first.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if _, err := store.Import(ctx, book); err != nil {
+		t.Fatalf("Import() after Delete() error = %v", err)
+	}
+}
+
 func TestDocumentStoreImportRejectsUnsupportedFileType(t *testing.T) {
 	pool := testPool(t)
 	store := NewDocumentStore(pool)
@@ -88,4 +140,39 @@ func TestDocumentStoreImportRejectsUnsupportedFileType(t *testing.T) {
 	if validationErr.Field != "filename" {
 		t.Errorf("ValidationError Field = %q, want filename", validationErr.Field)
 	}
+}
+
+func buildTestEpub(t *testing.T) []byte {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	writer := zip.NewWriter(buf)
+	entries := map[string]string{
+		"META-INF/container.xml": `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`,
+		"content.opf": `<?xml version="1.0"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="bookid">urn:uuid:store-test-book</dc:identifier>
+    <dc:title>存储测试之书</dc:title>
+  </metadata>
+  <manifest><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/></manifest>
+  <spine><itemref idref="c1"/></spine>
+</package>`,
+		"c1.xhtml": `<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>唯一章</h1><p>内容。</p></body></html>`,
+	}
+	for name, body := range entries {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatalf("create zip entry %s: %v", name, err)
+		}
+		if _, err := entry.Write([]byte(body)); err != nil {
+			t.Fatalf("write zip entry %s: %v", name, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close zip writer: %v", err)
+	}
+	return buf.Bytes()
 }

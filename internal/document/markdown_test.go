@@ -43,3 +43,13 @@ func TestParseDispatchesMarkdownExtensions(t *testing.T) {
 		t.Errorf("ContentHTML = %q", parsed.Chapters[0].ContentHTML)
 	}
 }
+
+func TestParseDispatchesEpubExtension(t *testing.T) {
+	parsed, err := Parse("book.epub", buildTestEpub(t))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if parsed.Title != "测试之书" || len(parsed.Chapters) != 2 {
+		t.Errorf("Parse() = %q with %d chapters, want 测试之书 with 2", parsed.Title, len(parsed.Chapters))
+	}
+}

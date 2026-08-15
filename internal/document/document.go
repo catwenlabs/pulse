@@ -9,6 +9,9 @@ import "errors"
 var (
 	// ErrNotFound is returned when a Document does not exist.
 	ErrNotFound = errors.New("document not found")
+	// ErrDuplicate is returned when an import matches an existing document
+	// by identifier or by title and author.
+	ErrDuplicate = errors.New("document already imported")
 	// ErrUnavailable is returned when no document store is wired in.
 	ErrUnavailable = errors.New("documents are unavailable")
 )

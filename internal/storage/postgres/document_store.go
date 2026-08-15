@@ -27,6 +27,21 @@ func (store *DocumentStore) Import(ctx context.Context, request document.ImportR
 		return document.Document{}, err
 	}
 
+	// A book is identified by its OPF identifier, or by title and author
+	// when it has none. Re-importing the same book is rejected, not merged.
+	var duplicateID document.ID
+	duplicateCheck := store.pool.QueryRow(ctx, `
+		SELECT id FROM documents
+		WHERE ($1 <> '' AND identifier = $1)
+		   OR (title = $2 AND author = $3)
+		LIMIT 1
+	`, parsed.Identifier, parsed.Title, parsed.Author)
+	if err := duplicateCheck.Scan(&duplicateID); err == nil {
+		return document.Document{}, document.ErrDuplicate
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return document.Document{}, fmt.Errorf("check duplicate document: %w", err)
+	}
+
 	tx, err := store.pool.Begin(ctx)
 	if err != nil {
 		return document.Document{}, fmt.Errorf("begin document import: %w", err)
@@ -58,6 +73,17 @@ func (store *DocumentStore) Import(ctx context.Context, request document.ImportR
 
 	saved.Chapters = parsed.Chapters
 	return saved, nil
+}
+
+func (store *DocumentStore) Delete(ctx context.Context, id document.ID) error {
+	tag, err := store.pool.Exec(ctx, `DELETE FROM documents WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete document: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return document.ErrNotFound
+	}
+	return nil
 }
 
 func (store *DocumentStore) Get(ctx context.Context, id document.ID) (document.Document, error) {

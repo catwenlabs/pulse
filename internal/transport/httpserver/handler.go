@@ -1563,6 +1563,8 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusServiceUnavailable, "documents_unavailable", err.Error(), "")
 	case errors.Is(err, document.ErrNotFound):
 		writeProblem(w, http.StatusNotFound, "document_not_found", err.Error(), "")
+	case errors.Is(err, document.ErrDuplicate):
+		writeProblem(w, http.StatusConflict, "document_exists", err.Error(), "")
 	case errors.Is(err, story.ErrSelfMerge):
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "into")
 	case errors.Is(err, story.ErrMetadataConflict):
