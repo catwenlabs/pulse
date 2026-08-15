@@ -46,6 +46,33 @@ function fireSelectionChange() {
 }
 
 describe('SelectionTarget', () => {
+  it('renders built-in actions and reports the selection to them', () => {
+    const onHighlight = vi.fn()
+    const { container } = render(
+      <SelectionTarget tools={tools} onSelect={vi.fn()} actions={[{ label: '划线', onSelect: onHighlight }]}>
+        <p>some selectable text</p>
+      </SelectionTarget>,
+    )
+    stubSelection(container, 'selectable')
+    fireSelectionChange()
+
+    fireEvent.click(screen.getByRole('button', { name: '划线' }))
+    expect(onHighlight).toHaveBeenCalledWith('selectable')
+    expect(screen.queryByRole('toolbar')).toBeNull()
+  })
+
+  it('shows the toolbar for actions even without AI tools', () => {
+    const { container } = render(
+      <SelectionTarget tools={[]} onSelect={vi.fn()} actions={[{ label: '划线', onSelect: vi.fn() }]}>
+        <p>some selectable text</p>
+      </SelectionTarget>,
+    )
+    stubSelection(container, 'selectable')
+    fireSelectionChange()
+
+    expect(screen.getByRole('toolbar')).toBeTruthy()
+  })
+
   it('shows tools for a selection inside the target and reports the selection', () => {
     const onSelect = vi.fn()
     const { container } = render(

@@ -7,9 +7,16 @@ const mobileToolLimit = 3
 const selectionExcerptLimit = 80
 const mobileMediaQuery = '(max-width: 767px) and (pointer: coarse)'
 
+export interface ToolbarAction {
+  label: string
+  onSelect: (selection: string) => void
+}
+
 export interface SelectionTargetProps {
   tools: SelectionTool[]
   onSelect: (tool: SelectionTool, selection: string) => void
+  /** Built-in actions (e.g. highlighting) shown ahead of the AI tools. */
+  actions?: ToolbarAction[]
   children: ReactNode
   /** aria-label for the landmark wrapping selectable content. */
   label?: string
@@ -30,7 +37,7 @@ interface ToolbarPosition {
  * viewport); touch layouts use a bottom action bar so the toolbar does not
  * collide with the browser's native selection menu.
  */
-export function SelectionTarget({ tools, onSelect, children, label = '可选中的内容区域' }: SelectionTargetProps) {
+export function SelectionTarget({ tools, onSelect, actions = [], children, label = '可选中的内容区域' }: SelectionTargetProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState('')
   const [position, setPosition] = useState<ToolbarPosition | null>(null)
@@ -120,7 +127,14 @@ export function SelectionTarget({ tools, onSelect, children, label = '可选中�
     window.getSelection()?.removeAllRanges()
   }
 
-  const showToolbar = Boolean(position) && selection.length > 0 && enabledTools.length > 0
+  const chooseAction = (action: ToolbarAction) => {
+    if (!selection) return
+    action.onSelect(selection)
+    clearToolbar()
+    window.getSelection()?.removeAllRanges()
+  }
+
+  const showToolbar = Boolean(position) && selection.length > 0 && (enabledTools.length > 0 || actions.length > 0)
   const excerpt = selection.length > selectionExcerptLimit
     ? `${selection.slice(0, selectionExcerptLimit)}…`
     : selection
@@ -135,6 +149,9 @@ export function SelectionTarget({ tools, onSelect, children, label = '可选中�
           className="absolute z-40 flex -translate-x-1/2 -translate-y-full items-center gap-1 rounded-lg border border-border bg-popover p-1 shadow-lg"
           style={{ top: position!.top - 8, left: position!.left }}
         >
+          {actions.map((action) => (
+            <ToolbarButton key={action.label} onClick={() => chooseAction(action)}>{action.label}</ToolbarButton>
+          ))}
           {direct.map((tool) => (
             <ToolbarButton key={tool.id} onClick={() => choose(tool)}>{tool.name}</ToolbarButton>
           ))}
@@ -155,6 +172,9 @@ export function SelectionTarget({ tools, onSelect, children, label = '可选中�
           className="fixed inset-x-0 bottom-0 z-40 flex items-center gap-1 border-t border-border bg-popover px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 shadow-lg"
         >
           <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={selection}>{excerpt}</span>
+          {actions.map((action) => (
+            <ToolbarButton key={action.label} onClick={() => chooseAction(action)}>{action.label}</ToolbarButton>
+          ))}
           {direct.map((tool) => (
             <ToolbarButton key={tool.id} onClick={() => choose(tool)}>{tool.name}</ToolbarButton>
           ))}

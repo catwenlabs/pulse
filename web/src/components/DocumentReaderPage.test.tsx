@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -97,5 +97,90 @@ describe('DocumentReaderPage', () => {
     expect(payload.chapter_index).toBeGreaterThanOrEqual(0)
     expect(payload.scroll_ratio).toBeGreaterThanOrEqual(0)
     expect(payload.scroll_ratio).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('highlighting', () => {
+  const notesFixture = [{
+    id: 'note-1', document_id: 'doc-1', book_title: '测试之书',
+    chapter_index: 1, highlight: '该机制', note: '呼应上一章', source: 'import',
+  }]
+
+  function mockReaderFetches(notes: unknown = notesFixture) {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/ai/tools')) return new Response('[]', { status: 200 })
+      if (url.endsWith('/notes')) {
+        if (init?.method === 'POST') {
+          const body = JSON.parse(String(init.body))
+          return new Response(JSON.stringify({
+            id: 'note-9', document_id: 'doc-1', book_title: '测试之书', source: 'pulse', ...body,
+          }), { status: 201 })
+        }
+        return new Response(JSON.stringify(notes), { status: 200 })
+      }
+      return new Response(JSON.stringify(documentFixture), { status: 200 })
+    }))
+    if (typeof Element.prototype.scrollIntoView !== 'function') {
+      Element.prototype.scrollIntoView = vi.fn()
+    }
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: false, media: query,
+      addEventListener: () => {}, removeEventListener: () => {},
+    }))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DocumentReaderPage documentID="doc-1" />
+      </QueryClientProvider>,
+    )
+  }
+
+  function selectInChapter(chapter: number, text: string) {
+    const content = document.querySelector(`section[data-chapter-index="${chapter}"] .document-content`)
+    const range = { getBoundingClientRect: () => ({ top: 100, left: 100, width: 40, height: 20, right: 140, bottom: 120, x: 100, y: 100, toJSON: () => ({}) }) }
+    vi.stubGlobal('getSelection', () => ({
+      isCollapsed: false,
+      toString: () => text,
+      anchorNode: content?.firstChild ?? null,
+      getRangeAt: () => range,
+      removeAllRanges: () => {},
+    }))
+    act(() => { document.dispatchEvent(new Event('selectionchange')) })
+  }
+
+  it('lists existing notes in the notes panel', async () => {
+    mockReaderFetches()
+    await screen.findByRole('heading', { name: '测试之书' })
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /笔记/ }).textContent).toBe('笔记 (1)'))
+    fireEvent.click(screen.getByRole('button', { name: '笔记 (1)' }))
+
+    expect(await screen.findByText('呼应上一章')).toBeTruthy()
+    expect(screen.getByText('第八章 · 导入')).toBeTruthy()
+  })
+
+  it('writes a highlight from the selection toolbar', async () => {
+    mockReaderFetches()
+    await screen.findByRole('heading', { name: '测试之书' })
+
+    selectInChapter(1, '该机制')
+    fireEvent.click(screen.getByRole('button', { name: '划线' }))
+
+    const noteField = await screen.findByPlaceholderText('这条划线想记录什么？(可选)')
+    fireEvent.change(noteField, { target: { value: '想法' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存划线' }))
+
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.some((call) => {
+        if (!String(call[0]).endsWith('/notes') || call[1]?.method !== 'POST') return false
+        const body = JSON.parse(String(call[1]?.body))
+        return body.chapter_index === 1 && body.highlight === '该机制' && body.note === '想法'
+      })).toBe(true)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '笔记 (2)' }))
+    expect(await screen.findByText('想法')).toBeTruthy()
+    expect(screen.getByText('第八章 · Pulse')).toBeTruthy()
   })
 })

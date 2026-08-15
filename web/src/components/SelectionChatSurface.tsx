@@ -17,12 +17,15 @@ export function SelectionChatSurface({
   children,
   label,
   context,
+  onHighlight,
 }: {
   children: ReactNode
   label?: string
   /** Document coordinates forwarded to conversation creation when this
       surface covers one chapter of an imported document. */
   context?: ConversationContext
+  /** Adds a 划线 toolbar action writing the selection as a document note. */
+  onHighlight?: (selection: string) => void
 }) {
   const toolsQuery = useQuery({
     queryKey: queryKeys.chatTools,
@@ -39,7 +42,12 @@ export function SelectionChatSurface({
 
   return (
     <>
-      <SelectionTarget tools={tools} onSelect={handleSelect} label={label}>
+      <SelectionTarget
+        tools={tools}
+        onSelect={handleSelect}
+        label={label}
+        actions={onHighlight ? [{ label: '划线', onSelect: onHighlight }] : []}
+      >
         {children}
       </SelectionTarget>
       <ChatDialog

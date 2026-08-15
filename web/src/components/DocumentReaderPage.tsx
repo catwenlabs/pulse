@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
-import { getDocument, saveDocumentProgress, type Document } from '../api'
+import { createDocumentNote, getDocument, listDocumentNotes, saveDocumentProgress, type Document, type DocumentNote } from '../api'
 import { SelectionChatSurface } from './SelectionChatSurface'
 
 const PROGRESS_SAVE_DELAY_MS = 1200
@@ -27,6 +27,37 @@ export function DocumentReaderPage({ documentID }: { documentID: string }) {
 
 function ReaderBody({ document: doc }: { document: Document }) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const notesQuery = useQuery({
+    queryKey: ['documents', doc.id, 'notes'],
+    queryFn: () => listDocumentNotes(doc.id),
+  })
+  const [createdNotes, setCreatedNotes] = useState<DocumentNote[]>([])
+  const notes = useMemo(() => [...(notesQuery.data ?? []), ...createdNotes], [notesQuery.data, createdNotes])
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [pendingHighlight, setPendingHighlight] = useState<{ chapter_index: number; selection: string } | null>(null)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [highlightError, setHighlightError] = useState('')
+  const [savingHighlight, setSavingHighlight] = useState(false)
+
+  const saveHighlight = async () => {
+    if (!pendingHighlight) return
+    setSavingHighlight(true)
+    setHighlightError('')
+    try {
+      const created = await createDocumentNote(doc.id, {
+        chapter_index: pendingHighlight.chapter_index,
+        highlight: pendingHighlight.selection,
+        note: noteDraft,
+      })
+      setCreatedNotes((current) => [...current, created])
+      setPendingHighlight(null)
+      setNoteDraft('')
+    } catch (cause) {
+      setHighlightError(cause instanceof Error ? cause.message : '保存划线失败')
+    } finally {
+      setSavingHighlight(false)
+    }
+  }
   const sectionRefs = useRef(new Map<number, HTMLElement>())
   const restoredRef = useRef(false)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -118,6 +149,63 @@ function ReaderBody({ document: doc }: { document: Document }) {
           </button>
           <h1 className="mb-1 text-2xl font-semibold">{doc.title}</h1>
           {doc.author && <p className="mb-6 text-sm text-muted-foreground">{doc.author}</p>}
+          <button
+            type="button"
+            className="mb-4 ml-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground"
+            onClick={() => setPanelOpen((open) => !open)}
+          >
+            笔记 ({notes.length})
+          </button>
+          {panelOpen && (
+            <section aria-label="本书笔记" className="mb-6 rounded-lg border border-border p-3">
+              {notes.length === 0 ? (
+                <p className="text-sm text-muted-foreground">还没有笔记</p>
+              ) : (
+                <ul className="space-y-3">
+                  {notes.map((note) => (
+                    <li key={note.id} className="text-sm">
+                      <p className="border-l-2 border-primary/60 pl-2 text-muted-foreground">{note.highlight}</p>
+                      {note.note && <p className="mt-1 pl-2">{note.note}</p>}
+                      <p className="mt-1 pl-2 text-xs text-muted-foreground">
+                        {chapters[note.chapter_index]?.title || `第 ${note.chapter_index + 1} 章`}
+                        {' · '}
+                        {note.source === 'import' ? '导入' : 'Pulse'}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+          {pendingHighlight && (
+            <div role="dialog" aria-label="保存划线" className="mb-6 rounded-lg border border-border p-3">
+              <p className="mb-2 border-l-2 border-primary/60 pl-2 text-sm text-muted-foreground">{pendingHighlight.selection}</p>
+              <textarea
+                className="mb-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                placeholder="这条划线想记录什么？(可选)"
+                value={noteDraft}
+                onChange={(event) => setNoteDraft(event.target.value)}
+              />
+              {highlightError !== '' && <p className="mb-2 text-sm text-destructive">{highlightError}</p>}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                  disabled={savingHighlight}
+                  onClick={() => void saveHighlight()}
+                >
+                  保存划线
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-border px-3 py-1.5 text-sm"
+                  onClick={() => setPendingHighlight(null)}
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          )}
           {chapters.map((chapter) => (
             <section
               key={chapter.index}
@@ -133,6 +221,11 @@ function ReaderBody({ document: doc }: { document: Document }) {
               <SelectionChatSurface
                 label={`${doc.title} ${chapter.title || `第 ${chapter.index + 1} 章`}`}
                 context={{ document_id: doc.id, chapter_index: chapter.index }}
+                onHighlight={(selection) => {
+                  setNoteDraft('')
+                  setHighlightError('')
+                  setPendingHighlight({ chapter_index: chapter.index, selection })
+                }}
               >
                 <div
                   className="document-content leading-7"
