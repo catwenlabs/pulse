@@ -333,26 +333,19 @@ func matchImportedBook(ctx context.Context, tx pgx.Tx, entry document.NoteImport
 
 // LinkNote manually assigns one unmatched imported note to a document.
 // Already-linked or missing notes, and missing documents, are not found.
-func (store *DocumentStore) LinkNote(ctx context.Context, noteID string, id document.ID) (document.Note, error) {
-	var note document.Note
-	err := store.pool.QueryRow(ctx, `
+func (store *DocumentStore) LinkNote(ctx context.Context, noteID string, id document.ID) error {
+	tag, err := store.pool.Exec(ctx, `
 		UPDATE document_notes SET document_id = $2
 		WHERE id = $1::uuid AND document_id IS NULL
 			AND EXISTS (SELECT 1 FROM documents WHERE id = $2)
-		RETURNING id, document_id, book_identifier, book_title, book_author,
-		          chapter_index, location, highlight, note, highlight_color, source, highlighted_at
-	`, noteID, id).Scan(
-		&note.ID, new(string), &note.BookIdentifier, &note.BookTitle, &note.BookAuthor,
-		&note.ChapterIndex, &note.Location, &note.Highlight, &note.Text, &note.Color,
-		&note.Source, &note.HighlightedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return document.Note{}, document.ErrNotFound
-	}
+	`, noteID, id)
 	if err != nil {
-		return document.Note{}, fmt.Errorf("link document note: %w", err)
+		return fmt.Errorf("link document note: %w", err)
 	}
-	note.DocumentID = id
-	return note, nil
+	if tag.RowsAffected() == 0 {
+		return document.ErrNotFound
+	}
+	return nil
 }
 
 // ListUnmatchedNotes returns imported notes that have no document yet.
