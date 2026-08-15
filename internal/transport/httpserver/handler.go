@@ -62,6 +62,7 @@ type Backend interface {
 	ListDocuments(context.Context) ([]document.Summary, error)
 	GetDocument(context.Context, document.ID) (document.Document, error)
 	SaveDocumentProgress(context.Context, document.ID, document.Progress) error
+	GetDocumentAsset(context.Context, document.ID, string) ([]byte, string, error)
 	ListSourceEntries(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
 	ListSourceEntryPage(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
 	GetEntry(context.Context, entry.ID) (entry.Entry, error)
@@ -133,6 +134,7 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("GET /api/v1/documents", listDocuments(backend))
 	mux.HandleFunc("GET /api/v1/documents/{id}", getDocument(backend))
 	mux.HandleFunc("PUT /api/v1/documents/{id}/progress", saveDocumentProgress(backend))
+	mux.HandleFunc("GET /api/v1/documents/{id}/asset/{path...}", getDocumentAsset(backend))
 	mux.HandleFunc("POST /api/v1/sources/preview", previewSource(backend))
 	mux.HandleFunc("GET /api/v1/sources", listSources(backend))
 	mux.HandleFunc("PUT /api/v1/sources/order", reorderRootSources(backend))
@@ -1202,6 +1204,25 @@ func saveDocumentProgress(backend Backend) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func getDocumentAsset(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		content, contentType, err := backend.GetDocumentAsset(
+			request.Context(),
+			document.ID(request.PathValue("id")),
+			request.PathValue("path"),
+		)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "private, max-age=86400")
+		if _, err := w.Write(content); err != nil {
+			slog.Warn("write document asset", "error", err)
+		}
 	}
 }
 

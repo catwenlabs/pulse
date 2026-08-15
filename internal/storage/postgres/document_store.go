@@ -50,10 +50,10 @@ func (store *DocumentStore) Import(ctx context.Context, request document.ImportR
 
 	var saved document.Document
 	err = tx.QueryRow(ctx, `
-		INSERT INTO documents (identifier, title, author)
-		VALUES ($1, $2, $3)
+		INSERT INTO documents (identifier, title, author, original_filename, original)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, identifier, title, author
-	`, parsed.Identifier, parsed.Title, parsed.Author).Scan(
+	`, parsed.Identifier, parsed.Title, parsed.Author, request.Filename, request.Content).Scan(
 		&saved.ID, &saved.Identifier, &saved.Title, &saved.Author,
 	)
 	if err != nil {
@@ -73,6 +73,29 @@ func (store *DocumentStore) Import(ctx context.Context, request document.ImportR
 
 	saved.Chapters = parsed.Chapters
 	return saved, nil
+}
+
+// ReadAsset extracts one image entry from the stored original file. Only
+// image entries are served; anything else is not found.
+func (store *DocumentStore) ReadAsset(ctx context.Context, id document.ID, entry string) ([]byte, string, error) {
+	if document.ImageContentType(entry) == "" {
+		return nil, "", document.ErrNotFound
+	}
+	var original []byte
+	err := store.pool.QueryRow(ctx, `
+		SELECT original FROM documents WHERE id = $1
+	`, id).Scan(&original)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, "", document.ErrNotFound
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("read document original: %w", err)
+	}
+	content, err := document.ReadEpubEntry(original, entry)
+	if err != nil {
+		return nil, "", document.ErrNotFound
+	}
+	return content, document.ImageContentType(entry), nil
 }
 
 func (store *DocumentStore) Delete(ctx context.Context, id document.ID) error {

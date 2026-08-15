@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/catwenlabs/pulse/internal/document"
@@ -175,4 +176,92 @@ func buildTestEpub(t *testing.T) []byte {
 		t.Fatalf("close zip writer: %v", err)
 	}
 	return buf.Bytes()
+}
+
+func buildTestImageEpub(t *testing.T) []byte {
+	t.Helper()
+	png := "\x89PNG\r\n\x1a\nfake-image-bytes"
+	buf := &bytes.Buffer{}
+	writer := zip.NewWriter(buf)
+	entries := map[string]string{
+		"META-INF/container.xml": `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`,
+		"OEBPS/content.opf": `<?xml version="1.0"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="bookid">urn:uuid:image-book</dc:identifier>
+    <dc:title>图文之书</dc:title>
+  </metadata>
+  <manifest><item id="c1" href="chapter1.xhtml" media-type="application/xhtml+xml"/></manifest>
+  <spine><itemref idref="c1"/></spine>
+</package>`,
+		"OEBPS/chapter1.xhtml": `<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>图</h1>
+<p><img src="../images/pic.png" alt="插图"/></p></body></html>`,
+	}
+	for name, body := range entries {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatalf("create zip entry %s: %v", name, err)
+		}
+		if _, err := entry.Write([]byte(body)); err != nil {
+			t.Fatalf("write zip entry %s: %v", name, err)
+		}
+	}
+	image, err := writer.Create("images/pic.png")
+	if err != nil {
+		t.Fatalf("create image entry: %v", err)
+	}
+	if _, err := image.Write([]byte(png)); err != nil {
+		t.Fatalf("write image entry: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close zip writer: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func TestDocumentStoreReadsAssetsFromOriginal(t *testing.T) {
+	pool := testPool(t)
+	store := NewDocumentStore(pool)
+	ctx := context.Background()
+
+	saved, err := store.Import(ctx, document.ImportRequest{
+		Filename: "book.epub",
+		Content:  buildTestImageEpub(t),
+	})
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+
+	fetched, err := store.Get(ctx, saved.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if !strings.Contains(fetched.Chapters[0].ContentHTML, `src="images/pic.png"`) {
+		t.Errorf("chapter ContentHTML = %q, want canonical image src", fetched.Chapters[0].ContentHTML)
+	}
+
+	content, contentType, err := store.ReadAsset(ctx, saved.ID, "images/pic.png")
+	if err != nil {
+		t.Fatalf("ReadAsset() error = %v", err)
+	}
+	if contentType != "image/png" {
+		t.Errorf("ReadAsset() contentType = %q, want image/png", contentType)
+	}
+	if !bytes.Contains(content, []byte("fake-image-bytes")) {
+		t.Errorf("ReadAsset() content = %q, want the image bytes", content)
+	}
+
+	// Non-image and missing entries are not served.
+	if _, _, err := store.ReadAsset(ctx, saved.ID, "OEBPS/content.opf"); !errors.Is(err, document.ErrNotFound) {
+		t.Errorf("ReadAsset(non-image) error = %v, want document.ErrNotFound", err)
+	}
+	if _, _, err := store.ReadAsset(ctx, saved.ID, "images/missing.png"); !errors.Is(err, document.ErrNotFound) {
+		t.Errorf("ReadAsset(missing) error = %v, want document.ErrNotFound", err)
+	}
+	if _, _, err := store.ReadAsset(ctx, document.ID("00000000-0000-0000-0000-000000000000"), "images/pic.png"); !errors.Is(err, document.ErrNotFound) {
+		t.Errorf("ReadAsset(missing document) error = %v, want document.ErrNotFound", err)
+	}
 }

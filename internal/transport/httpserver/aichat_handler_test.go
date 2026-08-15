@@ -40,7 +40,9 @@ func (f chatFakeBackend) CreateChatTool(ctx context.Context, in aichat.ToolInput
 func (f chatFakeBackend) UpdateChatTool(ctx context.Context, id string, in aichat.ToolInput) (aichat.SelectionTool, error) {
 	return f.updateTool(ctx, id, in)
 }
-func (f chatFakeBackend) DeleteChatTool(ctx context.Context, id string) error { return f.deleteTool(ctx, id) }
+func (f chatFakeBackend) DeleteChatTool(ctx context.Context, id string) error {
+	return f.deleteTool(ctx, id)
+}
 func (f chatFakeBackend) ReorderChatTools(ctx context.Context, ids []string) ([]aichat.SelectionTool, error) {
 	return f.reorderTools(ctx, ids)
 }
@@ -53,7 +55,9 @@ func (f chatFakeBackend) ListConversations(ctx context.Context, limit int, curso
 func (f chatFakeBackend) GetConversation(ctx context.Context, id string) (aichat.Conversation, []aichat.Message, error) {
 	return f.getConversation(ctx, id)
 }
-func (f chatFakeBackend) DeleteConversation(ctx context.Context, id string) error { return f.deleteConversation(ctx, id) }
+func (f chatFakeBackend) DeleteConversation(ctx context.Context, id string) error {
+	return f.deleteConversation(ctx, id)
+}
 func (f chatFakeBackend) SendFollowUp(ctx context.Context, id string, in aichat.FollowUpInput, key string) (aichat.Message, error) {
 	return f.sendFollowUp(ctx, id, in, key)
 }
@@ -73,12 +77,16 @@ func TestChatToolCRUDAndReorder(t *testing.T) {
 	tools := []aichat.SelectionTool{{ID: "t1", Name: "AI 解读", PromptTemplate: "{{selection}}", Enabled: true, Position: 0}}
 	var saved []string
 	fake := chatFakeBackend{
-		fakeBackend:    fakeBackend{},
-		listTools:      func(context.Context) ([]aichat.SelectionTool, error) { return tools, nil },
-		createTool:     func(_ context.Context, in aichat.ToolInput) (aichat.SelectionTool, error) { return aichat.SelectionTool{ID: "t2", Name: in.Name, PromptTemplate: in.PromptTemplate, Enabled: in.Enabled}, nil },
-		updateTool:     func(_ context.Context, id string, in aichat.ToolInput) (aichat.SelectionTool, error) { return aichat.SelectionTool{ID: id, Name: in.Name, PromptTemplate: in.PromptTemplate}, nil },
-		deleteTool:     func(context.Context, string) error { return nil },
-		reorderTools:   func(_ context.Context, ids []string) ([]aichat.SelectionTool, error) { saved = ids; return tools, nil },
+		fakeBackend: fakeBackend{},
+		listTools:   func(context.Context) ([]aichat.SelectionTool, error) { return tools, nil },
+		createTool: func(_ context.Context, in aichat.ToolInput) (aichat.SelectionTool, error) {
+			return aichat.SelectionTool{ID: "t2", Name: in.Name, PromptTemplate: in.PromptTemplate, Enabled: in.Enabled}, nil
+		},
+		updateTool: func(_ context.Context, id string, in aichat.ToolInput) (aichat.SelectionTool, error) {
+			return aichat.SelectionTool{ID: id, Name: in.Name, PromptTemplate: in.PromptTemplate}, nil
+		},
+		deleteTool:   func(context.Context, string) error { return nil },
+		reorderTools: func(_ context.Context, ids []string) ([]aichat.SelectionTool, error) { saved = ids; return tools, nil },
 	}
 	handler := chatHandler(fake)
 
@@ -141,7 +149,9 @@ func TestCreateConversationReturnsConversationAndUserMessage(t *testing.T) {
 func TestChatToolDuplicateMapsToConflict(t *testing.T) {
 	fake := chatFakeBackend{
 		fakeBackend: fakeBackend{},
-		createTool:  func(context.Context, aichat.ToolInput) (aichat.SelectionTool, error) { return aichat.SelectionTool{}, &aichat.DuplicateToolError{Name: "AI 解读"} },
+		createTool: func(context.Context, aichat.ToolInput) (aichat.SelectionTool, error) {
+			return aichat.SelectionTool{}, &aichat.DuplicateToolError{Name: "AI 解读"}
+		},
 	}
 	handler := chatHandler(fake)
 	resp := httptest.NewRecorder()

@@ -174,8 +174,8 @@ func createConversation(chat aiChatBackend) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusCreated, struct {
-			aichat.Conversation  `json:"conversation"`
-			UserMessage          aichat.Message `json:"user_message"`
+			aichat.Conversation `json:"conversation"`
+			UserMessage         aichat.Message `json:"user_message"`
 		}{Conversation: conversation, UserMessage: userMessage})
 	}
 }

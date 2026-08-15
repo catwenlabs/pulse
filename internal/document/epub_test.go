@@ -87,6 +87,56 @@ func TestParseEpubBuildsChaptersFromSpine(t *testing.T) {
 	}
 }
 
+func TestParseEpubCanonicalizesImageSources(t *testing.T) {
+	png := "\x89PNG\r\n\x1a\nfake-image-bytes"
+	buf := &bytes.Buffer{}
+	writer := zip.NewWriter(buf)
+	entries := map[string]string{
+		"META-INF/container.xml": `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`,
+		"OEBPS/content.opf": `<?xml version="1.0"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>图文之书</dc:title></metadata>
+  <manifest>
+    <item id="c1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="c1"/></spine>
+</package>`,
+		"OEBPS/chapter1.xhtml": `<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>图</h1>
+<p><img src="../images/pic.png" alt="插图"/></p></body></html>`,
+	}
+	for name, body := range entries {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatalf("create zip entry %s: %v", name, err)
+		}
+		if _, err := entry.Write([]byte(body)); err != nil {
+			t.Fatalf("write zip entry %s: %v", name, err)
+		}
+	}
+	image, err := writer.Create("images/pic.png")
+	if err != nil {
+		t.Fatalf("create image entry: %v", err)
+	}
+	if _, err := image.Write([]byte(png)); err != nil {
+		t.Fatalf("write image entry: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close zip writer: %v", err)
+	}
+
+	parsed, err := ParseEpub(buf.Bytes())
+	if err != nil {
+		t.Fatalf("ParseEpub() error = %v", err)
+	}
+	content := parsed.Chapters[0].ContentHTML
+	if !strings.Contains(content, `src="images/pic.png"`) {
+		t.Errorf("ContentHTML = %q, want img src canonicalized to the zip entry path", content)
+	}
+}
+
 func TestParseEpubSanitizesChapterContent(t *testing.T) {
 	buf := &bytes.Buffer{}
 	writer := zip.NewWriter(buf)

@@ -3,6 +3,8 @@ CREATE TABLE documents (
     identifier text NOT NULL DEFAULT '',
     title text NOT NULL,
     author text NOT NULL DEFAULT '',
+    original_filename text NOT NULL DEFAULT '',
+    original bytea NOT NULL,
     imported_at timestamptz NOT NULL DEFAULT now()
 );
 

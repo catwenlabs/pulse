@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
@@ -40,9 +40,10 @@ type fakeBackend struct {
 	reorderFolderSources func(context.Context, string, []source.ID) error
 	enqueue              func(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error)
 	importDocument       func(context.Context, document.ImportRequest) (document.Document, error)
-	listDocuments       func(context.Context) ([]document.Summary, error)
-	getDocument         func(context.Context, document.ID) (document.Document, error)
-	saveProgress        func(context.Context, document.ID, document.Progress) error
+	listDocuments        func(context.Context) ([]document.Summary, error)
+	getDocument          func(context.Context, document.ID) (document.Document, error)
+	saveProgress         func(context.Context, document.ID, document.Progress) error
+	getDocumentAsset     func(context.Context, document.ID, string) ([]byte, string, error)
 	listSourceEntries    func(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
 	listSourceEntryPage  func(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
 	getEntry             func(context.Context, entry.ID) (entry.Entry, error)
@@ -195,6 +196,10 @@ func (fake fakeBackend) GetDocument(ctx context.Context, id document.ID) (docume
 
 func (fake fakeBackend) SaveDocumentProgress(ctx context.Context, id document.ID, progress document.Progress) error {
 	return fake.saveProgress(ctx, id, progress)
+}
+
+func (fake fakeBackend) GetDocumentAsset(ctx context.Context, id document.ID, entry string) ([]byte, string, error) {
+	return fake.getDocumentAsset(ctx, id, entry)
 }
 
 func (fake fakeBackend) ListSourceEntries(ctx context.Context, sourceID source.ID, query entry.Query) ([]story.SourceEntry, error) {
@@ -1425,6 +1430,9 @@ func completeFakeBackend() fakeBackend {
 		saveProgress: func(context.Context, document.ID, document.Progress) error {
 			return errors.New("unexpected SaveDocumentProgress")
 		},
+		getDocumentAsset: func(context.Context, document.ID, string) ([]byte, string, error) {
+			return nil, "", document.ErrNotFound
+		},
 		getEntry: func(context.Context, entry.ID) (entry.Entry, error) {
 			return entry.Entry{}, entry.ErrNotFound
 		},
@@ -1645,5 +1653,46 @@ func TestGetDocument(t *testing.T) {
 	}
 	if fetched.ID != "doc-1" || len(fetched.Chapters) != 1 || fetched.Chapters[0].ContentHTML == "" {
 		t.Errorf("fetched = %+v, want doc-1 with one chapter", fetched)
+	}
+}
+
+func TestGetDocumentAsset(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.getDocumentAsset = func(_ context.Context, id document.ID, entry string) ([]byte, string, error) {
+		if id != "doc-1" || entry != "images/pic.png" {
+			t.Errorf("asset request = %q %q, want doc-1 images/pic.png", id, entry)
+		}
+		return []byte("png-bytes"), "image/png", nil
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/documents/doc-1/asset/images/pic.png", nil)
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, req)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("Content-Type"); got != "image/png" {
+		t.Errorf("Content-Type = %q, want image/png", got)
+	}
+	if response.Body.String() != "png-bytes" {
+		t.Errorf("body = %q, want png-bytes", response.Body.String())
+	}
+}
+
+func TestGetDocumentAssetReturnsNotFound(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.getDocumentAsset = func(context.Context, document.ID, string) ([]byte, string, error) {
+		return nil, "", document.ErrNotFound
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/documents/doc-1/asset/images/missing.png", nil)
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, req)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", response.Code)
 	}
 }

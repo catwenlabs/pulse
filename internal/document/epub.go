@@ -16,7 +16,8 @@ import (
 // comes from the OPF package (dc:identifier, dc:title, dc:creator); chapters
 // follow spine order and hold the sanitized body content of each XHTML
 // document. Chapter titles come from the first h1, falling back to the
-// document title element.
+// document title element. Image srcs are canonicalized to their zip entry
+// paths so the asset endpoint can resolve them against the stored original.
 func ParseEpub(content []byte) (Document, error) {
 	reader, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
 	if err != nil {
@@ -35,6 +36,7 @@ func ParseEpub(content []byte) (Document, error) {
 		return Document{}, err
 	}
 	baseDir := path.Dir(opfPath)
+
 	document := Document{
 		Identifier: book.Identifier,
 		Title:      book.Title,
@@ -50,7 +52,7 @@ func ParseEpub(content []byte) (Document, error) {
 		if err != nil {
 			return Document{}, err
 		}
-		title, body, err := extractXHTMLBody(chapterFile)
+		title, body, err := extractXHTMLBody(chapterFile, path.Join(baseDir, href))
 		if err != nil {
 			return Document{}, fmt.Errorf("extract chapter %q: %w", href, err)
 		}
@@ -64,6 +66,34 @@ func ParseEpub(content []byte) (Document, error) {
 		return Document{}, &ValidationError{Field: "file", Message: "epub spine is empty"}
 	}
 	return document, nil
+}
+
+// ReadEpubEntry returns the raw bytes of one zip entry inside an epub file.
+func ReadEpubEntry(content []byte, entry string) ([]byte, error) {
+	reader, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
+	if err != nil {
+		return nil, fmt.Errorf("open epub archive: %w", err)
+	}
+	return readZipEntry(reader, entry)
+}
+
+// ImageContentType reports the content type for image zip entries, or "" when
+// the name is not a supported image.
+func ImageContentType(name string) string {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".svg":
+		return "image/svg+xml"
+	case ".webp":
+		return "image/webp"
+	default:
+		return ""
+	}
 }
 
 type opfPackage struct {
@@ -151,8 +181,9 @@ func readZipEntry(reader *zip.Reader, name string) ([]byte, error) {
 }
 
 // extractXHTMLBody parses an XHTML chapter document and returns its title
-// (first h1, falling back to head title) and the body's inner HTML.
-func extractXHTMLBody(content []byte) (string, string, error) {
+// (first h1, falling back to head title) and the body's inner HTML. Relative
+// img srcs are resolved to their canonical zip entry path.
+func extractXHTMLBody(content []byte, chapterPath string) (string, string, error) {
 	node, err := html.Parse(bytes.NewReader(content))
 	if err != nil {
 		return "", "", fmt.Errorf("parse XHTML: %w", err)
@@ -180,6 +211,7 @@ func extractXHTMLBody(content []byte) (string, string, error) {
 		return "", "", &ValidationError{Field: "file", Message: "chapter has no body"}
 	}
 	sanitize(body)
+	canonicalizeImageSources(body, chapterPath)
 
 	var title string
 	var h1 *html.Node
@@ -237,6 +269,30 @@ func isUnsafeAttribute(attr html.Attribute) bool {
 		return true
 	}
 	return strings.HasPrefix(strings.TrimSpace(attr.Val), "javascript:")
+}
+
+// canonicalizeImageSources resolves relative img srcs against the chapter's
+// zip entry path so every src is the canonical entry path (no ../ segments).
+func canonicalizeImageSources(parent *html.Node, chapterPath string) {
+	chapterDir := path.Dir(chapterPath)
+	var walk func(*html.Node)
+	walk = func(current *html.Node) {
+		if current.Type == html.ElementNode && current.Data == "img" {
+			for index, attr := range current.Attr {
+				if attr.Key != "src" && attr.Key != "xlink:href" {
+					continue
+				}
+				if strings.Contains(attr.Val, "://") {
+					continue
+				}
+				current.Attr[index].Val = path.Join(chapterDir, attr.Val)
+			}
+		}
+		for child := current.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(parent)
 }
 
 func findFirstTag(current *html.Node, tag string) *html.Node {
