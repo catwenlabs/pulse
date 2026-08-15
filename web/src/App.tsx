@@ -30,6 +30,7 @@ import { EntryReader } from './components/EntryReader'
 import { ConversationHistoryPage } from './components/ConversationHistoryPage'
 import { DocumentsPage } from './components/DocumentsPage'
 import { DocumentReaderPage } from './components/DocumentReaderPage'
+import { NotesHubPage } from './components/NotesHubPage'
 import { SelectionChatSurface } from './components/SelectionChatSurface'
 import { SelectionToolsSettings } from './components/SelectionToolsSettings'
 import { StoryListItem, type StoryListItemChange } from './components/StoryListItem'
@@ -947,6 +948,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '', doc
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'starred' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'starred' ? 'page' : undefined} onSelect={() => showStream('starred')}><NavIcon name="star" />收藏</DropdownMenuItem>
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'later' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'later' ? 'page' : undefined} onSelect={() => showStream('later')}><NavIcon name="clock" />稍后阅读</DropdownMenuItem>
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'documents' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'documents' ? 'page' : undefined} onSelect={() => { void navigate({ to: '/documents' }) }}><NavIcon name="book" />文档库</DropdownMenuItem>
+                <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'notes' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'notes' ? 'page' : undefined} onSelect={() => { void navigate({ to: '/notes' }) }}><NavIcon name="quote" />阅读笔记</DropdownMenuItem>
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'ai' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'ai' ? 'page' : undefined} onSelect={() => {
                   void navigate({ to: '/digests' })
                   closeMobileNavigation()
@@ -989,6 +991,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '', doc
               <IconNavTooltip label="稍后阅读">
                 <Link className={iconNavItemClass(activeView === 'later')} to="/later" aria-label="稍后阅读" onClick={() => closeMobileNavigation()}><NavIcon name="clock" /></Link>
                 <Link className={iconNavItemClass(activeView === 'documents')} to="/documents" aria-label="文档库" onClick={() => closeMobileNavigation()}><NavIcon name="book" /></Link>
+                <Link className={iconNavItemClass(activeView === 'notes')} to="/notes" aria-label="阅读笔记" onClick={() => closeMobileNavigation()}><NavIcon name="quote" /></Link>
               </IconNavTooltip>
               <IconNavTooltip label="阅读笔记">
               </IconNavTooltip>
@@ -1167,6 +1170,8 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '', doc
           <DocumentsPage onOpenDocument={(id) => { void navigate({ to: '/documents/$documentID', params: { documentID: id } }) }} />
         ) : activeView === 'document-reader' ? (
           <DocumentReaderPage documentID={documentID} />
+        ) : activeView === 'notes' ? (
+          <NotesHubPage onOpenDocument={(id) => { void navigate({ to: '/documents/$documentID', params: { documentID: id } }) }} />
         ) : activeView === 'ai' ? (
           <DigestPage digestID={selectedDigestID} onSelectDigest={setSelectedDigestID} />
         ) : activeView === 'story' ? (

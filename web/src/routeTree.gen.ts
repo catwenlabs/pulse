@@ -15,6 +15,7 @@ import { Route as DigestsRouteImport } from './routes/digests'
 import { Route as DocumentsRouteImport } from './routes/documents'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as LaterRouteImport } from './routes/later'
+import { Route as NotesRouteImport } from './routes/notes'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SourcesRouteImport } from './routes/sources'
 import { Route as StarredRouteImport } from './routes/starred'
@@ -52,6 +53,11 @@ const InboxRoute = InboxRouteImport.update({
 const LaterRoute = LaterRouteImport.update({
   id: '/later',
   path: '/later',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NotesRoute = NotesRouteImport.update({
+  id: '/notes',
+  path: '/notes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -102,6 +108,7 @@ export interface FileRoutesByFullPath {
   '/documents': typeof DocumentsRouteWithChildren
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
+  '/notes': typeof NotesRoute
   '/settings': typeof SettingsRoute
   '/sources': typeof SourcesRouteWithChildren
   '/starred': typeof StarredRoute
@@ -118,6 +125,7 @@ export interface FileRoutesByTo {
   '/documents': typeof DocumentsRouteWithChildren
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
+  '/notes': typeof NotesRoute
   '/settings': typeof SettingsRoute
   '/starred': typeof StarredRoute
   '/tools': typeof ToolsRoute
@@ -134,6 +142,7 @@ export interface FileRoutesById {
   '/documents': typeof DocumentsRouteWithChildren
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
+  '/notes': typeof NotesRoute
   '/settings': typeof SettingsRoute
   '/sources': typeof SourcesRouteWithChildren
   '/starred': typeof StarredRoute
@@ -152,6 +161,7 @@ export interface FileRouteTypes {
     | '/documents'
     | '/inbox'
     | '/later'
+    | '/notes'
     | '/settings'
     | '/sources'
     | '/starred'
@@ -168,6 +178,7 @@ export interface FileRouteTypes {
     | '/documents'
     | '/inbox'
     | '/later'
+    | '/notes'
     | '/settings'
     | '/starred'
     | '/tools'
@@ -183,6 +194,7 @@ export interface FileRouteTypes {
     | '/documents'
     | '/inbox'
     | '/later'
+    | '/notes'
     | '/settings'
     | '/sources'
     | '/starred'
@@ -200,6 +212,7 @@ export interface RootRouteChildren {
   DocumentsRoute: typeof DocumentsRouteWithChildren
   InboxRoute: typeof InboxRoute
   LaterRoute: typeof LaterRoute
+  NotesRoute: typeof NotesRoute
   SettingsRoute: typeof SettingsRoute
   SourcesRoute: typeof SourcesRouteWithChildren
   StarredRoute: typeof StarredRoute
@@ -249,6 +262,13 @@ declare module '@tanstack/react-router' {
       path: '/later'
       fullPath: '/later'
       preLoaderRoute: typeof LaterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/notes': {
+      id: '/notes'
+      path: '/notes'
+      fullPath: '/notes'
+      preLoaderRoute: typeof NotesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -342,6 +362,7 @@ const rootRouteChildren: RootRouteChildren = {
   DocumentsRoute: DocumentsRouteWithChildren,
   InboxRoute: InboxRoute,
   LaterRoute: LaterRoute,
+  NotesRoute: NotesRoute,
   SettingsRoute: SettingsRoute,
   SourcesRoute: SourcesRouteWithChildren,
   StarredRoute: StarredRoute,
