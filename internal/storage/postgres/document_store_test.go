@@ -370,3 +370,48 @@ func TestDocumentStoreImportNotesMatchesAndStoresUnmatched(t *testing.T) {
 		t.Errorf("unmatched note payload = %+v", entry)
 	}
 }
+
+func TestDocumentStoreLinkNoteAssignsUnmatchedNote(t *testing.T) {
+	pool := testPool(t)
+	store := NewDocumentStore(pool)
+	ctx := context.Background()
+
+	doc, err := store.Import(ctx, document.ImportRequest{
+		Filename: "目标书.txt",
+		Content:  []byte("内容。"),
+	})
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	if _, err := store.ImportNotes(ctx, document.NoteImportFile{Notes: []document.NoteImport{
+		{BookTitle: "别名", Highlight: "高亮"},
+	}}); err != nil {
+		t.Fatalf("ImportNotes() error = %v", err)
+	}
+	unmatched, err := store.ListUnmatchedNotes(ctx)
+	if err != nil || len(unmatched) != 1 {
+		t.Fatalf("ListUnmatchedNotes() = %v, %v; want one note", unmatched, err)
+	}
+	noteID := unmatched[0].ID
+
+	if err := store.LinkNote(ctx, noteID, doc.ID); err != nil {
+		t.Fatalf("LinkNote() error = %v", err)
+	}
+	linked, err := store.ListNotes(ctx, doc.ID)
+	if err != nil {
+		t.Fatalf("ListNotes() error = %v", err)
+	}
+	if len(linked) != 1 || linked[0].ID != noteID || linked[0].DocumentID != doc.ID {
+		t.Fatalf("ListNotes() = %+v, want the linked note", linked)
+	}
+	if remaining, err := store.ListUnmatchedNotes(ctx); err != nil || len(remaining) != 0 {
+		t.Errorf("ListUnmatchedNotes() = %v, %v; want empty", remaining, err)
+	}
+
+	if err := store.LinkNote(ctx, noteID, doc.ID); err != document.ErrNotFound {
+		t.Errorf("LinkNote(already linked) error = %v, want document.ErrNotFound", err)
+	}
+	if err := store.LinkNote(ctx, "00000000-0000-0000-0000-000000000000", doc.ID); err != document.ErrNotFound {
+		t.Errorf("LinkNote(missing note) error = %v, want document.ErrNotFound", err)
+	}
+}
