@@ -271,15 +271,18 @@ func isUnsafeAttribute(attr html.Attribute) bool {
 	return strings.HasPrefix(strings.TrimSpace(attr.Val), "javascript:")
 }
 
-// canonicalizeImageSources resolves relative img srcs against the chapter's
-// zip entry path so every src is the canonical entry path (no ../ segments).
+// canonicalizeImageSources resolves relative img srcs (and SVG image hrefs,
+// which calibre-style cover pages use) against the chapter's zip entry path
+// so every reference is the canonical entry path (no ../ segments).
 func canonicalizeImageSources(parent *html.Node, chapterPath string) {
 	chapterDir := path.Dir(chapterPath)
 	var walk func(*html.Node)
 	walk = func(current *html.Node) {
-		if current.Type == html.ElementNode && current.Data == "img" {
+		if current.Type == html.ElementNode && (current.Data == "img" || current.Data == "image") {
 			for index, attr := range current.Attr {
-				if attr.Key != "src" && attr.Key != "xlink:href" {
+				// The SVG xlink:href attribute arrives with Key "href" (the
+				// parser moves xlink into the attribute namespace).
+				if attr.Key != "src" && attr.Key != "xlink:href" && attr.Key != "href" {
 					continue
 				}
 				if strings.Contains(attr.Val, "://") {

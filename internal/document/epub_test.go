@@ -137,6 +137,49 @@ func TestParseEpubCanonicalizesImageSources(t *testing.T) {
 	}
 }
 
+func TestParseEpubCanonicalizesSVGImageSources(t *testing.T) {
+	buf := &bytes.Buffer{}
+	writer := zip.NewWriter(buf)
+	entries := map[string]string{
+		"META-INF/container.xml": `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`,
+		"OEBPS/content.opf": `<?xml version="1.0"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>封面之书</dc:title></metadata>
+  <manifest>
+    <item id="c1" href="Text/titlepage.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="c1"/></spine>
+</package>`,
+		"OEBPS/Text/titlepage.xhtml": `<html xmlns="http://www.w3.org/1999/xhtml"><body>
+<div><svg viewBox="0 0 100 100"><image width="100" height="100" xlink:href="../Images/cover.png"/></svg></div>
+</body></html>`,
+	}
+	for name, body := range entries {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatalf("create zip entry %s: %v", name, err)
+		}
+		if _, err := entry.Write([]byte(body)); err != nil {
+			t.Fatalf("write zip entry %s: %v", name, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close zip writer: %v", err)
+	}
+
+	parsed, err := ParseEpub(buf.Bytes())
+	if err != nil {
+		t.Fatalf("ParseEpub() error = %v", err)
+	}
+	content := parsed.Chapters[0].ContentHTML
+	if !strings.Contains(content, `xlink:href="Images/cover.png"`) {
+		t.Errorf("ContentHTML = %q, want svg image href canonicalized to the zip entry path", content)
+	}
+}
+
 func TestParseEpubSanitizesChapterContent(t *testing.T) {
 	buf := &bytes.Buffer{}
 	writer := zip.NewWriter(buf)
