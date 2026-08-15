@@ -19,6 +19,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SourcesRouteImport } from './routes/sources'
 import { Route as StarredRouteImport } from './routes/starred'
 import { Route as ToolsRouteImport } from './routes/tools'
+import { Route as DocumentsDocumentIDRouteImport } from './routes/documents.$documentID'
 import { Route as SourcesIndexRouteImport } from './routes/sources.index'
 import { Route as SourcesSourceIDRouteImport } from './routes/sources.$sourceID'
 import { Route as StoriesStoryIDRouteImport } from './routes/stories.$storyID'
@@ -73,6 +74,11 @@ const ToolsRoute = ToolsRouteImport.update({
   path: '/tools',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DocumentsDocumentIDRoute = DocumentsDocumentIDRouteImport.update({
+  id: '/$documentID',
+  path: '/$documentID',
+  getParentRoute: () => DocumentsRoute,
+} as any)
 const SourcesIndexRoute = SourcesIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -93,13 +99,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/ai-conversations': typeof AiConversationsRoute
   '/digests': typeof DigestsRoute
-  '/documents': typeof DocumentsRoute
+  '/documents': typeof DocumentsRouteWithChildren
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
   '/settings': typeof SettingsRoute
   '/sources': typeof SourcesRouteWithChildren
   '/starred': typeof StarredRoute
   '/tools': typeof ToolsRoute
+  '/documents/$documentID': typeof DocumentsDocumentIDRoute
   '/sources/$sourceID': typeof SourcesSourceIDRoute
   '/stories/$storyID': typeof StoriesStoryIDRoute
   '/sources/': typeof SourcesIndexRoute
@@ -108,12 +115,13 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/ai-conversations': typeof AiConversationsRoute
   '/digests': typeof DigestsRoute
-  '/documents': typeof DocumentsRoute
+  '/documents': typeof DocumentsRouteWithChildren
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
   '/settings': typeof SettingsRoute
   '/starred': typeof StarredRoute
   '/tools': typeof ToolsRoute
+  '/documents/$documentID': typeof DocumentsDocumentIDRoute
   '/sources/$sourceID': typeof SourcesSourceIDRoute
   '/stories/$storyID': typeof StoriesStoryIDRoute
   '/sources': typeof SourcesIndexRoute
@@ -123,13 +131,14 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/ai-conversations': typeof AiConversationsRoute
   '/digests': typeof DigestsRoute
-  '/documents': typeof DocumentsRoute
+  '/documents': typeof DocumentsRouteWithChildren
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
   '/settings': typeof SettingsRoute
   '/sources': typeof SourcesRouteWithChildren
   '/starred': typeof StarredRoute
   '/tools': typeof ToolsRoute
+  '/documents/$documentID': typeof DocumentsDocumentIDRoute
   '/sources/$sourceID': typeof SourcesSourceIDRoute
   '/stories/$storyID': typeof StoriesStoryIDRoute
   '/sources/': typeof SourcesIndexRoute
@@ -147,6 +156,7 @@ export interface FileRouteTypes {
     | '/sources'
     | '/starred'
     | '/tools'
+    | '/documents/$documentID'
     | '/sources/$sourceID'
     | '/stories/$storyID'
     | '/sources/'
@@ -161,6 +171,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/starred'
     | '/tools'
+    | '/documents/$documentID'
     | '/sources/$sourceID'
     | '/stories/$storyID'
     | '/sources'
@@ -176,6 +187,7 @@ export interface FileRouteTypes {
     | '/sources'
     | '/starred'
     | '/tools'
+    | '/documents/$documentID'
     | '/sources/$sourceID'
     | '/stories/$storyID'
     | '/sources/'
@@ -185,7 +197,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AiConversationsRoute: typeof AiConversationsRoute
   DigestsRoute: typeof DigestsRoute
-  DocumentsRoute: typeof DocumentsRoute
+  DocumentsRoute: typeof DocumentsRouteWithChildren
   InboxRoute: typeof InboxRoute
   LaterRoute: typeof LaterRoute
   SettingsRoute: typeof SettingsRoute
@@ -267,6 +279,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ToolsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/documents/$documentID': {
+      id: '/documents/$documentID'
+      path: '/$documentID'
+      fullPath: '/documents/$documentID'
+      preLoaderRoute: typeof DocumentsDocumentIDRouteImport
+      parentRoute: typeof DocumentsRoute
+    }
     '/sources/': {
       id: '/sources/'
       path: '/'
@@ -291,6 +310,18 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface DocumentsRouteChildren {
+  DocumentsDocumentIDRoute: typeof DocumentsDocumentIDRoute
+}
+
+const DocumentsRouteChildren: DocumentsRouteChildren = {
+  DocumentsDocumentIDRoute: DocumentsDocumentIDRoute,
+}
+
+const DocumentsRouteWithChildren = DocumentsRoute._addFileChildren(
+  DocumentsRouteChildren,
+)
+
 interface SourcesRouteChildren {
   SourcesSourceIDRoute: typeof SourcesSourceIDRoute
   SourcesIndexRoute: typeof SourcesIndexRoute
@@ -308,7 +339,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AiConversationsRoute: AiConversationsRoute,
   DigestsRoute: DigestsRoute,
-  DocumentsRoute: DocumentsRoute,
+  DocumentsRoute: DocumentsRouteWithChildren,
   InboxRoute: InboxRoute,
   LaterRoute: LaterRoute,
   SettingsRoute: SettingsRoute,

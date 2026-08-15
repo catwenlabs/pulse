@@ -29,6 +29,7 @@ import type { CreateSourceInput, Entry, Folder, PreviewResult, Source, SourceHea
 import { EntryReader } from './components/EntryReader'
 import { ConversationHistoryPage } from './components/ConversationHistoryPage'
 import { DocumentsPage } from './components/DocumentsPage'
+import { DocumentReaderPage } from './components/DocumentReaderPage'
 import { SelectionChatSurface } from './components/SelectionChatSurface'
 import { SelectionToolsSettings } from './components/SelectionToolsSettings'
 import { StoryListItem, type StoryListItemChange } from './components/StoryListItem'
@@ -319,7 +320,7 @@ export function App() {
   )
 }
 
-export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: { view: View; sourceID: string; storyID?: string }) {
+export function AppContent({ view, sourceID: selectedSourceID, storyID = '', documentID = '' }: { view: View; sourceID: string; storyID?: string; documentID?: string }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const { requestMobileMenuFocus, consumeMobileMenuFocus } = useContext(NavigationFocusContext)
@@ -1164,6 +1165,8 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
           </div>
         ) : activeView === 'documents' ? (
           <DocumentsPage onOpenDocument={(id) => { void navigate({ to: '/documents/$documentID', params: { documentID: id } }) }} />
+        ) : activeView === 'document-reader' ? (
+          <DocumentReaderPage documentID={documentID} />
         ) : activeView === 'ai' ? (
           <DigestPage digestID={selectedDigestID} onSelectDigest={setSelectedDigestID} />
         ) : activeView === 'story' ? (
