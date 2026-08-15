@@ -28,7 +28,6 @@ const (
 	KindWebhook     Kind = "webhook"
 	KindManual      Kind = "manual"
 	KindFile        Kind = "file"
-	KindAnnotations Kind = "annotations"
 )
 
 type Spec struct {
@@ -128,7 +127,7 @@ func (spec Spec) Validate() (ValidatedSpec, error) {
 
 func (kind Kind) Valid() bool {
 	switch kind {
-	case KindRSS, KindJSONAPI, KindHTML, KindWebhook, KindManual, KindFile, KindAnnotations:
+	case KindRSS, KindJSONAPI, KindHTML, KindWebhook, KindManual, KindFile:
 		return true
 	default:
 		return false

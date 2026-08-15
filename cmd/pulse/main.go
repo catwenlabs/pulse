@@ -17,7 +17,6 @@ import (
 	"github.com/catwenlabs/pulse/internal/ai"
 	"github.com/catwenlabs/pulse/internal/aichat"
 	"github.com/catwenlabs/pulse/internal/config"
-	annotationdriver "github.com/catwenlabs/pulse/internal/drivers/annotations"
 	"github.com/catwenlabs/pulse/internal/drivers/feed"
 	filedriver "github.com/catwenlabs/pulse/internal/drivers/file"
 	htmldriver "github.com/catwenlabs/pulse/internal/drivers/html"
@@ -92,7 +91,6 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 		push.New(source.KindWebhook),
 		push.NewManual(safeHTTPClient),
 		filedriver.New(cfg.ImportRoots),
-		annotationdriver.New(),
 	)
 	if err != nil {
 		return fmt.Errorf("create driver registry: %w", err)

@@ -234,30 +234,6 @@ paths:
       responses:
         "202":
           description: Manual Entry and optional article snapshot acquisition enqueued
-  /sources/{sourceId}/annotations:
-    parameters:
-      - $ref: "#/components/parameters/SourceId"
-    post:
-      operationId: importAnnotations
-      description: Enqueues an atomic batch of book annotations for an annotations Source.
-      parameters:
-        - name: Idempotency-Key
-          in: header
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AnnotationBatch"
-      responses:
-        "202":
-          description: Annotation Acquisition enqueued
-        "409":
-          $ref: "#/components/responses/Problem"
-        "422":
-          $ref: "#/components/responses/Problem"
   /sources/{sourceId}/secret:
     parameters:
       - $ref: "#/components/parameters/SourceId"
@@ -1012,6 +988,202 @@ paths:
             text/x-opml:
               schema:
                 type: string
+  /documents:
+    post:
+      operationId: importDocument
+      summary: Import a long-form document for reading
+      description: >
+        Uploads one epub, txt, or markdown file. Duplicate books (same
+        identifier, or same title and author) are rejected, not merged.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: Imported document with chapters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+    get:
+      operationId: listDocuments
+      summary: List imported documents
+      responses:
+        "200":
+          description: Documents in import order, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DocumentSummary"
+  /documents/{documentId}:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    get:
+      operationId: getDocument
+      summary: Read a document with its chapters and reading progress
+      responses:
+        "200":
+          description: Document with chapters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+        "404":
+          $ref: "#/components/responses/Problem"
+  /documents/{documentId}/progress:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    put:
+      operationId: saveDocumentProgress
+      summary: Save the reading position (chapter plus scrolled fraction)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentProgress"
+      responses:
+        "204":
+          description: Progress saved
+        "404":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+  /documents/{documentId}/asset/{assetPath}:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+      - name: assetPath
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getDocumentAsset
+      summary: Serve one image entry from the stored original file
+      description: >
+        Only image entries are served; anything else is not found. Image
+        references inside chapter HTML are canonicalized to this endpoint.
+      responses:
+        "200":
+          description: Image bytes with an image content type
+          content:
+            image/*: {}
+        "404":
+          $ref: "#/components/responses/Problem"
+  /documents/{documentId}/notes:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    post:
+      operationId: createDocumentNote
+      summary: Write a highlight while reading
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentNoteInput"
+      responses:
+        "201":
+          description: Created note
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentNote"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+    get:
+      operationId: listDocumentNotes
+      summary: List all notes of a document in chapter order
+      responses:
+        "200":
+          description: Notes of the document
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DocumentNote"
+        "404":
+          $ref: "#/components/responses/Problem"
+  /documents/notes/import:
+    post:
+      operationId: importDocumentNotes
+      summary: Batch-import notes against the neutral JSON contract
+      description: >
+        Every entry carries its book identity (identifier, or title and
+        author), placement, highlight, and optional note. Matched entries
+        link to existing documents; unmatched entries are stored for later
+        manual linking. No documents are created implicitly. The contract
+        has no channel or provider vocabulary.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NoteImportFile"
+      responses:
+        "200":
+          description: Import summary with matched and unmatched counts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NoteImportSummary"
+        "422":
+          $ref: "#/components/responses/Problem"
+  /documents/notes/unmatched:
+    get:
+      operationId: listUnmatchedDocumentNotes
+      summary: List imported notes without a document
+      responses:
+        "200":
+          description: Unmatched notes with their book identity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DocumentNote"
+  /documents/notes/{noteId}/link:
+    parameters:
+      - name: noteId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: linkDocumentNote
+      summary: Manually assign one unmatched note to a document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [document_id]
+              properties:
+                document_id:
+                  type: string
+      responses:
+        "204":
+          description: Note linked
+        "404":
+          $ref: "#/components/responses/Problem"
   /ai/tools:
     get:
       operationId: listChatTools
@@ -1311,6 +1483,12 @@ paths:
           $ref: "#/components/responses/Problem"
 components:
   parameters:
+    DocumentId:
+      name: documentId
+      in: path
+      required: true
+      schema:
+        type: string
     SourceId:
       name: sourceId
       in: path
@@ -1379,7 +1557,7 @@ components:
           type: string
         kind:
           type: string
-          enum: [rss, json-api, html, webhook, manual, file, annotations]
+          enum: [rss, json-api, html, webhook, manual, file]
         locator:
           type: string
         config:
@@ -1503,77 +1681,6 @@ components:
         published_at:
           type: string
           format: date-time
-    AnnotationInput:
-      type: object
-      required: [provider, book_title, highlight]
-      properties:
-        id:
-          type: string
-          maxLength: 512
-        provider:
-          type: string
-          maxLength: 64
-        book_identity:
-          type: string
-          maxLength: 512
-        book_title:
-          type: string
-          maxLength: 2048
-        book_author:
-          type: string
-          maxLength: 512
-        chapter:
-          type: string
-          maxLength: 1024
-        location:
-          type: string
-          maxLength: 256
-        highlight_color:
-          type: string
-          maxLength: 32
-        highlight:
-          type: string
-          maxLength: 262144
-        note:
-          type: string
-          maxLength: 262144
-        highlighted_at:
-          type: string
-          format: date-time
-          maxLength: 64
-    AnnotationBatch:
-      type: object
-      required: [annotations]
-      properties:
-        annotations:
-          type: array
-          minItems: 1
-          maxItems: 500
-          items:
-            $ref: "#/components/schemas/AnnotationInput"
-    AnnotationDetail:
-      type: object
-      required: [provider, book_identity, book_title, book_author, chapter, location, highlight_color, annotation_note]
-      properties:
-        provider:
-          type: string
-        book_identity:
-          type: string
-        book_title:
-          type: string
-        book_author:
-          type: string
-        chapter:
-          type: string
-        location:
-          type: string
-        highlight_color:
-          type: string
-        annotation_note:
-          type: string
-        highlighted_at:
-          type: string
-          format: date-time
     Entry:
       type: object
       required: [id, source_id, identity_key, source_title, discovered_at]
@@ -1604,8 +1711,6 @@ components:
         published_at:
           type: string
           format: date-time
-        annotation:
-          $ref: "#/components/schemas/AnnotationDetail"
     SourceEntry:
       type: object
       required: [entry, story]
@@ -2143,6 +2248,19 @@ components:
           type: string
           maxLength: 10000
           description: Plain selected text. Oversized selections are rejected, not truncated.
+        context:
+          type: object
+          description: >
+            Optional document coordinates of the selection. The server
+            resolves the chapter and appends a bounded excerpt around the
+            selection as context material; the client never sends chapter
+            content.
+          properties:
+            document_id:
+              type: string
+            chapter_index:
+              type: integer
+              minimum: 0
     ConversationCreated:
       type: object
       required: [conversation, user_message]
@@ -2238,3 +2356,148 @@ components:
           type: string
         error:
           type: string
+    DocumentSummary:
+      type: object
+      required: [id, title, chapter_count]
+      properties:
+        id:
+          type: string
+        identifier:
+          type: string
+        title:
+          type: string
+        author:
+          type: string
+        chapter_count:
+          type: integer
+    Document:
+      type: object
+      required: [id, title, chapters]
+      properties:
+        id:
+          type: string
+        identifier:
+          type: string
+        title:
+          type: string
+        author:
+          type: string
+        chapters:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocumentChapter"
+        progress:
+          $ref: "#/components/schemas/DocumentProgress"
+    DocumentChapter:
+      type: object
+      required: [index, title, content_html]
+      properties:
+        index:
+          type: integer
+        title:
+          type: string
+        content_html:
+          type: string
+          description: >
+            Sanitized chapter HTML in the Pulse reading style; image
+            references point at /documents/{id}/asset/{path}.
+    DocumentProgress:
+      type: object
+      required: [chapter_index, scroll_ratio]
+      properties:
+        chapter_index:
+          type: integer
+          minimum: 0
+        scroll_ratio:
+          type: number
+          minimum: 0
+          maximum: 1
+    DocumentNoteInput:
+      type: object
+      required: [chapter_index, highlight]
+      properties:
+        chapter_index:
+          type: integer
+          minimum: 0
+        highlight:
+          type: string
+          maxLength: 10000
+        note:
+          type: string
+        highlight_color:
+          type: string
+    DocumentNote:
+      type: object
+      required: [id, chapter_index, highlight]
+      properties:
+        id:
+          type: string
+        document_id:
+          type: string
+        book_identifier:
+          type: string
+        book_title:
+          type: string
+        book_author:
+          type: string
+        chapter_index:
+          type: integer
+        location:
+          type: string
+        highlight:
+          type: string
+        note:
+          type: string
+        highlight_color:
+          type: string
+        source:
+          type: string
+          enum: [pulse, import]
+          description: >
+            pulse = written while reading in Pulse; import = brought in
+            through the neutral import contract. Display-only.
+        highlighted_at:
+          type: string
+          format: date-time
+    NoteImportFile:
+      type: object
+      required: [notes]
+      properties:
+        notes:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/NoteImportEntry"
+    NoteImportEntry:
+      type: object
+      required: [book_title, highlight]
+      properties:
+        book_identifier:
+          type: string
+        book_title:
+          type: string
+        book_author:
+          type: string
+        chapter_index:
+          type: integer
+          minimum: 0
+        location:
+          type: string
+        highlight:
+          type: string
+          maxLength: 10000
+        note:
+          type: string
+        highlight_color:
+          type: string
+        highlighted_at:
+          type: string
+          format: date-time
+    NoteImportSummary:
+      type: object
+      required: [imported, unmatched]
+      properties:
+        imported:
+          type: integer
+        unmatched:
+          type: integer

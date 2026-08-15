@@ -4,7 +4,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/catwenlabs/pulse/internal/annotation"
 	"github.com/catwenlabs/pulse/internal/source"
 )
 
@@ -42,7 +41,6 @@ type Entry struct {
 	ContentHTML  string             `json:"content_html"`
 	PublishedAt  *time.Time         `json:"published_at,omitempty"`
 	DiscoveredAt time.Time          `json:"discovered_at"`
-	Annotation   *annotation.Detail `json:"annotation,omitempty"`
 }
 
 type Query struct {

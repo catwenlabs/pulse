@@ -22,7 +22,6 @@ import (
 
 	"github.com/catwenlabs/pulse/internal/ai"
 	"github.com/catwenlabs/pulse/internal/aichat"
-	"github.com/catwenlabs/pulse/internal/annotation"
 	"github.com/catwenlabs/pulse/internal/document"
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/events"
@@ -154,7 +153,6 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("POST /api/v1/sources/{id}/runs", runSource(backend))
 	mux.HandleFunc("POST /api/v1/sources/{id}/entries", createManualEntry(backend))
 	mux.HandleFunc("GET /api/v1/sources/{id}/entries", listSourceEntries(backend))
-	mux.HandleFunc("POST /api/v1/sources/{id}/annotations", importAnnotations(backend))
 	mux.HandleFunc("POST /api/v1/sources/{id}/secret", rotateSourceSecret(backend))
 	mux.HandleFunc("GET /api/v1/sources/{id}/health", getSourceHealth(backend))
 	mux.HandleFunc("POST /api/v1/webhooks/{id}", receiveWebhook(backend))
@@ -1100,47 +1098,6 @@ func validateManualEntryURL(payload []byte) error {
 		return fmt.Errorf("url must be an HTTP or HTTPS page without embedded credentials")
 	}
 	return nil
-}
-
-func importAnnotations(backend Backend) http.HandlerFunc {
-	return func(w http.ResponseWriter, request *http.Request) {
-		src, err := backend.GetSource(request.Context(), source.ID(request.PathValue("id")))
-		if err != nil {
-			writeDomainError(w, err)
-			return
-		}
-		if src.Kind != source.KindAnnotations {
-			writeProblem(w, http.StatusUnprocessableEntity, "wrong_source_kind", "source is not annotations", "")
-			return
-		}
-		if !src.Enabled {
-			writeProblem(w, http.StatusConflict, "source_paused", "source is paused", "")
-			return
-		}
-		payload, err := readJSONPayload(w, request)
-		if err != nil {
-			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
-			return
-		}
-		if _, err := annotation.DecodeBatch(payload); err != nil {
-			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "annotations")
-			return
-		}
-		key := strings.TrimSpace(request.Header.Get("Idempotency-Key"))
-		if key == "" {
-			digest := sha256.Sum256(payload)
-			key = hex.EncodeToString(digest[:])
-		}
-		acquisition, err := backend.Enqueue(request.Context(), ingestion.EnqueueRequest{
-			SourceID: src.ID, Trigger: ingestion.TriggerImport, Payload: payload,
-			IdempotencyKey: key, Priority: 100,
-		})
-		if err != nil {
-			writeDomainError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusAccepted, acquisition)
-	}
 }
 
 // maxDocumentUploadBytes bounds one imported document file. Epub books can

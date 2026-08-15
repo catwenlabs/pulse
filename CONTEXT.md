@@ -33,9 +33,13 @@ _Avoid_: Item、Post、Article
 由一条或多条 Entry 组成的阅读对象，是 Reader 中组织、统计和阅读状态操作的最小单元；聚合阅读列表展示 Story，按 Source 浏览展示该 Source 的 Entry，但 Entry 的阅读状态由所属 Story 决定；包括按 Source 筛选的未读数量在内，所有 Reader 统计均按 Story 去重；聚合搜索检查所有成员 Entry 并将命中的 Story 只返回一次。用户维护的显示标题、Note 和标签属于 Story，来源标题和内容仍属于各 Entry。后加入已有 Story 的 Entry 继承该 Story 的阅读状态，不会使已读 Story 重新变为未读；两个 Story 合并时保留任一侧已经发生的阅读状态操作。每个 Entry 必须且只能属于一个 Story，单独出现的 Entry 组成单 Entry Story。
 _Avoid_: Duplicate Entry、Merged Entry、Topic
 
-**Annotation**:
-用户在外部阅读器中产生的一条阅读批注，由高亮原文、个人批注、书籍身份和阅读位置组成；摄取后成为一个 Entry，来源批注与用户在 Pulse 中为 Story 追加的 Note 分开保存。
-_Avoid_: Highlight Entry、Book Note
+**Document**:
+用户导入的长篇阅读对象（epub、txt 或 markdown)，与 Entry 并列：不绑定 Source、不进入 Entry 摄取管道、不参与 Story 聚合；包含元数据（identifier、标题、作者）、章节（标题 + 安全化的 HTML）、阅读进度（章节索引 + 章节内滚动比例）与原始文件 blob。重复的书（同 identifier 或同标题+作者）拒绝导入，不合并。
+_Avoid_: Book、Library、Shelf
+
+**Document Note**:
+一条书内高亮与笔记，独立于 Entry 保存；在 Pulse 阅读器内创建（source=pulse）与通过中立 JSON 契约批量导入（source=import）共用同一模型。导入的笔记按书标识或标题+作者匹配到已导入的 Document；未匹配的笔记不带 Document，进入未匹配区等待手动关联，导入不会隐式创建 Document。中立导入契约不包含任何渠道字段。
+_Avoid_: Annotation、Highlight Entry、Book Note
 
 **Checkpoint**:
 Source 在成功摄取后保存的外部进度位置，例如游标、ETag、文件偏移或页面指纹。

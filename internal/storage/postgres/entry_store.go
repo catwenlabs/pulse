@@ -81,7 +81,6 @@ func (store *EntryStore) searchSourceEntries(ctx context.Context, query entry.Qu
 			entry.id, entry.source_id, entry.identity_key, entry.external_id, entry.canonical_url,
 			entry.source_title, entry.author, entry.summary, entry.content_html,
 			entry.published_at, entry.discovered_at,
-			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at',
 			story.id,
 			(SELECT count(*)::integer FROM story_entries WHERE story_id = story.id),
 			(SELECT count(DISTINCT member_entry.source_id)::integer
@@ -100,7 +99,6 @@ func (store *EntryStore) searchSourceEntries(ctx context.Context, query entry.Qu
 		JOIN sources AS source ON source.id = entry.source_id
 		JOIN story_entries AS membership ON membership.entry_id = entry.id
 		JOIN stories AS story ON story.id = membership.story_id
-		LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entry.id
 		WHERE
 			($2 = '' OR (
 				to_tsvector(
@@ -111,11 +109,7 @@ func (store *EntryStore) searchSourceEntries(ctx context.Context, query entry.Qu
 					coalesce(entry.author, '') || ' ' ||
 					coalesce(entry.summary, '') || ' ' ||
 					coalesce(entry.content_html, '') || ' ' ||
-					coalesce(source.name, '') || ' ' ||
-					coalesce(entry_annotation.book_title, '') || ' ' ||
-					coalesce(entry_annotation.book_author, '') || ' ' ||
-					coalesce(entry_annotation.chapter, '') || ' ' ||
-					coalesce(entry_annotation.annotation_note, '')
+					coalesce(source.name, '')
 				) @@ plainto_tsquery('simple', $2)
 				OR entry.source_title ILIKE '%' || $2 || '%'
 				OR story.display_title ILIKE '%' || $2 || '%'
@@ -125,11 +119,7 @@ func (store *EntryStore) searchSourceEntries(ctx context.Context, query entry.Qu
 				OR lower(
 					coalesce(entry.summary, '') || ' ' ||
 					coalesce(entry.content_html, '') || ' ' ||
-					coalesce(story.note, '') || ' ' ||
-					coalesce(entry_annotation.book_title, '') || ' ' ||
-					coalesce(entry_annotation.book_author, '') || ' ' ||
-					coalesce(entry_annotation.chapter, '') || ' ' ||
-					coalesce(entry_annotation.annotation_note, '')
+					coalesce(story.note, '')
 				) LIKE '%' || lower($2) || '%'
 				OR word_similarity(lower($2), lower(coalesce(entry.source_title, ''))) >= 0.45
 				OR word_similarity(lower($2), lower(coalesce(story.display_title, ''))) >= 0.45
@@ -255,7 +245,6 @@ func (store *EntryStore) sourceReaderCounts(
 			JOIN sources AS source ON source.id = entry.source_id
 			JOIN story_entries AS membership ON membership.entry_id = entry.id
 			JOIN stories AS story ON story.id = membership.story_id
-			LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entry.id
 			WHERE entry.source_id = $4::uuid
 			  AND ($1 = '' OR (
 				to_tsvector(
@@ -266,18 +255,14 @@ func (store *EntryStore) sourceReaderCounts(
 					coalesce(entry.author, '') || ' ' ||
 					coalesce(entry.summary, '') || ' ' ||
 					coalesce(entry.content_html, '') || ' ' ||
-					coalesce(source.name, '') || ' ' ||
-					coalesce(entry_annotation.book_title, '') || ' ' ||
-					coalesce(entry_annotation.book_author, '') || ' ' ||
-					coalesce(entry_annotation.chapter, '') || ' ' ||
-					coalesce(entry_annotation.annotation_note, '')
+					coalesce(source.name, '')
 				) @@ plainto_tsquery('simple', $1)
 				OR entry.source_title ILIKE '%' || $1 || '%'
 				OR story.display_title ILIKE '%' || $1 || '%'
 				OR story.note ILIKE '%' || $1 || '%'
 				OR entry.author ILIKE '%' || $1 || '%'
 				OR source.name ILIKE '%' || $1 || '%'
-				OR lower(coalesce(entry.summary, '') || ' ' || coalesce(entry.content_html, '') || ' ' || coalesce(story.note, '') || ' ' || coalesce(entry_annotation.book_title, '') || ' ' || coalesce(entry_annotation.book_author, '') || ' ' || coalesce(entry_annotation.chapter, '') || ' ' || coalesce(entry_annotation.annotation_note, '')) LIKE '%' || lower($1) || '%'
+				OR lower(coalesce(entry.summary, '') || ' ' || coalesce(entry.content_html, '') || ' ' || coalesce(story.note, '')) LIKE '%' || lower($1) || '%'
 				OR word_similarity(lower($1), lower(coalesce(entry.source_title, ''))) >= 0.45
 				OR word_similarity(lower($1), lower(coalesce(story.display_title, ''))) >= 0.45
 				OR word_similarity(lower($1), lower(coalesce(entry.author, ''))) >= 0.45
@@ -329,10 +314,8 @@ func (store *EntryStore) Get(ctx context.Context, id entry.ID) (entry.Entry, err
 		SELECT
 			entry.id, entry.source_id, entry.identity_key, entry.external_id, entry.canonical_url,
 			entry.source_title, entry.author, entry.summary, entry.content_html,
-			entry.published_at, entry.discovered_at,
-			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at'
+			entry.published_at, entry.discovered_at
 		FROM entries AS entry
-		LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entry.id
 		WHERE entry.id = $1
 	`, id)
 	item, err := scanEntry(row)
@@ -429,7 +412,6 @@ type entryRow interface {
 
 func scanEntry(row entryRow) (entry.Entry, error) {
 	var item entry.Entry
-	var annotationJSON []byte
 	err := row.Scan(
 		&item.ID,
 		&item.SourceID,
@@ -442,19 +424,12 @@ func scanEntry(row entryRow) (entry.Entry, error) {
 		&item.ContentHTML,
 		&item.PublishedAt,
 		&item.DiscoveredAt,
-		&annotationJSON,
 	)
-	if err == nil && len(annotationJSON) > 0 && string(annotationJSON) != "null" {
-		if err := json.Unmarshal(annotationJSON, &item.Annotation); err != nil {
-			return entry.Entry{}, fmt.Errorf("decode entry annotation: %w", err)
-		}
-	}
 	return item, err
 }
 
 func scanSourceEntry(row entryRow) (story.SourceEntry, error) {
 	var item story.SourceEntry
-	var annotationJSON []byte
 	var tagsJSON []byte
 	err := row.Scan(
 		&item.Entry.ID,
@@ -468,7 +443,6 @@ func scanSourceEntry(row entryRow) (story.SourceEntry, error) {
 		&item.Entry.ContentHTML,
 		&item.Entry.PublishedAt,
 		&item.Entry.DiscoveredAt,
-		&annotationJSON,
 		&item.Story.ID,
 		&item.Story.EntryCount,
 		&item.Story.SourceCount,
@@ -482,9 +456,6 @@ func scanSourceEntry(row entryRow) (story.SourceEntry, error) {
 	)
 	if err != nil {
 		return story.SourceEntry{}, err
-	}
-	if err := decodeAnnotation(annotationJSON, &item.Entry); err != nil {
-		return story.SourceEntry{}, fmt.Errorf("decode Source Entry annotation: %w", err)
 	}
 	if len(tagsJSON) > 0 && string(tagsJSON) != "null" {
 		if err := json.Unmarshal(tagsJSON, &item.Story.Tags); err != nil {
@@ -616,32 +587,6 @@ func (store *EntryStore) CommitBatch(
 		}
 		if err != nil {
 			return fmt.Errorf("upsert entry %q: %w", item.identityKey, err)
-		}
-		if candidate.Annotation != nil {
-			detail := candidate.Annotation
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO entry_annotations (
-					entry_id, provider, book_identity, book_title, book_author,
-					chapter, location, highlight_color, annotation_note, highlighted_at
-				)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-				ON CONFLICT (entry_id)
-				DO UPDATE SET
-					provider = EXCLUDED.provider,
-					book_identity = EXCLUDED.book_identity,
-					book_title = EXCLUDED.book_title,
-					book_author = EXCLUDED.book_author,
-					chapter = EXCLUDED.chapter,
-					location = EXCLUDED.location,
-					highlight_color = EXCLUDED.highlight_color,
-					annotation_note = EXCLUDED.annotation_note,
-					highlighted_at = EXCLUDED.highlighted_at,
-					imported_at = now()
-			`, entryID, detail.Provider, detail.BookIdentity, detail.BookTitle,
-				detail.BookAuthor, detail.Chapter, detail.Location, detail.HighlightColor,
-				detail.AnnotationNote, detail.HighlightedAt); err != nil {
-				return fmt.Errorf("upsert annotation for entry %q: %w", item.identityKey, err)
-			}
 		}
 		if _, err := tx.Exec(ctx, `
 			WITH created AS (

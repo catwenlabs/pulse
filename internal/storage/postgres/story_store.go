@@ -73,12 +73,10 @@ func (store *StoryStore) Search(ctx context.Context, query story.Query) ([]story
 			story.read_at, story.starred_at, story.hidden_at, story.later_at,
 			entry.id, entry.source_id, entry.identity_key, entry.external_id, entry.canonical_url,
 			entry.source_title, entry.author, entry.summary, entry.content_html,
-			entry.published_at, entry.discovered_at,
-			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at'
+			entry.published_at, entry.discovered_at
 		FROM stories AS story
 		JOIN aggregates AS aggregate ON aggregate.story_id = story.id
 		JOIN entries AS entry ON entry.id = story.representative_entry_id
-		LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entry.id
 		WHERE
 			($2 = '' OR (
 				story.display_title ILIKE '%' || $2 || '%'
@@ -88,7 +86,6 @@ func (store *StoryStore) Search(ctx context.Context, query story.Query) ([]story
 					FROM story_entries AS matching_member
 					JOIN entries AS matching_entry ON matching_entry.id = matching_member.entry_id
 					JOIN sources AS matching_source ON matching_source.id = matching_entry.source_id
-					LEFT JOIN entry_annotations AS matching_annotation ON matching_annotation.entry_id = matching_entry.id
 					WHERE matching_member.story_id = story.id
 					  AND (
 						matching_entry.source_title ILIKE '%' || $2 || '%'
@@ -96,10 +93,6 @@ func (store *StoryStore) Search(ctx context.Context, query story.Query) ([]story
 						OR matching_entry.summary ILIKE '%' || $2 || '%'
 						OR matching_entry.content_html ILIKE '%' || $2 || '%'
 						OR matching_source.name ILIKE '%' || $2 || '%'
-						OR matching_annotation.book_title ILIKE '%' || $2 || '%'
-						OR matching_annotation.book_author ILIKE '%' || $2 || '%'
-						OR matching_annotation.chapter ILIKE '%' || $2 || '%'
-						OR matching_annotation.annotation_note ILIKE '%' || $2 || '%'
 						OR word_similarity(lower($2), lower(matching_entry.source_title)) >= 0.45
 						OR pulse_fuzzy_contains(coalesce(matching_entry.source_title, ''), $2)
 					  )
@@ -189,12 +182,10 @@ func (store *StoryStore) findMatchingEntry(
 			matching_entry.external_id, matching_entry.canonical_url,
 			matching_entry.source_title, matching_entry.author, matching_entry.summary,
 			matching_entry.content_html, matching_entry.published_at,
-			matching_entry.discovered_at,
-			to_jsonb(matching_annotation) - 'entry_id' - 'imported_at'
+			matching_entry.discovered_at
 		FROM story_entries AS member
 		JOIN entries AS matching_entry ON matching_entry.id = member.entry_id
 		JOIN sources AS matching_source ON matching_source.id = matching_entry.source_id
-		LEFT JOIN entry_annotations AS matching_annotation ON matching_annotation.entry_id = matching_entry.id
 		WHERE member.story_id = $1
 		  AND (
 			matching_entry.source_title ILIKE '%' || $2 || '%'
@@ -202,10 +193,6 @@ func (store *StoryStore) findMatchingEntry(
 			OR matching_entry.summary ILIKE '%' || $2 || '%'
 			OR matching_entry.content_html ILIKE '%' || $2 || '%'
 			OR matching_source.name ILIKE '%' || $2 || '%'
-			OR matching_annotation.book_title ILIKE '%' || $2 || '%'
-			OR matching_annotation.book_author ILIKE '%' || $2 || '%'
-			OR matching_annotation.chapter ILIKE '%' || $2 || '%'
-			OR matching_annotation.annotation_note ILIKE '%' || $2 || '%'
 			OR word_similarity(lower($2), lower(matching_entry.source_title)) >= 0.45
 			OR pulse_fuzzy_contains(coalesce(matching_entry.source_title, ''), $2)
 		  )
@@ -291,7 +278,6 @@ func (store *StoryStore) storyReaderCounts(
 						FROM story_entries AS matching_member
 						JOIN entries AS matching_entry ON matching_entry.id = matching_member.entry_id
 						JOIN sources AS matching_source ON matching_source.id = matching_entry.source_id
-						LEFT JOIN entry_annotations AS matching_annotation ON matching_annotation.entry_id = matching_entry.id
 						WHERE matching_member.story_id = story.id
 						  AND (
 							matching_entry.source_title ILIKE '%' || $1 || '%'
@@ -299,10 +285,6 @@ func (store *StoryStore) storyReaderCounts(
 							OR matching_entry.summary ILIKE '%' || $1 || '%'
 							OR matching_entry.content_html ILIKE '%' || $1 || '%'
 							OR matching_source.name ILIKE '%' || $1 || '%'
-							OR matching_annotation.book_title ILIKE '%' || $1 || '%'
-							OR matching_annotation.book_author ILIKE '%' || $1 || '%'
-							OR matching_annotation.chapter ILIKE '%' || $1 || '%'
-							OR matching_annotation.annotation_note ILIKE '%' || $1 || '%'
 							OR word_similarity(lower($1), lower(matching_entry.source_title)) >= 0.45
 							OR pulse_fuzzy_contains(coalesce(matching_entry.source_title, ''), $1)
 						  )
@@ -420,11 +402,9 @@ func (store *StoryStore) Get(ctx context.Context, id story.ID) (story.Story, err
 		SELECT
 			entry.id, entry.source_id, entry.identity_key, entry.external_id, entry.canonical_url,
 			entry.source_title, entry.author, entry.summary, entry.content_html,
-			entry.published_at, entry.discovered_at,
-			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at'
+			entry.published_at, entry.discovered_at
 		FROM story_entries AS member
 		JOIN entries AS entry ON entry.id = member.entry_id
-		LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entry.id
 		WHERE member.story_id = $1
 		ORDER BY coalesce(entry.published_at, entry.discovered_at) DESC, entry.id DESC
 	`, id)
@@ -466,12 +446,10 @@ func (store *StoryStore) Pending(ctx context.Context, limit int, model string) (
 			entry.id, entry.source_id, entry.identity_key, entry.external_id, entry.canonical_url,
 			entry.source_title, entry.author, entry.summary, entry.content_html,
 			entry.published_at, entry.discovered_at,
-			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at',
 			entry.normalized_title, entry.content_hash, entry.content_simhash,
 			coalesce(entry.embedding::text, ''), entry.embedding_model
 		FROM stories AS story
 		JOIN entries AS entry ON entry.id = story.representative_entry_id
-		LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entry.id
 		WHERE (
 			story.clustered_at IS NULL
 			OR (
@@ -556,13 +534,11 @@ func (store *StoryStore) Candidates(
 			entry.id, entry.source_id, entry.identity_key, entry.external_id, entry.canonical_url,
 			entry.source_title, entry.author, entry.summary, entry.content_html,
 			entry.published_at, entry.discovered_at,
-			to_jsonb(entry_annotation) - 'entry_id' - 'imported_at',
 			entry.normalized_title, entry.content_hash, entry.content_simhash,
 			coalesce(entry.embedding::text, ''), entry.embedding_model
 		FROM selected
 		JOIN stories AS story ON story.id = selected.id
 		JOIN entries AS entry ON entry.id = story.representative_entry_id
-		LEFT JOIN entry_annotations AS entry_annotation ON entry_annotation.entry_id = entry.id
 	`,
 		item.StoryID,
 		entryTimeForStore(item.Entry),
@@ -1296,7 +1272,6 @@ type storyRow interface {
 func scanStory(row storyRow) (story.Story, error) {
 	var item story.Story
 	var representative entry.Entry
-	var annotationJSON []byte
 	var tagsJSON []byte
 	err := row.Scan(
 		&item.ID,
@@ -1323,12 +1298,8 @@ func scanStory(row storyRow) (story.Story, error) {
 		&representative.ContentHTML,
 		&representative.PublishedAt,
 		&representative.DiscoveredAt,
-		&annotationJSON,
 	)
 	if err != nil {
-		return story.Story{}, err
-	}
-	if err := decodeAnnotation(annotationJSON, &representative); err != nil {
 		return story.Story{}, err
 	}
 	if len(tagsJSON) > 0 && string(tagsJSON) != "null" {
@@ -1344,7 +1315,6 @@ func scanCandidates(rows pgx.Rows) ([]story.Candidate, error) {
 	var result []story.Candidate
 	for rows.Next() {
 		var item story.Candidate
-		var annotationJSON []byte
 		var simHash int64
 		var vector string
 		err := rows.Scan(
@@ -1362,7 +1332,6 @@ func scanCandidates(rows pgx.Rows) ([]story.Candidate, error) {
 			&item.Entry.ContentHTML,
 			&item.Entry.PublishedAt,
 			&item.Entry.DiscoveredAt,
-			&annotationJSON,
 			&item.Features.NormalizedTitle,
 			&item.Features.ContentHash,
 			&simHash,
@@ -1378,9 +1347,6 @@ func scanCandidates(rows pgx.Rows) ([]story.Candidate, error) {
 			return nil, err
 		}
 		item.Features.CanonicalURL = item.Entry.CanonicalURL
-		if err := decodeAnnotation(annotationJSON, &item.Entry); err != nil {
-			return nil, err
-		}
 		result = append(result, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -1425,16 +1391,6 @@ func entryTimeForStore(item entry.Entry) time.Time {
 		return *item.PublishedAt
 	}
 	return item.DiscoveredAt
-}
-
-func decodeAnnotation(value []byte, item *entry.Entry) error {
-	if len(value) == 0 || string(value) == "null" {
-		return nil
-	}
-	if err := json.Unmarshal(value, &item.Annotation); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (store *StoryStore) resolveID(ctx context.Context, id story.ID) (story.ID, error) {
