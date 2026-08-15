@@ -46,6 +46,9 @@ type fakeBackend struct {
 	getDocumentAsset     func(context.Context, document.ID, string) ([]byte, string, error)
 	createDocumentNote   func(context.Context, document.ID, document.NoteInput) (document.Note, error)
 	listDocumentNotes    func(context.Context, document.ID) ([]document.Note, error)
+	importDocumentNotes  func(context.Context, document.NoteImportFile) (document.NoteImportSummary, error)
+	listUnmatchedDocumentNotes func(context.Context) ([]document.Note, error)
+	linkDocumentNote     func(context.Context, string, document.ID) error
 	listSourceEntries    func(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
 	listSourceEntryPage  func(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
 	getEntry             func(context.Context, entry.ID) (entry.Entry, error)
@@ -210,6 +213,18 @@ func (fake fakeBackend) CreateDocumentNote(ctx context.Context, id document.ID, 
 
 func (fake fakeBackend) ListDocumentNotes(ctx context.Context, id document.ID) ([]document.Note, error) {
 	return fake.listDocumentNotes(ctx, id)
+}
+
+func (fake fakeBackend) ImportDocumentNotes(ctx context.Context, file document.NoteImportFile) (document.NoteImportSummary, error) {
+	return fake.importDocumentNotes(ctx, file)
+}
+
+func (fake fakeBackend) ListUnmatchedDocumentNotes(ctx context.Context) ([]document.Note, error) {
+	return fake.listUnmatchedDocumentNotes(ctx)
+}
+
+func (fake fakeBackend) LinkDocumentNote(ctx context.Context, noteID string, id document.ID) error {
+	return fake.linkDocumentNote(ctx, noteID, id)
 }
 
 func (fake fakeBackend) ListSourceEntries(ctx context.Context, sourceID source.ID, query entry.Query) ([]story.SourceEntry, error) {
@@ -1446,6 +1461,15 @@ func completeFakeBackend() fakeBackend {
 		createDocumentNote: func(context.Context, document.ID, document.NoteInput) (document.Note, error) {
 			return document.Note{}, errors.New("unexpected CreateDocumentNote")
 		},
+		importDocumentNotes: func(context.Context, document.NoteImportFile) (document.NoteImportSummary, error) {
+			return document.NoteImportSummary{}, errors.New("unexpected ImportDocumentNotes")
+		},
+		listUnmatchedDocumentNotes: func(context.Context) ([]document.Note, error) {
+			return nil, errors.New("unexpected ListUnmatchedDocumentNotes")
+		},
+		linkDocumentNote: func(context.Context, string, document.ID) error {
+			return errors.New("unexpected LinkDocumentNote")
+		},
 		listDocumentNotes: func(context.Context, document.ID) ([]document.Note, error) {
 			return nil, document.ErrNotFound
 		},
@@ -1776,5 +1800,98 @@ func TestCreateDocumentNoteRejectsEmptyHighlight(t *testing.T) {
 	NewHandler(backend).ServeHTTP(response, req)
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422", response.Code)
+	}
+}
+
+func TestImportDocumentNotes(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.importDocumentNotes = func(_ context.Context, file document.NoteImportFile) (document.NoteImportSummary, error) {
+		if len(file.Notes) != 1 || file.Notes[0].BookTitle != "书" || file.Notes[0].Highlight != "高亮" {
+			t.Errorf("ImportDocumentNotes file = %+v, want the parsed contract", file)
+		}
+		return document.NoteImportSummary{Imported: 2, Unmatched: 1}, nil
+	}
+	handler := newHandler(backend, nil, nil)
+
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/api/v1/documents/notes/import", body(t, map[string]any{
+		"notes": []any{map[string]any{"book_title": "书", "highlight": "高亮"}},
+	})))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", resp.Code, resp.Body.String())
+	}
+	var summary document.NoteImportSummary
+	if err := json.Unmarshal(resp.Body.Bytes(), &summary); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if summary.Imported != 2 || summary.Unmatched != 1 {
+		t.Errorf("summary = %+v, want 2 imported 1 unmatched", summary)
+	}
+}
+
+func TestImportDocumentNotesRejectsInvalidContract(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.importDocumentNotes = func(context.Context, document.NoteImportFile) (document.NoteImportSummary, error) {
+		t.Fatal("ImportDocumentNotes must not run for an invalid file")
+		return document.NoteImportSummary{}, nil
+	}
+	handler := newHandler(backend, nil, nil)
+
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/api/v1/documents/notes/import", body(t, map[string]any{
+		"notes": []any{map[string]any{"book_title": "书", "highlight": "   "}},
+	})))
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", resp.Code)
+	}
+}
+
+func TestListUnmatchedDocumentNotes(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.listUnmatchedDocumentNotes = func(context.Context) ([]document.Note, error) {
+		return []document.Note{{ID: "note-1", BookTitle: "没导入的书", Highlight: "高亮"}}, nil
+	}
+	handler := newHandler(backend, nil, nil)
+
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/documents/notes/unmatched", nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", resp.Code, resp.Body.String())
+	}
+	var notes []document.Note
+	if err := json.Unmarshal(resp.Body.Bytes(), &notes); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(notes) != 1 || notes[0].BookTitle != "没导入的书" {
+		t.Errorf("notes = %+v, want the unmatched note", notes)
+	}
+}
+
+func TestLinkDocumentNote(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.linkDocumentNote = func(_ context.Context, noteID string, id document.ID) error {
+		if noteID != "note-1" || id != "doc-9" {
+			t.Errorf("LinkDocumentNote(%q, %q), want (note-1, doc-9)", noteID, id)
+		}
+		return nil
+	}
+	handler := newHandler(backend, nil, nil)
+
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodPut, "/api/v1/documents/notes/note-1/link", body(t, map[string]any{
+		"document_id": "doc-9",
+	})))
+	if resp.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.Code)
+	}
+
+	backend.linkDocumentNote = func(context.Context, string, document.ID) error { return document.ErrNotFound }
+	handler = newHandler(backend, nil, nil)
+	resp = httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodPut, "/api/v1/documents/notes/note-1/link", body(t, map[string]any{
+		"document_id": "doc-9",
+	})))
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("missing-note status = %d, want 404", resp.Code)
 	}
 }

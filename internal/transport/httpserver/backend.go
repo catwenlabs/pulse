@@ -237,6 +237,9 @@ type documentRepository interface {
 	ReadAsset(context.Context, document.ID, string) ([]byte, string, error)
 	CreateNote(context.Context, document.ID, document.NoteInput) (document.Note, error)
 	ListNotes(context.Context, document.ID) ([]document.Note, error)
+	ImportNotes(context.Context, document.NoteImportFile) (document.NoteImportSummary, error)
+	ListUnmatchedNotes(context.Context) ([]document.Note, error)
+	LinkNote(context.Context, string, document.ID) error
 }
 
 // WithDocuments attaches the document store to a backend constructed by one
@@ -295,6 +298,27 @@ func (service *backend) ListDocumentNotes(ctx context.Context, id document.ID) (
 		return nil, document.ErrUnavailable
 	}
 	return service.documents.ListNotes(ctx, id)
+}
+
+func (service *backend) ImportDocumentNotes(ctx context.Context, file document.NoteImportFile) (document.NoteImportSummary, error) {
+	if service.documents == nil {
+		return document.NoteImportSummary{}, document.ErrUnavailable
+	}
+	return service.documents.ImportNotes(ctx, file)
+}
+
+func (service *backend) ListUnmatchedDocumentNotes(ctx context.Context) ([]document.Note, error) {
+	if service.documents == nil {
+		return nil, document.ErrUnavailable
+	}
+	return service.documents.ListUnmatchedNotes(ctx)
+}
+
+func (service *backend) LinkDocumentNote(ctx context.Context, noteID string, id document.ID) error {
+	if service.documents == nil {
+		return document.ErrUnavailable
+	}
+	return service.documents.LinkNote(ctx, noteID, id)
 }
 
 func (service *backend) ListChatTools(ctx context.Context) ([]aichat.SelectionTool, error) {

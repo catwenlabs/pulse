@@ -65,6 +65,9 @@ type Backend interface {
 	GetDocumentAsset(context.Context, document.ID, string) ([]byte, string, error)
 	CreateDocumentNote(context.Context, document.ID, document.NoteInput) (document.Note, error)
 	ListDocumentNotes(context.Context, document.ID) ([]document.Note, error)
+	ImportDocumentNotes(context.Context, document.NoteImportFile) (document.NoteImportSummary, error)
+	ListUnmatchedDocumentNotes(context.Context) ([]document.Note, error)
+	LinkDocumentNote(context.Context, string, document.ID) error
 	ListSourceEntries(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
 	ListSourceEntryPage(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
 	GetEntry(context.Context, entry.ID) (entry.Entry, error)
@@ -139,6 +142,9 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("GET /api/v1/documents/{id}/asset/{path...}", getDocumentAsset(backend))
 	mux.HandleFunc("POST /api/v1/documents/{id}/notes", createDocumentNote(backend))
 	mux.HandleFunc("GET /api/v1/documents/{id}/notes", listDocumentNotes(backend))
+	mux.HandleFunc("POST /api/v1/documents/notes/import", importDocumentNotes(backend))
+	mux.HandleFunc("GET /api/v1/documents/notes/unmatched", listUnmatchedDocumentNotes(backend))
+	mux.HandleFunc("PUT /api/v1/documents/notes/{id}/link", linkDocumentNote(backend))
 	mux.HandleFunc("POST /api/v1/sources/preview", previewSource(backend))
 	mux.HandleFunc("GET /api/v1/sources", listSources(backend))
 	mux.HandleFunc("PUT /api/v1/sources/order", reorderRootSources(backend))
@@ -1261,6 +1267,62 @@ func listDocumentNotes(backend Backend) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, notes)
+	}
+}
+
+// importDocumentNotes accepts the neutral note-import contract, validates it,
+// and delegates the batch write; the summary reports matched and unmatched
+// counts for the UI.
+func importDocumentNotes(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		data, err := io.ReadAll(request.Body)
+		if err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		file, err := document.ParseNoteImport(data)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		summary, err := backend.ImportDocumentNotes(request.Context(), file)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, summary)
+	}
+}
+
+func listUnmatchedDocumentNotes(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		notes, err := backend.ListUnmatchedDocumentNotes(request.Context())
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, notes)
+	}
+}
+
+func linkDocumentNote(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			DocumentID string `json:"document_id"`
+		}
+		if err := decodeJSONBody(w, request, &body); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		if strings.TrimSpace(body.DocumentID) == "" {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", "document_id must not be empty", "document_id")
+			return
+		}
+		if err := backend.LinkDocumentNote(request.Context(), request.PathValue("id"), document.ID(body.DocumentID)); err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
