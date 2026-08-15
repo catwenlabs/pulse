@@ -25,7 +25,7 @@ import {
 
 import * as api from './api'
 import { DigestPage, DigestHistoryPanel, StoryDetailPage } from './AISummarization'
-import type { AnnotationInput, CreateSourceInput, Entry, Folder, PreviewResult, Source, SourceHealth, SourceKind, Story, StoryPatch } from './api'
+import type { CreateSourceInput, Entry, Folder, PreviewResult, Source, SourceHealth, SourceKind, Story, StoryPatch } from './api'
 import { EntryReader } from './components/EntryReader'
 import { ConversationHistoryPage } from './components/ConversationHistoryPage'
 import { SelectionChatSurface } from './components/SelectionChatSurface'
@@ -46,7 +46,7 @@ import { useLibraryRealtime, type LibraryRealtimeSignal, type RealtimeConnection
 import { toast } from 'sonner'
 import './styles.css'
 
-export type View = 'sources' | 'inbox' | 'starred' | 'later' | 'annotations' | 'ai' | 'story' | 'settings' | 'ai-conversations' | 'tools'
+export type View = 'sources' | 'inbox' | 'starred' | 'later' | 'ai' | 'story' | 'settings' | 'ai-conversations' | 'tools'
 export type ToolKey = 'ai-conversations' | 'sources' | 'settings'
 type SaveRequest = { url: string; title: string }
 type ReaderEntry = Entry & {
@@ -658,7 +658,6 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
   function showStream(view: Exclude<View, 'sources' | 'ai' | 'story' | 'settings' | 'ai-conversations'>, sourceID = '') {
     if (view === 'starred') void navigate({ to: '/starred' })
     else if (view === 'later') void navigate({ to: '/later' })
-    else if (view === 'annotations') void navigate({ to: '/annotations' })
     else if (sourceID) void navigate({ to: '/sources/$sourceID', params: { sourceID } })
     else void navigate({ to: '/' })
     closeMobileNavigation()
@@ -678,7 +677,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
   }
 
   const activeView = view
-  const isReaderView = activeView === 'inbox' || activeView === 'starred' || activeView === 'later' || activeView === 'annotations'
+  const isReaderView = activeView === 'inbox' || activeView === 'starred' || activeView === 'later'
   const isToolsView = activeView === 'tools'
   const showSourceTree = activeView !== 'tools' && activeView !== 'ai' && (isMobile || activeView === 'inbox')
   const showToolsMenu = activeView === 'tools' && !isMobile
@@ -701,9 +700,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
         ? '收藏'
         : activeView === 'later'
           ? '稍后阅读'
-          : activeView === 'annotations'
-            ? '阅读笔记'
-            : activeView === 'ai'
+          : activeView === 'ai'
               ? 'AI 追更'
               : activeView === 'story'
                 ? 'Story'
@@ -947,7 +944,6 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
               <DropdownMenuContent side="top" align="start" className="w-[min(17rem,calc(86vw-2rem))]">
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'starred' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'starred' ? 'page' : undefined} onSelect={() => showStream('starred')}><NavIcon name="star" />收藏</DropdownMenuItem>
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'later' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'later' ? 'page' : undefined} onSelect={() => showStream('later')}><NavIcon name="clock" />稍后阅读</DropdownMenuItem>
-                <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'annotations' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'annotations' ? 'page' : undefined} onSelect={() => showStream('annotations')}><NavIcon name="book" />阅读笔记</DropdownMenuItem>
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'ai' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'ai' ? 'page' : undefined} onSelect={() => {
                   void navigate({ to: '/digests' })
                   closeMobileNavigation()
@@ -991,7 +987,6 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
                 <Link className={iconNavItemClass(activeView === 'later')} to="/later" aria-label="稍后阅读" onClick={() => closeMobileNavigation()}><NavIcon name="clock" /></Link>
               </IconNavTooltip>
               <IconNavTooltip label="阅读笔记">
-                <Link className={iconNavItemClass(activeView === 'annotations')} to="/annotations" aria-label="阅读笔记" onClick={() => closeMobileNavigation()}><NavIcon name="book" /></Link>
               </IconNavTooltip>
               <IconNavTooltip label="设置">
                 <Button unstyled className={iconNavItemClass(activeView === 'tools')} aria-label="设置" onClick={() => void navigate({ to: '/tools' })}>
@@ -1164,18 +1159,6 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
           <div className="mx-auto w-full max-w-[1280px]">
             {tool === 'ai-conversations' ? <ConversationHistoryPage /> : <SelectionToolsSettings />}
           </div>
-        ) : activeView === 'annotations' ? (
-          <AnnotationsPage
-            sources={sources}
-            onSourceCreated={(created) => setSources((current) => [...current, created])}
-            onSourceUpdated={(updated) => setSources((current) => (
-              current.map((source) => source.id === updated.id ? updated : source)
-            ))}
-            mobile={isMobile}
-            mobileMenuButtonRef={mobileMenuButtonRef}
-            mobileNavigationOpen={mobileNavigationOpen}
-            onOpenMobileNavigation={() => setMobileNavigationOpen(true)}
-          />
         ) : activeView === 'ai' ? (
           <DigestPage digestID={selectedDigestID} onSelectDigest={setSelectedDigestID} />
         ) : activeView === 'story' ? (
@@ -1244,237 +1227,6 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
     </div>
     </Dialog>
   )
-}
-
-function AnnotationsPage({
-  sources,
-  onSourceCreated,
-  onSourceUpdated,
-  mobile,
-  mobileMenuButtonRef,
-  mobileNavigationOpen,
-  onOpenMobileNavigation,
-}: {
-  sources: Source[]
-  onSourceCreated: (source: Source) => void
-  onSourceUpdated: (source: Source) => void
-  mobile: boolean
-  mobileMenuButtonRef: { current: HTMLButtonElement | null }
-  mobileNavigationOpen: boolean
-  onOpenMobileNavigation: () => void
-}) {
-  const annotationSources = sources.filter((source) => source.kind === 'annotations')
-  const [entries, setEntries] = useState<Entry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [showImport, setShowImport] = useState(false)
-  const [expandedBooks, setExpandedBooks] = useState<Set<string>>(() => new Set())
-  const [importing, setImporting] = useState(false)
-  const [importMessage, setImportMessage] = useState('')
-  const [form, setForm] = useState<AnnotationInput>({
-    provider: 'apple-books',
-    book_title: '',
-    book_author: '',
-    chapter: '',
-    location: '',
-    highlight_color: 'yellow',
-    highlight: '',
-    note: '',
-  })
-
-  useEffect(() => {
-    let active = true
-    async function loadAnnotations() {
-      setLoading(true)
-      setError('')
-      try {
-        const batches = await Promise.all(annotationSources.map(async (source) => {
-          const result: Entry[] = []
-          let cursor: string | undefined
-          for (;;) {
-            const page = await api.listSourceEntries(source.id, { limit: 200, cursor })
-            result.push(...page.entries.map((item) => item.entry))
-            if (!page.next_cursor) return result
-            cursor = page.next_cursor
-          }
-        }))
-        if (active) setEntries(batches.flat().filter((entry) => entry.annotation))
-      } catch (cause) {
-        if (active) setError(cause instanceof Error ? cause.message : '无法加载阅读笔记')
-      } finally {
-        if (active) setLoading(false)
-      }
-    }
-    void loadAnnotations()
-    return () => {
-      active = false
-    }
-  }, [sources])
-
-  const books = Array.from(entries.reduce((groups, item) => {
-    const detail = item.annotation!
-    const key = annotationBookKey(detail)
-    const group = groups.get(key)
-    if (group) group.entries.push(item)
-    else groups.set(key, { detail, entries: [item] })
-    return groups
-  }, new Map<string, { detail: NonNullable<Entry['annotation']>; entries: Entry[] }>()).values())
-
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    setImporting(true)
-    setImportMessage('')
-    try {
-      let target = annotationSources.find((source) => source.locator.startsWith(form.provider))
-      if (!target) {
-        target = await api.createSource({
-          name: form.provider === 'kindle' ? 'Kindle 批注' : 'Apple Books 批注',
-          kind: 'annotations',
-          locator: `${form.provider}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-        })
-        onSourceCreated(target)
-      } else if (!target.enabled) {
-        target = await api.setSourceEnabled(target.id, true)
-        onSourceUpdated(target)
-      }
-      await api.importAnnotations(target.id, [form])
-      setImportMessage('批注已加入导入队列')
-      setForm((current) => ({ ...current, chapter: '', location: '', highlight: '', note: '' }))
-    } catch (cause) {
-      setImportMessage(cause instanceof Error ? cause.message : '导入批注失败')
-    } finally {
-      setImporting(false)
-    }
-  }
-
-  return (
-    <StreamShell
-      title="阅读笔记"
-      count={books.length > 0 ? `${books.length} 本` : undefined}
-      actions={<Button onClick={() => setShowImport((current) => !current)}>{showImport ? '收起导入' : '导入批注'}</Button>}
-      contentLabel="书籍批注"
-      mobile={mobile}
-      mobileMenuButtonRef={mobileMenuButtonRef}
-      mobileNavigationOpen={mobileNavigationOpen}
-      onOpenMobileNavigation={onOpenMobileNavigation}
-    >
-      <div className="px-[clamp(16px,4vw,48px)] py-8 max-md:px-4 max-md:py-5">
-      {showImport && (
-        <section className="mx-auto mb-8 grid max-w-[1040px] grid-cols-[minmax(180px,.7fr)_minmax(320px,1.3fr)] gap-8 rounded-2xl border bg-white p-8 shadow-[0_10px_32px_rgba(51,46,36,.06)] max-md:grid-cols-1 max-md:gap-6 max-md:p-5" aria-labelledby="annotation-import-title">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">NEW ANNOTATION</p>
-            <h2 id="annotation-import-title">添加一条阅读批注</h2>
-            <p>第一版支持结构化手工导入；Apple Books 与 Kindle 批量格式将在取得真实导出样本后接入。</p>
-          </div>
-          <form onSubmit={(event) => void submit(event)}>
-            <div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
-              <label>
-                <span>来源平台</span>
-                <Select value={form.provider} onChange={(event) => setForm({ ...form, provider: event.target.value })}>
-                  <option value="apple-books">Apple Books</option>
-                  <option value="kindle">Kindle</option>
-                  <option value="other">其他</option>
-                </Select>
-              </label>
-              <label>
-                <span>书名</span>
-                <Input required value={form.book_title} onChange={(event) => setForm({ ...form, book_title: event.target.value })} />
-              </label>
-              <label>
-                <span>作者</span>
-                <Input value={form.book_author} onChange={(event) => setForm({ ...form, book_author: event.target.value })} />
-              </label>
-              <label>
-                <span>章节</span>
-                <Input value={form.chapter} onChange={(event) => setForm({ ...form, chapter: event.target.value })} />
-              </label>
-              <label>
-                <span>位置</span>
-                <Input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} />
-              </label>
-              <label>
-                <span>高亮颜色</span>
-                <Select value={form.highlight_color} onChange={(event) => setForm({ ...form, highlight_color: event.target.value })}>
-                  <option value="yellow">黄色</option>
-                  <option value="green">绿色</option>
-                  <option value="blue">蓝色</option>
-                  <option value="pink">粉色</option>
-                  <option value="">未指定</option>
-                </Select>
-              </label>
-            </div>
-            <label>
-              <span>高亮原文</span>
-              <Textarea required value={form.highlight} onChange={(event) => setForm({ ...form, highlight: event.target.value })} />
-            </label>
-            <label>
-              <span>原始批注</span>
-              <Textarea value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
-            </label>
-            {importMessage && <p className="m-0 text-xs text-[#41634a]" role="status">{importMessage}</p>}
-            <Button type="submit" disabled={importing}>
-              {importing ? '正在导入…' : '加入导入队列'}
-            </Button>
-          </form>
-        </section>
-      )}
-
-      {loading && <div className="p-[30px] text-center text-xs text-muted-foreground">正在加载阅读笔记…</div>}
-      {!loading && error && <div className="p-[30px] text-center text-xs text-muted-foreground">{error}</div>}
-      {!loading && !error && books.length === 0 && (
-        <div className="mx-auto grid max-w-[1040px] justify-items-center gap-[7px] rounded-[14px] border border-dashed border-[#d5d0c5] bg-white/50 px-6 py-16 text-muted-foreground">
-          <strong>还没有阅读批注</strong>
-          <span>导入第一条高亮后，Pulse 会按书籍自动整理。</span>
-        </div>
-      )}
-      {!loading && !error && books.length > 0 && (
-        <section className="mx-auto grid max-w-[1040px] gap-[18px]" aria-label="书籍批注">
-          {books.map(({ detail, entries: bookEntries }) => (
-            <article className="rounded-2xl border bg-white p-7 shadow-[0_8px_28px_rgba(51,46,36,.05)] max-md:p-5" key={annotationBookKey(detail)}>
-              <div className="flex items-start justify-between gap-5 border-b border-[#ece8df] pb-[18px]">
-                <div>
-                  <span>{detail.provider === 'apple-books' ? 'APPLE BOOKS' : detail.provider.toUpperCase()}</span>
-                  <h2>{detail.book_title}</h2>
-                  {detail.book_author && <p>{detail.book_author}</p>}
-                </div>
-                <strong>{bookEntries.length} 条批注</strong>
-              </div>
-              <div className="grid gap-3 pt-[18px]">
-                {(expandedBooks.has(annotationBookKey(detail)) ? bookEntries : bookEntries.slice(0, 3)).map((item) => (
-                  <blockquote key={item.id}>
-                    <p>{item.summary}</p>
-                    {item.annotation?.annotation_note && <footer>{item.annotation.annotation_note}</footer>}
-                    <small>{[item.annotation?.chapter, item.annotation?.location].filter(Boolean).join(' · ')}</small>
-                  </blockquote>
-                ))}
-                {bookEntries.length > 3 && (
-                  <Button unstyled
-                    className="justify-self-start rounded-[7px] border border-[#ddd7cb] bg-white px-2.5 py-[7px] text-[11px] text-[#625d53] hover:border-[#c9c1b2] hover:bg-[#f8f5ef]"
-                    onClick={() => setExpandedBooks((current) => {
-                      const next = new Set(current)
-                      const key = annotationBookKey(detail)
-                      if (next.has(key)) next.delete(key)
-                      else next.add(key)
-                      return next
-                    })}
-                  >
-                    {expandedBooks.has(annotationBookKey(detail))
-                      ? '收起批注'
-                      : `展开全部 ${bookEntries.length} 条`}
-                  </Button>
-                )}
-              </div>
-            </article>
-          ))}
-        </section>
-      )}
-      </div>
-    </StreamShell>
-  )
-}
-
-function annotationBookKey(detail: NonNullable<Entry['annotation']>): string {
-  return `${detail.provider}\u0000${detail.book_identity || detail.book_title}\u0000${detail.book_author}`
 }
 
 function readSaveRequest(): SaveRequest | null {

@@ -1,4 +1,4 @@
-export type SourceKind = 'rss' | 'json-api' | 'html' | 'webhook' | 'manual' | 'file' | 'annotations'
+export type SourceKind = 'rss' | 'json-api' | 'html' | 'webhook' | 'manual' | 'file'
 
 export interface Source {
   id: string
@@ -79,7 +79,6 @@ export interface Entry {
   content_html?: string
   published_at?: string
   discovered_at: string
-  annotation?: AnnotationDetail
 }
 
 export interface Tag {
@@ -288,31 +287,7 @@ export interface ManualEntryInput {
   title: string
 }
 
-export interface AnnotationInput {
-  id?: string
-  provider: string
-  book_identity?: string
-  book_title: string
-  book_author?: string
-  chapter?: string
-  location?: string
-  highlight_color?: string
-  highlight: string
-  note?: string
-  highlighted_at?: string
-}
 
-export interface AnnotationDetail {
-  provider: string
-  book_identity: string
-  book_title: string
-  book_author: string
-  chapter: string
-  location: string
-  highlight_color: string
-  annotation_note: string
-  highlighted_at?: string
-}
 
 export interface Problem {
 	code?: string
@@ -480,23 +455,6 @@ export function createManualEntry(
       'Idempotency-Key': idempotencyKey,
     },
     body: JSON.stringify(input),
-  })
-}
-
-export function importAnnotations(
-  sourceId: string,
-  annotations: AnnotationInput[],
-): Promise<{ id: string; status: string }> {
-  const idempotencyKey = typeof globalThis.crypto?.randomUUID === 'function'
-    ? globalThis.crypto.randomUUID()
-    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-  return request(`/api/v1/sources/${sourceId}/annotations`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Idempotency-Key': idempotencyKey,
-    },
-    body: JSON.stringify({ annotations }),
   })
 }
 

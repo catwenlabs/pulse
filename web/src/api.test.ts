@@ -17,7 +17,6 @@ import {
   createDigest,
   deleteEntry,
   getDigest,
-  importAnnotations,
   listDigests,
   previewDigest,
   listSourceEntries,
@@ -119,36 +118,6 @@ describe('source API', () => {
     expect(String(fetchMock.mock.calls[0][1]?.headers && (
       fetchMock.mock.calls[0][1]!.headers as Record<string, string>
     )['Idempotency-Key']).length).toBeLessThanOrEqual(64)
-  })
-
-  it('enqueues a batch of book annotations', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(
-      '{"id":"acquisition-1","status":"pending"}',
-      { status: 202 },
-    ))
-    vi.stubGlobal('fetch', fetchMock)
-    const annotations = [{
-      provider: 'apple-books',
-      book_identity: 'book-123',
-      book_title: '思考，快与慢',
-      book_author: 'Daniel Kahneman',
-      chapter: '第三章',
-      location: '1284',
-      highlight_color: 'yellow',
-      highlight: '系统一自动而快速地运行。',
-      note: '这里对应直觉判断。',
-    }]
-
-    await importAnnotations('annotation-source', annotations)
-
-    expect(fetchMock).toHaveBeenCalledWith('/api/v1/sources/annotation-source/annotations', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Idempotency-Key': expect.any(String),
-      },
-      body: JSON.stringify({ annotations }),
-    })
   })
 
   it('merges one story into another', async () => {

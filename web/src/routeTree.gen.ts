@@ -11,7 +11,6 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AiConversationsRouteImport } from './routes/ai-conversations'
-import { Route as AnnotationsRouteImport } from './routes/annotations'
 import { Route as DigestsRouteImport } from './routes/digests'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as LaterRouteImport } from './routes/later'
@@ -31,11 +30,6 @@ const IndexRoute = IndexRouteImport.update({
 const AiConversationsRoute = AiConversationsRouteImport.update({
   id: '/ai-conversations',
   path: '/ai-conversations',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AnnotationsRoute = AnnotationsRouteImport.update({
-  id: '/annotations',
-  path: '/annotations',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DigestsRoute = DigestsRouteImport.update({
@@ -92,7 +86,6 @@ const StoriesStoryIDRoute = StoriesStoryIDRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/ai-conversations': typeof AiConversationsRoute
-  '/annotations': typeof AnnotationsRoute
   '/digests': typeof DigestsRoute
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
@@ -107,7 +100,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/ai-conversations': typeof AiConversationsRoute
-  '/annotations': typeof AnnotationsRoute
   '/digests': typeof DigestsRoute
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
@@ -122,7 +114,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/ai-conversations': typeof AiConversationsRoute
-  '/annotations': typeof AnnotationsRoute
   '/digests': typeof DigestsRoute
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
@@ -139,7 +130,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/ai-conversations'
-    | '/annotations'
     | '/digests'
     | '/inbox'
     | '/later'
@@ -154,7 +144,6 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/ai-conversations'
-    | '/annotations'
     | '/digests'
     | '/inbox'
     | '/later'
@@ -168,7 +157,6 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/ai-conversations'
-    | '/annotations'
     | '/digests'
     | '/inbox'
     | '/later'
@@ -184,7 +172,6 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AiConversationsRoute: typeof AiConversationsRoute
-  AnnotationsRoute: typeof AnnotationsRoute
   DigestsRoute: typeof DigestsRoute
   InboxRoute: typeof InboxRoute
   LaterRoute: typeof LaterRoute
@@ -209,13 +196,6 @@ declare module '@tanstack/react-router' {
       path: '/ai-conversations'
       fullPath: '/ai-conversations'
       preLoaderRoute: typeof AiConversationsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/annotations': {
-      id: '/annotations'
-      path: '/annotations'
-      fullPath: '/annotations'
-      preLoaderRoute: typeof AnnotationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/digests': {
@@ -307,7 +287,6 @@ const SourcesRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AiConversationsRoute: AiConversationsRoute,
-  AnnotationsRoute: AnnotationsRoute,
   DigestsRoute: DigestsRoute,
   InboxRoute: InboxRoute,
   LaterRoute: LaterRoute,
