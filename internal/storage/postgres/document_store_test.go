@@ -52,6 +52,25 @@ func TestDocumentStoreRoundTrip(t *testing.T) {
 	if _, err := store.Get(ctx, document.ID("00000000-0000-0000-0000-000000000000")); err != document.ErrNotFound {
 		t.Errorf("Get(missing) error = %v, want document.ErrNotFound", err)
 	}
+
+	progress := document.Progress{ChapterIndex: 0, ScrollRatio: 0.42}
+	if err := store.SaveProgress(ctx, saved.ID, progress); err != nil {
+		t.Fatalf("SaveProgress() error = %v", err)
+	}
+	resumed, err := store.Get(ctx, saved.ID)
+	if err != nil {
+		t.Fatalf("Get() after SaveProgress() error = %v", err)
+	}
+	if resumed.Progress == nil {
+		t.Fatalf("Get() Progress = nil, want saved progress")
+	}
+	if *resumed.Progress != progress {
+		t.Errorf("Get() Progress = %+v, want %+v", *resumed.Progress, progress)
+	}
+
+	if err := store.SaveProgress(ctx, document.ID("00000000-0000-0000-0000-000000000000"), progress); err != document.ErrNotFound {
+		t.Errorf("SaveProgress(missing) error = %v, want document.ErrNotFound", err)
+	}
 }
 
 func TestDocumentStoreImportRejectsUnsupportedFileType(t *testing.T) {

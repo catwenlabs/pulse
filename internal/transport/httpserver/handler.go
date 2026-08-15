@@ -61,6 +61,7 @@ type Backend interface {
 	ImportDocument(context.Context, document.ImportRequest) (document.Document, error)
 	ListDocuments(context.Context) ([]document.Summary, error)
 	GetDocument(context.Context, document.ID) (document.Document, error)
+	SaveDocumentProgress(context.Context, document.ID, document.Progress) error
 	ListSourceEntries(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
 	ListSourceEntryPage(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
 	GetEntry(context.Context, entry.ID) (entry.Entry, error)
@@ -131,6 +132,7 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("POST /api/v1/documents", importDocument(backend))
 	mux.HandleFunc("GET /api/v1/documents", listDocuments(backend))
 	mux.HandleFunc("GET /api/v1/documents/{id}", getDocument(backend))
+	mux.HandleFunc("PUT /api/v1/documents/{id}/progress", saveDocumentProgress(backend))
 	mux.HandleFunc("POST /api/v1/sources/preview", previewSource(backend))
 	mux.HandleFunc("GET /api/v1/sources", listSources(backend))
 	mux.HandleFunc("PUT /api/v1/sources/order", reorderRootSources(backend))
@@ -1178,6 +1180,28 @@ func getDocument(backend Backend) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, fetched)
+	}
+}
+
+func saveDocumentProgress(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		request.Body = http.MaxBytesReader(w, request.Body, 1<<20)
+		var progress document.Progress
+		if err := json.NewDecoder(request.Body).Decode(&progress); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		if err := progress.Validate(); err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		if err := backend.SaveDocumentProgress(
+			request.Context(), document.ID(request.PathValue("id")), progress,
+		); err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 

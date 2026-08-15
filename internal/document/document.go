@@ -33,6 +33,8 @@ type Document struct {
 	Title      string    `json:"title"`
 	Author     string    `json:"author,omitempty"`
 	Chapters   []Chapter `json:"chapters"`
+	// Progress is the reading position when reading has started, nil before.
+	Progress *Progress `json:"progress,omitempty"`
 }
 
 // Chapter is one sanitized reading unit of a Document.
@@ -55,4 +57,22 @@ type Summary struct {
 type ImportRequest struct {
 	Filename string
 	Content  []byte
+}
+
+// Progress records where reading stopped: the chapter plus the scrolled
+// fraction within it (0 <= ScrollRatio <= 1).
+type Progress struct {
+	ChapterIndex int     `json:"chapter_index"`
+	ScrollRatio  float64 `json:"scroll_ratio"`
+}
+
+// Validate checks the progress bounds.
+func (progress Progress) Validate() error {
+	if progress.ChapterIndex < 0 {
+		return &ValidationError{Field: "chapter_index", Message: "must not be negative"}
+	}
+	if progress.ScrollRatio < 0 || progress.ScrollRatio > 1 {
+		return &ValidationError{Field: "scroll_ratio", Message: "must be between 0 and 1"}
+	}
+	return nil
 }

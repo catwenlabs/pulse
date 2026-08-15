@@ -42,6 +42,7 @@ type fakeBackend struct {
 	importDocument       func(context.Context, document.ImportRequest) (document.Document, error)
 	listDocuments       func(context.Context) ([]document.Summary, error)
 	getDocument         func(context.Context, document.ID) (document.Document, error)
+	saveProgress        func(context.Context, document.ID, document.Progress) error
 	listSourceEntries    func(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
 	listSourceEntryPage  func(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
 	getEntry             func(context.Context, entry.ID) (entry.Entry, error)
@@ -190,6 +191,10 @@ func (fake fakeBackend) ListDocuments(ctx context.Context) ([]document.Summary, 
 
 func (fake fakeBackend) GetDocument(ctx context.Context, id document.ID) (document.Document, error) {
 	return fake.getDocument(ctx, id)
+}
+
+func (fake fakeBackend) SaveDocumentProgress(ctx context.Context, id document.ID, progress document.Progress) error {
+	return fake.saveProgress(ctx, id, progress)
 }
 
 func (fake fakeBackend) ListSourceEntries(ctx context.Context, sourceID source.ID, query entry.Query) ([]story.SourceEntry, error) {
@@ -1417,6 +1422,9 @@ func completeFakeBackend() fakeBackend {
 		getDocument: func(context.Context, document.ID) (document.Document, error) {
 			return document.Document{}, document.ErrNotFound
 		},
+		saveProgress: func(context.Context, document.ID, document.Progress) error {
+			return errors.New("unexpected SaveDocumentProgress")
+		},
 		getEntry: func(context.Context, entry.ID) (entry.Entry, error) {
 			return entry.Entry{}, entry.ErrNotFound
 		},
@@ -1554,6 +1562,49 @@ func TestImportDocumentRejectsUnsupportedFileType(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/documents", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, req)
+
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, body = %s, want 422", response.Code, response.Body.String())
+	}
+}
+
+func TestSaveDocumentProgress(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.saveProgress = func(_ context.Context, id document.ID, progress document.Progress) error {
+		if id != "doc-1" {
+			t.Errorf("ID = %q, want doc-1", id)
+		}
+		if progress.ChapterIndex != 3 || progress.ScrollRatio != 0.42 {
+			t.Errorf("progress = %+v, want chapter 3 at 0.42", progress)
+		}
+		return nil
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/documents/doc-1/progress",
+		bytes.NewBufferString(`{"chapter_index":3,"scroll_ratio":0.42}`))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, req)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestSaveDocumentProgressRejectsOutOfRangeRatio(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.saveProgress = func(context.Context, document.ID, document.Progress) error {
+		t.Fatal("saveProgress must not run for an invalid payload")
+		return nil
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/documents/doc-1/progress",
+		bytes.NewBufferString(`{"chapter_index":0,"scroll_ratio":1.5}`))
+	req.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 
 	NewHandler(backend).ServeHTTP(response, req)

@@ -233,6 +233,7 @@ type documentRepository interface {
 	Import(context.Context, document.ImportRequest) (document.Document, error)
 	List(context.Context) ([]document.Summary, error)
 	Get(context.Context, document.ID) (document.Document, error)
+	SaveProgress(context.Context, document.ID, document.Progress) error
 }
 
 // WithDocuments attaches the document store to a backend constructed by one
@@ -263,6 +264,13 @@ func (service *backend) GetDocument(ctx context.Context, id document.ID) (docume
 		return document.Document{}, document.ErrUnavailable
 	}
 	return service.documents.Get(ctx, id)
+}
+
+func (service *backend) SaveDocumentProgress(ctx context.Context, id document.ID, progress document.Progress) error {
+	if service.documents == nil {
+		return document.ErrUnavailable
+	}
+	return service.documents.SaveProgress(ctx, id, progress)
 }
 
 func (service *backend) ListChatTools(ctx context.Context) ([]aichat.SelectionTool, error) {

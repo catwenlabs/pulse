@@ -62,14 +62,23 @@ func (store *DocumentStore) Import(ctx context.Context, request document.ImportR
 
 func (store *DocumentStore) Get(ctx context.Context, id document.ID) (document.Document, error) {
 	fetched := document.Document{ID: id}
+	var progressChapter *int
+	var progressRatio *float64
 	err := store.pool.QueryRow(ctx, `
-		SELECT identifier, title, author FROM documents WHERE id = $1
-	`, id).Scan(&fetched.Identifier, &fetched.Title, &fetched.Author)
+		SELECT d.identifier, d.title, d.author,
+		       p.chapter_index, p.scroll_ratio
+		FROM documents d
+		LEFT JOIN document_progress p ON p.document_id = d.id
+		WHERE d.id = $1
+	`, id).Scan(&fetched.Identifier, &fetched.Title, &fetched.Author, &progressChapter, &progressRatio)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return document.Document{}, document.ErrNotFound
 	}
 	if err != nil {
 		return document.Document{}, fmt.Errorf("get document: %w", err)
+	}
+	if progressChapter != nil && progressRatio != nil {
+		fetched.Progress = &document.Progress{ChapterIndex: *progressChapter, ScrollRatio: *progressRatio}
 	}
 	rows, err := store.pool.Query(ctx, `
 		SELECT chapter_index, title, content_html
@@ -91,6 +100,24 @@ func (store *DocumentStore) Get(ctx context.Context, id document.ID) (document.D
 		return document.Document{}, fmt.Errorf("iterate document chapters: %w", err)
 	}
 	return fetched, nil
+}
+
+func (store *DocumentStore) SaveProgress(ctx context.Context, id document.ID, progress document.Progress) error {
+	tag, err := store.pool.Exec(ctx, `
+		INSERT INTO document_progress (document_id, chapter_index, scroll_ratio, updated_at)
+		SELECT $1, $2, $3, now() WHERE EXISTS (SELECT 1 FROM documents WHERE id = $1)
+		ON CONFLICT (document_id) DO UPDATE
+		SET chapter_index = EXCLUDED.chapter_index,
+		    scroll_ratio = EXCLUDED.scroll_ratio,
+		    updated_at = now()
+	`, id, progress.ChapterIndex, progress.ScrollRatio)
+	if err != nil {
+		return fmt.Errorf("save document progress: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return document.ErrNotFound
+	}
+	return nil
 }
 
 func (store *DocumentStore) List(ctx context.Context) ([]document.Summary, error) {

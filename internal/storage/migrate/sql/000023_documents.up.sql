@@ -13,3 +13,10 @@ CREATE TABLE document_chapters (
     content_html text NOT NULL,
     PRIMARY KEY (document_id, chapter_index)
 );
+
+CREATE TABLE document_progress (
+    document_id uuid PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+    chapter_index integer NOT NULL,
+    scroll_ratio double precision NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
