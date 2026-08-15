@@ -56,6 +56,24 @@ describe('DocumentReaderPage', () => {
     expect(link.getAttribute('href')).toBe('/api/v1/documents/doc-1/original')
   })
 
+  it('rewrites chapter image references to the asset endpoint', async () => {
+    renderPage({
+      ...documentFixture,
+      chapters: [
+        { index: 0, title: '封面', content_html: '<div><svg viewBox="0 0 100 100"><image xlink:href="cover1.jpeg"/></svg></div>' },
+        { index: 1, title: '第一章', content_html: '<p><img src="images/pic.png" alt="插图"/></p><p><img src="https://example.com/ext.png" alt="外链"/></p>' },
+      ],
+    })
+
+    await screen.findByRole('heading', { name: '测试之书' })
+    const inline = screen.getByRole('img', { name: '插图' })
+    expect(inline.getAttribute('src')).toBe('/api/v1/documents/doc-1/asset/images/pic.png')
+    const external = screen.getByRole('img', { name: '外链' })
+    expect(external.getAttribute('src')).toBe('https://example.com/ext.png')
+    const svgImage = document.querySelector('image')
+    expect(svgImage?.getAttribute('xlink:href')).toBe('/api/v1/documents/doc-1/asset/cover1.jpeg')
+  })
+
   it('restores the saved reading position', async () => {
     const scrollSpy = vi.fn()
     Element.prototype.scrollIntoView = scrollSpy
@@ -95,7 +113,7 @@ describe('DocumentReaderPage', () => {
 
     await screen.findByRole('heading', { name: '测试之书' })
     vi.useFakeTimers()
-    fireEvent.scroll(document, { target: document.scrollingElement })
+    fireEvent.scroll(screen.getByTestId('reader-scroll'))
     await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
 
     const progressCall = fetchMock.mock.calls.find((call) => String(call[0]).includes('/progress'))

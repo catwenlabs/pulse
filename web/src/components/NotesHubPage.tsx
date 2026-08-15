@@ -46,7 +46,7 @@ export function NotesHubPage({ onOpenDocument }: { onOpenDocument: (id: string) 
   }
 
   return (
-    <div className="mx-auto w-full max-w-[900px] px-4 py-6">
+    <div className="mx-auto h-full w-full max-w-[900px] overflow-y-auto px-4 py-6">
       <header className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold">笔记</h1>
         <div className="ml-auto flex items-center gap-2">

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import { createDocumentNote, getDocument, listDocumentNotes, saveDocumentProgress, type Document, type DocumentNote } from '../api'
+import { resolveDocumentAssets } from './documentAssets'
 import { SelectionChatSurface } from './SelectionChatSurface'
 
 const PROGRESS_SAVE_DELAY_MS = 1200
@@ -79,16 +80,17 @@ function ReaderBody({ document: doc }: { document: Document }) {
   }, [doc.progress, scrollToChapter])
 
   const currentProgress = useCallback(() => {
+    const container = containerRef.current
+    if (!container) return { chapter_index: 0, scroll_ratio: 0 }
     const sections = [...sectionRefs.current.entries()].sort((left, right) => left[0] - right[0])
-    const anchorY = window.scrollY + 80
+    const anchorY = container.getBoundingClientRect().top + 80
     let chapter = 0
     let ratio = 0
     for (const [index, section] of sections) {
-      const top = section.offsetTop
-      const height = Math.max(section.offsetHeight, 1)
-      if (top <= anchorY) {
+      const rect = section.getBoundingClientRect()
+      if (rect.top <= anchorY) {
         chapter = index
-        ratio = Math.min(Math.max((anchorY - top) / height, 0), 1)
+        ratio = Math.min(Math.max((anchorY - rect.top) / Math.max(rect.height, 1), 0), 1)
       }
     }
     return { chapter_index: chapter, scroll_ratio: ratio }
@@ -109,9 +111,9 @@ function ReaderBody({ document: doc }: { document: Document }) {
     const container = containerRef.current
     if (!container) return
     const onScroll = () => scheduleSave()
-    document.addEventListener('scroll', onScroll, true)
+    container.addEventListener('scroll', onScroll)
     return () => {
-      document.removeEventListener('scroll', onScroll, true)
+      container.removeEventListener('scroll', onScroll)
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
   }, [scheduleSave])
@@ -119,9 +121,9 @@ function ReaderBody({ document: doc }: { document: Document }) {
   const chapters = useMemo(() => doc.chapters, [doc.chapters])
 
   return (
-    <div ref={containerRef} className="flex w-full">
+    <div ref={containerRef} data-testid="reader-scroll" className="flex h-full min-h-0 w-full overflow-y-auto">
       <aside
-        className={`sticky top-0 h-screen shrink-0 overflow-y-auto border-r border-border p-3 ${sidebarOpen ? 'w-56' : 'w-0 overflow-hidden p-0'}`}
+        className={`sticky top-0 h-full shrink-0 overflow-y-auto border-r border-border p-3 ${sidebarOpen ? 'w-56' : 'w-0 overflow-hidden p-0'}`}
       >
         <p className="mb-2 truncate px-2 text-sm font-semibold">{doc.title}</p>
         <ul className="space-y-0.5">
@@ -235,7 +237,7 @@ function ReaderBody({ document: doc }: { document: Document }) {
               >
                 <div
                   className="document-content leading-7"
-                  dangerouslySetInnerHTML={{ __html: chapter.content_html }}
+                  dangerouslySetInnerHTML={{ __html: resolveDocumentAssets(chapter.content_html, doc.id) }}
                 />
               </SelectionChatSurface>
             </section>
