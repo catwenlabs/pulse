@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { DigestPage, StoryDetailPage } from './AISummarization'
+import { DigestHistoryPanel, DigestPage, StoryDetailPage } from './AISummarization'
 
 function renderWithQueryClient(element: React.ReactNode) {
   const client = new QueryClient({
@@ -12,6 +13,18 @@ function renderWithQueryClient(element: React.ReactNode) {
     },
   })
   return render(<QueryClientProvider client={client}>{element}</QueryClientProvider>)
+}
+
+// Composes the history panel (middle rail) with the digest result (content)
+// the way the app shell does, sharing the lifted selection state.
+function DigestHarness() {
+  const [digestID, setDigestID] = useState('')
+  return (
+    <>
+      <DigestHistoryPanel digestID={digestID} onSelect={setDigestID} />
+      <DigestPage digestID={digestID} onSelectDigest={setDigestID} />
+    </>
+  )
 }
 
 afterEach(() => {
@@ -40,15 +53,13 @@ describe('DigestPage', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    renderWithQueryClient(<DigestPage />)
+    renderWithQueryClient(<DigestHarness />)
 
     const historyItems = await screen.findAllByRole('button', { name: /个未读 Story/ })
     expect(historyItems).toHaveLength(digests.length)
-    const historyCard = document.querySelector('.ai-history-card')
-    const historyScrollRegion = document.querySelector('.ai-history-list')
-    expect(historyCard).toHaveClass('ai-history-scroll-shell')
+    const historyScrollRegion = document.querySelector('.ai-history-list')!
     expect(historyScrollRegion).toHaveClass('ai-history-scroll-list')
-    expect(historyScrollRegion?.children).toHaveLength(digests.length)
+    expect(historyScrollRegion.children).toHaveLength(digests.length)
   })
 
   it('renders structured title-only results and queues a scoped Digest on demand', async () => {
@@ -107,7 +118,8 @@ describe('DigestPage', () => {
     expect(scopeDialog).toHaveClass('ai-scope-dialog')
     expect(screen.getByRole('button', { name: '关闭' })).toHaveClass('ai-scope-dialog-close')
     expect(screen.getByLabelText('最多 Story（可选）')).toHaveFocus()
-    expect(scopeDialog.querySelector('.ai-scope-preview')).toHaveClass('is-ready')
+    expect(scopeDialog.querySelector('.ai-scope-preview')).not.toBeNull()
+    await waitFor(() => expect(scopeDialog.querySelector('.ai-scope-preview')).toHaveClass('is-ready'))
     expect(screen.getByLabelText('最早时间（可选）')).toHaveAttribute('aria-haspopup', 'dialog')
     expect(screen.getByLabelText('最晚时间（可选）')).toHaveAttribute('aria-haspopup', 'dialog')
     expect(screen.getByLabelText('最早时间（可选）')).toHaveClass('w-full')
@@ -124,11 +136,11 @@ describe('DigestPage', () => {
     expect(screen.getByText(/先看标题一/)).toBeInTheDocument()
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
 
-    fireEvent.click(screen.getByRole('button', { name: '将 1 个 Story 标记为已读' }))
+    fireEvent.click(screen.getByRole('button', { name: '将 1 个 Story 标记为已读', hidden: true }))
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/digests/digest-1/mark-read', expect.objectContaining({
       method: 'POST',
     })))
-    expect(await screen.findByRole('button', { name: '相关 Story 已标为已读' })).toBeDisabled()
+    expect(await screen.findByRole('button', { name: '相关 Story 已标为已读', hidden: true })).toBeDisabled()
 
     fireEvent.change(screen.getByLabelText('最多 Story（可选）'), { target: { value: '12' } })
     fireEvent.click(screen.getByLabelText('最早时间（可选）'))
@@ -239,7 +251,7 @@ describe('DigestPage', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    renderWithQueryClient(<DigestPage />)
+    renderWithQueryClient(<DigestHarness />)
 
     const action = await screen.findByRole('button', { name: '生成追更摘要' })
     expect(action).toHaveClass('min-w-[148px]')
@@ -276,20 +288,12 @@ describe('DigestPage', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    const { container } = renderWithQueryClient(<main><DigestPage /></main>)
+    const { container } = renderWithQueryClient(<main><DigestHarness /></main>)
 
     expect(await screen.findByText('第一份摘要仍然可见。')).toBeInTheDocument()
     const historyItems = screen.getAllByRole('button', { name: /1 个未读 Story/ })
-    const scrollContainer = container.querySelector('main')!
-    const historyLayout = container.querySelector('.ai-history-layout')!
-    Object.defineProperty(scrollContainer, 'scrollTop', { configurable: true, value: 360, writable: true })
-    vi.spyOn(scrollContainer, 'getBoundingClientRect').mockReturnValue({ top: 0 } as DOMRect)
-    vi.spyOn(historyLayout, 'getBoundingClientRect').mockReturnValue({ top: 120 } as DOMRect)
-    const scrollTo = vi.fn()
-    Object.defineProperty(scrollContainer, 'scrollTo', { configurable: true, value: scrollTo })
     fireEvent.click(historyItems[1])
 
-    expect(scrollTo).toHaveBeenCalledWith({ top: 456, left: 0, behavior: 'smooth' })
     expect(screen.getByText('第一份摘要仍然可见。')).toBeInTheDocument()
     expect(screen.getByText('正在更新摘要…')).toBeInTheDocument()
     expect(screen.queryByText('正在加载追更摘要')).not.toBeInTheDocument()
@@ -341,7 +345,7 @@ describe('DigestPage', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    renderWithQueryClient(<DigestPage />)
+    renderWithQueryClient(<DigestHarness />)
 
     const historyItem = await screen.findByRole('button', { name: /1 个未读 Story/ })
     expect(within(historyItem).getByText('生成中')).toBeInTheDocument()

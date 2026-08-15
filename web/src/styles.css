@@ -297,7 +297,7 @@
   .ai-loading-state strong, .ai-empty-state strong, .ai-empty-result strong { @apply text-base font-semibold text-foreground; }
   .ai-loading-state p, .ai-empty-state p, .ai-empty-result p { @apply m-0 text-sm text-muted-foreground; }
   .ai-loading-icon, .ai-empty-icon { @apply grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary; }
-  .ai-history-list { @apply grid; }
+  .ai-history-list { @apply flex flex-col; }
   .ai-history-scroll-list { @apply min-h-0 flex-1 overflow-y-auto; }
   .ai-history-item { @apply relative grid min-h-[78px] cursor-pointer gap-1 border-0 border-b border-border/70 bg-transparent px-6 py-4 pr-12 text-left transition-colors last:border-b-0 hover:bg-primary/5 focus-visible:bg-primary/5 max-md:px-5 max-md:pr-12; }
   .ai-history-item.is-selected { @apply bg-primary/10; }
@@ -308,6 +308,26 @@
   .ai-history-item-meta { @apply min-w-0 truncate; }
   .ai-history-item-arrow { @apply absolute right-5 top-1/2 -translate-y-1/2 text-muted-foreground transition-transform; }
   .ai-history-item:hover .ai-history-item-arrow, .ai-history-item.is-selected .ai-history-item-arrow { @apply translate-x-0.5 text-primary; }
+  /* Digest history rendered inside the shared middle rail panel (three-column
+     layout): compact items that match the source-tree density instead of the
+     full-width history card. */
+  .ai-panel-heading { @apply mb-3 flex items-center justify-between px-1 text-xs text-muted-foreground; }
+  .ai-panel-heading-count { @apply shrink-0 text-xs text-muted-foreground; }
+  .ai-panel-heading-count strong { @apply text-sm font-semibold text-foreground; }
+  /* Compact digest-history items in the middle rail panel: a status dot, a
+     truncated count line, and a muted scope/date line. */
+  .ai-history-panel-item { @apply flex w-full flex-col gap-0.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-sidebar-accent focus-visible:bg-sidebar-accent; }
+  .ai-history-panel-item.is-selected { @apply bg-sidebar-accent; }
+  .ai-history-panel-item.is-selected .ai-history-panel-item-title { @apply text-primary-hover; }
+  .ai-history-panel-item-main { @apply flex min-w-0 items-center gap-1.5; }
+  .ai-history-panel-item-title { @apply min-w-0 truncate text-sm font-semibold leading-5 text-foreground; }
+  .ai-history-panel-item-status { @apply shrink-0 text-[10px] font-semibold leading-4 text-muted-foreground; }
+  .ai-history-panel-item-meta { @apply truncate pl-[14px] text-xs leading-4 text-muted-foreground; }
+  .ai-status-dot { @apply size-2 shrink-0 rounded-full bg-muted-foreground/40; }
+  .ai-status-dot.ai-status-completed { @apply bg-success; }
+  .ai-status-dot.ai-status-partial, .ai-status-dot.ai-status-stale { @apply bg-amber-500; }
+  .ai-status-dot.ai-status-failed { @apply bg-destructive; }
+  .ai-status-dot.ai-status-queued, .ai-status-dot.ai-status-running, .ai-status-dot.ai-status-pending, .ai-status-dot.ai-status-retry { @apply bg-primary; }
   .ai-result-card { @apply relative min-h-[420px] pb-6; }
   .ai-result-refresh { @apply pointer-events-none absolute right-6 top-[72px] z-[1] inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-card/95 px-2 py-1 text-[11px] font-medium text-muted-foreground max-md:right-5; }
   .ai-result-meta { @apply mx-6 mb-0 mt-4 flex flex-wrap gap-x-3 gap-y-1 max-md:mx-5; }

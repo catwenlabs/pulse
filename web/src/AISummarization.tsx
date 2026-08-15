@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ArrowUpRight, BookOpen, CalendarDays, CheckCircle2, ChevronDown, Clock3, FileText, Info, Loader2, RefreshCw, Sparkles, Star, Tag, X } from 'lucide-react'
+import { ArrowLeft, BookOpen, CalendarDays, CheckCircle2, ChevronDown, Clock3, FileText, Info, Loader2, RefreshCw, Sparkles, Star, Tag, X } from 'lucide-react'
 
 import * as api from './api'
 import type { Digest, DigestPriority, DigestStory, DigestTheme, Entry } from './api'
@@ -15,7 +15,6 @@ import { Select } from './components/ui/select'
 import { queryKeys } from './query'
 
 const activeJobStatuses = new Set(['pending', 'running', 'retry', 'queued'])
-const digestScrollTopGap = 24
 
 // Context threaded through every place a digest references a Story, so each
 // reference renders the same self-contained, expandable list item as the
@@ -32,9 +31,8 @@ interface DigestReferenceContext {
   onError: (message: string) => void
 }
 
-export function DigestPage() {
+export function DigestPage({ digestID = '', onSelectDigest }: { digestID?: string; onSelectDigest?: (digestID: string) => void }) {
   const queryClient = useQueryClient()
-  const [selectedDigestID, setSelectedDigestID] = useState('')
   const [maxStories, setMaxStories] = useState('')
   const [startAt, setStartAt] = useState('')
   const [endAt, setEndAt] = useState('')
@@ -57,6 +55,8 @@ export function DigestPage() {
     queryFn: () => api.listDigests(),
     refetchInterval: (query) => query.state.data?.some((digest) => isActiveStatus(digest.status)) ? 1500 : false,
   })
+  const digests = digestsQuery.data ?? []
+  const effectiveDigestID = digestID || digests[0]?.id || ''
   const previewQuery = useQuery({
     queryKey: queryKeys.digestPreview({ startAt, endAt, maxStories, order }),
     queryFn: () => api.previewDigest(draftScope),
@@ -64,16 +64,16 @@ export function DigestPage() {
     placeholderData: (previousData) => previousData,
   })
   const selectedDigestQuery = useQuery({
-    queryKey: queryKeys.digest(selectedDigestID),
-    queryFn: () => api.getDigest(selectedDigestID),
-    enabled: Boolean(selectedDigestID),
+    queryKey: queryKeys.digest(effectiveDigestID),
+    queryFn: () => api.getDigest(effectiveDigestID),
+    enabled: Boolean(effectiveDigestID),
     placeholderData: (previousData) => previousData,
     refetchInterval: (query) => isActiveStatus(query.state.data?.status) ? 1500 : false,
   })
   const createMutation = useMutation({
     mutationFn: api.createDigest,
     onSuccess: (job) => {
-      setSelectedDigestID(job.target_id)
+      onSelectDigest?.(job.target_id)
       void queryClient.invalidateQueries({ queryKey: queryKeys.digests })
     },
   })
@@ -87,9 +87,7 @@ export function DigestPage() {
     },
   })
 
-  const digests = digestsQuery.data ?? []
   const selectedDigest = selectedDigestQuery.data
-  const selectedFromHistory = selectedDigestID || digests[0]?.id || ''
   const preview = previewQuery.data
   const scopeSelectionRequired = Boolean(preview?.matching_stories_truncated)
   const scopeDialogRequired = scopeSelectionRequired || scopePrompted
@@ -117,10 +115,6 @@ export function DigestPage() {
       : scopeDialogRequired
         ? previewQuery.isFetching
         : createMutation.isPending || !previewReady)
-
-  useEffect(() => {
-    if (!selectedDigestID && digests[0]) setSelectedDigestID(digests[0].id)
-  }, [digests, selectedDigestID])
 
   useEffect(() => {
     if (scopeSelectionRequired && !scopePrompted) {
@@ -151,23 +145,6 @@ export function DigestPage() {
     } catch (cause) {
       setFormError(cause instanceof Error ? cause.message : '无法创建追更摘要')
     }
-  }
-
-  function selectDigest(digestID: string, source: HTMLButtonElement) {
-    if (selectedDigestID === digestID) return
-    const scrollContainer = source.closest<HTMLElement>('main')
-    if (scrollContainer) {
-      const historyLayout = source.closest<HTMLElement>('.ai-history-layout')
-      const layoutRect = historyLayout?.getBoundingClientRect()
-      const containerRect = scrollContainer.getBoundingClientRect()
-      const targetTop = layoutRect
-        ? Math.max(0, scrollContainer.scrollTop + layoutRect.top - containerRect.top - digestScrollTopGap)
-        : 0
-      scrollContainer.scrollTo({ top: targetTop, left: 0, behavior: 'smooth' })
-    } else {
-      window.scrollTo({ top: 0, left: 0, behavior: 'smooth' })
-    }
-    setSelectedDigestID(digestID)
   }
 
   return (
@@ -319,55 +296,9 @@ export function DigestPage() {
         </DialogContent>
       </Dialog>
 
-      <div className="ai-history-layout">
-        <section className="ai-history-card ai-history-scroll-shell" aria-labelledby="digest-history-title">
-          <div className="ai-card-heading ai-history-heading">
-            <div className="ai-card-heading-title">
-              <span className="ai-card-icon" aria-hidden="true"><Clock3 size={18} /></span>
-              <div>
-                <p className="ai-eyebrow">HISTORY</p>
-                <h2 id="digest-history-title">历史追更</h2>
-              </div>
-            </div>
-            <span className="ai-history-count"><strong>{digests.length}</strong> 份</span>
-          </div>
-          <p className="ai-card-helper">选择一份摘要，在右侧查看标题级整理结果。</p>
-          {digestsQuery.isPending && <p className="ai-state">正在加载历史记录…</p>}
-          {digestsQuery.error && (
-            <div className="ai-state ai-error">
-              <p>{digestsQuery.error.message}</p>
-              <Button variant="secondary" size="sm" onClick={() => void digestsQuery.refetch()}>重试加载</Button>
-            </div>
-          )}
-          {!digestsQuery.isPending && !digestsQuery.error && digests.length === 0 && (
-            <div className="ai-empty-state">
-              <span className="ai-empty-icon" aria-hidden="true"><Sparkles size={20} /></span>
-              <p>还没有追更摘要。生成一份，稍后可以回来查看。</p>
-            </div>
-          )}
-          <div className="ai-history-list ai-history-scroll-list">
-            {digests.map((digest) => (
-              <button
-                className={`ai-history-item ${selectedFromHistory === digest.id ? 'is-selected' : ''}`}
-                key={digest.id}
-                type="button"
-                aria-pressed={selectedFromHistory === digest.id}
-                onClick={(event) => selectDigest(digest.id, event.currentTarget)}
-              >
-                <span className="ai-history-item-main">
-                  <span className="ai-history-item-title">{digest.story_count} 个未读 Story</span>
-                  <span className={`ai-status ai-status-${digest.status}`}>{statusLabels[digest.status] ?? digest.status}</span>
-                </span>
-                <span className="ai-history-item-meta">{formatScopeRange(digest) || '全部未读'} · {formatDate(digest.created_at)}</span>
-                <ArrowUpRight className="ai-history-item-arrow" size={16} aria-hidden="true" />
-              </button>
-            ))}
-          </div>
-        </section>
-
         <DigestResult
           digest={selectedDigest}
-          loading={selectedDigestQuery.isPending && Boolean(selectedDigestID)}
+          loading={selectedDigestQuery.isPending && Boolean(effectiveDigestID)}
           refreshing={selectedDigestQuery.isFetching && selectedDigestQuery.isPlaceholderData}
           error={selectedDigestQuery.error}
           onRetry={() => void selectedDigestQuery.refetch()}
@@ -376,8 +307,60 @@ export function DigestPage() {
           markReadDone={markedDigestID === selectedDigest?.id}
           markReadError={markReadMutation.variables?.digestID === selectedDigest?.id && markReadMutation.error instanceof Error ? markReadMutation.error : null}
         />
-      </div>
     </div>
+  )
+}
+
+// Renders the digest history list inside the shared middle rail panel, so the
+// AI catch-up view follows the same three-column layout as the reader and the
+// settings menu. Selection is lifted to the parent (URL or App state); the
+// default highlights the most recent digest.
+export function DigestHistoryPanel({ digestID, onSelect }: { digestID: string; onSelect: (digestID: string) => void }) {
+  const digestsQuery = useQuery({
+    queryKey: queryKeys.digests,
+    queryFn: () => api.listDigests(),
+    refetchInterval: (query) => query.state.data?.some((digest) => isActiveStatus(digest.status)) ? 1500 : false,
+  })
+  const digests = digestsQuery.data ?? []
+  const effectiveID = digestID || digests[0]?.id || ''
+  return (
+    <>
+      <div className="ai-panel-heading">
+        <p className="m-0 text-sm font-semibold text-foreground md:text-base" id="digest-history-label">历史追更</p>
+        <span className="ai-panel-heading-count"><strong>{digests.length}</strong> 份</span>
+      </div>
+      {digestsQuery.isPending && <p className="ai-state">正在加载历史记录…</p>}
+      {digestsQuery.error && (
+        <div className="ai-state ai-error">
+          <p>{digestsQuery.error.message}</p>
+          <Button variant="secondary" size="sm" onClick={() => void digestsQuery.refetch()}>重试加载</Button>
+        </div>
+      )}
+      {!digestsQuery.isPending && !digestsQuery.error && digests.length === 0 && (
+        <div className="ai-empty-state">
+          <span className="ai-empty-icon" aria-hidden="true"><Sparkles size={20} /></span>
+          <p>还没有追更摘要。生成一份，稍后可以回来查看。</p>
+        </div>
+      )}
+      <div className="ai-history-list ai-history-scroll-list">
+        {digests.map((digest) => (
+          <button
+            className={`ai-history-panel-item ${effectiveID === digest.id ? 'is-selected' : ''}`}
+            key={digest.id}
+            type="button"
+            aria-pressed={effectiveID === digest.id}
+            onClick={() => onSelect(digest.id)}
+          >
+            <span className="ai-history-panel-item-main">
+              <span className={`ai-status-dot ai-status-${digest.status}`} aria-hidden="true" />
+              <span className="ai-history-panel-item-title">{digest.story_count} 个未读 Story</span>
+              <span className="ai-history-panel-item-status">{statusLabels[digest.status] ?? digest.status}</span>
+            </span>
+            <span className="ai-history-panel-item-meta">{formatScopeRange(digest) || '全部未读'} · {formatDate(digest.created_at)}</span>
+          </button>
+        ))}
+      </div>
+    </>
   )
 }
 

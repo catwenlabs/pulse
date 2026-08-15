@@ -18,6 +18,7 @@ import { Route as LaterRouteImport } from './routes/later'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SourcesRouteImport } from './routes/sources'
 import { Route as StarredRouteImport } from './routes/starred'
+import { Route as ToolsRouteImport } from './routes/tools'
 import { Route as SourcesIndexRouteImport } from './routes/sources.index'
 import { Route as SourcesSourceIDRouteImport } from './routes/sources.$sourceID'
 import { Route as StoriesStoryIDRouteImport } from './routes/stories.$storyID'
@@ -67,6 +68,11 @@ const StarredRoute = StarredRouteImport.update({
   path: '/starred',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ToolsRoute = ToolsRouteImport.update({
+  id: '/tools',
+  path: '/tools',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SourcesIndexRoute = SourcesIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -93,6 +99,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/sources': typeof SourcesRouteWithChildren
   '/starred': typeof StarredRoute
+  '/tools': typeof ToolsRoute
   '/sources/$sourceID': typeof SourcesSourceIDRoute
   '/stories/$storyID': typeof StoriesStoryIDRoute
   '/sources/': typeof SourcesIndexRoute
@@ -106,6 +113,7 @@ export interface FileRoutesByTo {
   '/later': typeof LaterRoute
   '/settings': typeof SettingsRoute
   '/starred': typeof StarredRoute
+  '/tools': typeof ToolsRoute
   '/sources/$sourceID': typeof SourcesSourceIDRoute
   '/stories/$storyID': typeof StoriesStoryIDRoute
   '/sources': typeof SourcesIndexRoute
@@ -121,6 +129,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/sources': typeof SourcesRouteWithChildren
   '/starred': typeof StarredRoute
+  '/tools': typeof ToolsRoute
   '/sources/$sourceID': typeof SourcesSourceIDRoute
   '/stories/$storyID': typeof StoriesStoryIDRoute
   '/sources/': typeof SourcesIndexRoute
@@ -137,6 +146,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/sources'
     | '/starred'
+    | '/tools'
     | '/sources/$sourceID'
     | '/stories/$storyID'
     | '/sources/'
@@ -150,6 +160,7 @@ export interface FileRouteTypes {
     | '/later'
     | '/settings'
     | '/starred'
+    | '/tools'
     | '/sources/$sourceID'
     | '/stories/$storyID'
     | '/sources'
@@ -164,6 +175,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/sources'
     | '/starred'
+    | '/tools'
     | '/sources/$sourceID'
     | '/stories/$storyID'
     | '/sources/'
@@ -179,6 +191,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   SourcesRoute: typeof SourcesRouteWithChildren
   StarredRoute: typeof StarredRoute
+  ToolsRoute: typeof ToolsRoute
   StoriesStoryIDRoute: typeof StoriesStoryIDRoute
 }
 
@@ -247,6 +260,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StarredRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/tools': {
+      id: '/tools'
+      path: '/tools'
+      fullPath: '/tools'
+      preLoaderRoute: typeof ToolsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sources/': {
       id: '/sources/'
       path: '/'
@@ -294,6 +314,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   SourcesRoute: SourcesRouteWithChildren,
   StarredRoute: StarredRoute,
+  ToolsRoute: ToolsRoute,
   StoriesStoryIDRoute: StoriesStoryIDRoute,
 }
 export const routeTree = rootRouteImport
