@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/catwenlabs/pulse/internal/aichat"
+	"github.com/catwenlabs/pulse/internal/document"
 )
 
 // aiChatBackend is the optional AI Chat capability, discovered by route
@@ -43,7 +44,7 @@ func registerAIChatRoutes(mux *http.ServeMux, backend Backend) {
 	mux.HandleFunc("PUT /api/v1/ai/tools/{id}", updateChatTool(chat))
 	mux.HandleFunc("DELETE /api/v1/ai/tools/{id}", deleteChatTool(chat))
 	mux.HandleFunc("GET /api/v1/ai/conversations", listConversations(chat))
-	mux.HandleFunc("POST /api/v1/ai/conversations", createConversation(chat))
+	mux.HandleFunc("POST /api/v1/ai/conversations", createConversation(chat, backend))
 	mux.HandleFunc("GET /api/v1/ai/conversations/{id}", getConversation(chat))
 	mux.HandleFunc("DELETE /api/v1/ai/conversations/{id}", deleteConversation(chat))
 	mux.HandleFunc("POST /api/v1/ai/conversations/{id}/messages", sendFollowUp(chat))
@@ -161,21 +162,44 @@ func listConversations(chat aiChatBackend) http.HandlerFunc {
 	}
 }
 
-func createConversation(chat aiChatBackend) http.HandlerFunc {
+// documentContextRef points at where a selection came from inside an
+// imported document. The server resolves it to chapter content; the client
+// only ever sends coordinates, never the content itself.
+type documentContextRef struct {
+	DocumentID   string `json:"document_id"`
+	ChapterIndex int    `json:"chapter_index"`
+}
+
+// contextExcerptRunes bounds the chapter excerpt appended to the prompt. It
+// stays well under aichat.MaxContextMaterialCharacters.
+const contextExcerptRunes = 4000
+
+func createConversation(chat aiChatBackend, backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
-		var body aichat.CreateConversationInput
+		var body struct {
+			aichat.CreateConversationInput
+			Context *documentContextRef `json:"context"`
+		}
 		if err := decodeJSONBody(w, request, &body); err != nil {
 			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
 			return
 		}
-		conversation, userMessage, err := chat.CreateConversation(request.Context(), body, request.Header.Get("Idempotency-Key"))
+		if body.Context != nil {
+			material, err := resolveDocumentContext(request.Context(), backend, *body.Context, body.Selection)
+			if err != nil {
+				writeDomainError(w, err)
+				return
+			}
+			body.ContextMaterial = material
+		}
+		conversation, userMessage, err := chat.CreateConversation(request.Context(), body.CreateConversationInput, request.Header.Get("Idempotency-Key"))
 		if err != nil {
 			writeDomainError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, struct {
-			aichat.Conversation  `json:"conversation"`
-			UserMessage          aichat.Message `json:"user_message"`
+			aichat.Conversation `json:"conversation"`
+			UserMessage         aichat.Message `json:"user_message"`
 		}{Conversation: conversation, UserMessage: userMessage})
 	}
 }
@@ -290,4 +314,36 @@ func writeChatStreamEvent(w http.ResponseWriter, flusher http.Flusher, event aic
 	}
 	flusher.Flush()
 	return nil
+}
+
+// resolveDocumentContext loads the referenced chapter and assembles the
+// context material appended to the expanded prompt: book identity, chapter
+// heading, and a text window around the selection.
+func resolveDocumentContext(ctx context.Context, backend Backend, ref documentContextRef, selection string) (string, error) {
+	doc, err := backend.GetDocument(ctx, document.ID(ref.DocumentID))
+	if err != nil {
+		return "", err
+	}
+	if ref.ChapterIndex < 0 || ref.ChapterIndex >= len(doc.Chapters) {
+		return "", &document.ValidationError{Field: "context.chapter_index", Message: "chapter index out of range"}
+	}
+	chapter := doc.Chapters[ref.ChapterIndex]
+	var builder strings.Builder
+	builder.WriteString("Selected from 《")
+	builder.WriteString(doc.Title)
+	builder.WriteString("》")
+	if doc.Author != "" {
+		builder.WriteString(" ")
+		builder.WriteString(doc.Author)
+	}
+	builder.WriteString(", chapter ")
+	builder.WriteString(strconv.Itoa(ref.ChapterIndex + 1))
+	if chapter.Title != "" {
+		builder.WriteString(" 《")
+		builder.WriteString(chapter.Title)
+		builder.WriteString("》")
+	}
+	builder.WriteString(":\n")
+	builder.WriteString(document.ChapterExcerpt(chapter.ContentHTML, selection, contextExcerptRunes))
+	return builder.String(), nil
 }

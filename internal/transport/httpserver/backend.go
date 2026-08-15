@@ -7,6 +7,7 @@ import (
 
 	"github.com/catwenlabs/pulse/internal/ai"
 	"github.com/catwenlabs/pulse/internal/aichat"
+	"github.com/catwenlabs/pulse/internal/document"
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/ingestion"
 	"github.com/catwenlabs/pulse/internal/opml"
@@ -108,6 +109,7 @@ type backend struct {
 	reclusterer   storyReclusterer
 	summarization ai.Summarization
 	chat          aichat.Chat
+	documents     documentRepository
 	publish       func(string)
 }
 
@@ -222,6 +224,117 @@ func WithAIChat(base Backend, chat aichat.Chat) Backend {
 		service.chat = chat
 	}
 	return base
+}
+
+// documentRepository persists imported documents. It is optional: when nil
+// (no document store wired in), document endpoints report documents as
+// unavailable.
+type documentRepository interface {
+	Import(context.Context, document.ImportRequest) (document.Document, error)
+	List(context.Context, string) ([]document.Summary, error)
+	Get(context.Context, document.ID) (document.Document, error)
+	SaveProgress(context.Context, document.ID, document.Progress) error
+	ReadAsset(context.Context, document.ID, string) ([]byte, string, error)
+	ReadOriginal(context.Context, document.ID) ([]byte, string, error)
+	CreateNote(context.Context, document.ID, document.NoteInput) (document.Note, error)
+	ListNotes(context.Context, document.ID) ([]document.Note, error)
+	ImportNotes(context.Context, document.NoteImportFile) (document.NoteImportSummary, error)
+	ListUnmatchedNotes(context.Context) ([]document.Note, error)
+	ListAllNotes(context.Context, string) ([]document.Note, error)
+	LinkNote(context.Context, string, document.ID) error
+}
+
+// WithDocuments attaches the document store to a backend constructed by one
+// of the NewBackend* constructors.
+func WithDocuments(base Backend, store documentRepository) Backend {
+	if service, ok := base.(*backend); ok {
+		service.documents = store
+	}
+	return base
+}
+
+func (service *backend) ImportDocument(ctx context.Context, request document.ImportRequest) (document.Document, error) {
+	if service.documents == nil {
+		return document.Document{}, document.ErrUnavailable
+	}
+	return service.documents.Import(ctx, request)
+}
+
+func (service *backend) ListDocuments(ctx context.Context, search string) ([]document.Summary, error) {
+	if service.documents == nil {
+		return nil, document.ErrUnavailable
+	}
+	return service.documents.List(ctx, search)
+}
+
+func (service *backend) GetDocument(ctx context.Context, id document.ID) (document.Document, error) {
+	if service.documents == nil {
+		return document.Document{}, document.ErrUnavailable
+	}
+	return service.documents.Get(ctx, id)
+}
+
+func (service *backend) SaveDocumentProgress(ctx context.Context, id document.ID, progress document.Progress) error {
+	if service.documents == nil {
+		return document.ErrUnavailable
+	}
+	return service.documents.SaveProgress(ctx, id, progress)
+}
+
+func (service *backend) GetDocumentAsset(ctx context.Context, id document.ID, entry string) ([]byte, string, error) {
+	if service.documents == nil {
+		return nil, "", document.ErrUnavailable
+	}
+	return service.documents.ReadAsset(ctx, id, entry)
+}
+
+func (service *backend) GetDocumentOriginal(ctx context.Context, id document.ID) ([]byte, string, error) {
+	if service.documents == nil {
+		return nil, "", document.ErrUnavailable
+	}
+	return service.documents.ReadOriginal(ctx, id)
+}
+
+func (service *backend) CreateDocumentNote(ctx context.Context, id document.ID, input document.NoteInput) (document.Note, error) {
+	if service.documents == nil {
+		return document.Note{}, document.ErrUnavailable
+	}
+	return service.documents.CreateNote(ctx, id, input)
+}
+
+func (service *backend) ListDocumentNotes(ctx context.Context, id document.ID) ([]document.Note, error) {
+	if service.documents == nil {
+		return nil, document.ErrUnavailable
+	}
+	return service.documents.ListNotes(ctx, id)
+}
+
+func (service *backend) ImportDocumentNotes(ctx context.Context, file document.NoteImportFile) (document.NoteImportSummary, error) {
+	if service.documents == nil {
+		return document.NoteImportSummary{}, document.ErrUnavailable
+	}
+	return service.documents.ImportNotes(ctx, file)
+}
+
+func (service *backend) ListUnmatchedDocumentNotes(ctx context.Context) ([]document.Note, error) {
+	if service.documents == nil {
+		return nil, document.ErrUnavailable
+	}
+	return service.documents.ListUnmatchedNotes(ctx)
+}
+
+func (service *backend) ListAllDocumentNotes(ctx context.Context, search string) ([]document.Note, error) {
+	if service.documents == nil {
+		return nil, document.ErrUnavailable
+	}
+	return service.documents.ListAllNotes(ctx, search)
+}
+
+func (service *backend) LinkDocumentNote(ctx context.Context, noteID string, id document.ID) error {
+	if service.documents == nil {
+		return document.ErrUnavailable
+	}
+	return service.documents.LinkNote(ctx, noteID, id)
 }
 
 func (service *backend) ListChatTools(ctx context.Context) ([]aichat.SelectionTool, error) {

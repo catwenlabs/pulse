@@ -17,7 +17,6 @@ import (
 	"github.com/catwenlabs/pulse/internal/ai"
 	"github.com/catwenlabs/pulse/internal/aichat"
 	"github.com/catwenlabs/pulse/internal/config"
-	annotationdriver "github.com/catwenlabs/pulse/internal/drivers/annotations"
 	"github.com/catwenlabs/pulse/internal/drivers/feed"
 	filedriver "github.com/catwenlabs/pulse/internal/drivers/file"
 	htmldriver "github.com/catwenlabs/pulse/internal/drivers/html"
@@ -83,6 +82,7 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 	opmlStore := postgresstore.NewOPMLStore(pool)
 	organizationStore := postgresstore.NewOrganizationStore(pool)
 	ruleStore := postgresstore.NewRuleStore(pool)
+	documentStore := postgresstore.NewDocumentStore(pool)
 	safeHTTPClient := httpclient.New()
 	registry, err := ingestion.NewRegistry(
 		feed.New(safeHTTPClient),
@@ -91,7 +91,6 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 		push.New(source.KindWebhook),
 		push.NewManual(safeHTTPClient),
 		filedriver.New(cfg.ImportRoots),
-		annotationdriver.New(),
 	)
 	if err != nil {
 		return fmt.Errorf("create driver registry: %w", err)
@@ -158,6 +157,7 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 		ruleStore,
 	)
 	backend = httpserver.WithAIChat(backend, aiChatService)
+	backend = httpserver.WithDocuments(backend, documentStore)
 
 	if slices.Contains(cfg.Roles, config.RoleWorker) {
 		go func() {

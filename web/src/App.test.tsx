@@ -1209,6 +1209,45 @@ describe('App', () => {
     })
   })
 
+  it('lays out the desktop rail icons one control per cell', async () => {
+    window.history.replaceState(null, '', '/')
+
+    renderApp()
+    await screen.findByText('Reader article')
+
+    for (const label of ['收藏', '稍后阅读', '文档库', '阅读笔记', '设置']) {
+      const control = screen.getByLabelText(label)
+      const cell = control.parentElement
+      expect(cell?.querySelectorAll('a, button'), label).toHaveLength(1)
+    }
+  })
+
+  it('opens the document reader at /documents/:documentID', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/v1/documents/doc-1') {
+        return new Response(JSON.stringify({
+          id: 'doc-1',
+          title: '测试之书',
+          author: '作者',
+          chapters: [{ index: 0, title: '第一章', content_html: '<p>开头内容。</p>' }],
+          progress: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (url === '/api/v1/documents/doc-1/notes') {
+        return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return defaultFetch(input, init)
+    })
+    window.history.replaceState(null, '', '/documents/doc-1')
+
+    renderApp()
+
+    expect(await screen.findByRole('heading', { name: '测试之书' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '文档库' })).not.toBeInTheDocument()
+  })
+
   it('uses an accessible off-canvas navigation drawer on mobile', async () => {
     vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
       matches: query === '(max-width: 767px)',
@@ -1393,97 +1432,6 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: '打开导航' }))
     fireEvent.pointerDown(await screen.findByRole('button', { name: '更多导航' }), { button: 0 })
     expect(screen.getByRole('menuitem', { name: '收藏' })).toHaveAttribute('aria-current', 'page')
-  })
-
-  it('groups reading annotations by book and imports a new highlight', async () => {
-    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
-    const annotationSource = {
-      ...source,
-      id: 'annotation-source',
-      name: 'Apple Books 批注',
-      kind: 'annotations',
-      locator: 'apple-books',
-    }
-    vi.mocked(fetch).mockImplementation(async (input, init) => {
-      const url = String(input)
-      if (url.endsWith('/api/v1/sources') && !init?.method) {
-        return new Response(JSON.stringify([source, annotationSource]), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      }
-      if (url.includes('/api/v1/sources/annotation-source/entries')) {
-        return new Response(JSON.stringify({
-          entries: Array.from({ length: 4 }, (_, index) => ({
-            entry: {
-            id: `annotation-entry-${index}`,
-            source_id: 'annotation-source',
-            identity_key: `external:apple-books:book-123:${1284 + index}`,
-            source_title: '思考，快与慢',
-            author: 'Daniel Kahneman',
-            summary: index === 3 ? '第四条可展开的批注。' : '系统一自动而快速地运行。',
-            content_html: '<blockquote>系统一自动而快速地运行。</blockquote>',
-            discovered_at: '2026-07-27T10:00:00Z',
-            annotation: {
-              provider: 'apple-books',
-              book_identity: 'book-123',
-              book_title: '思考，快与慢',
-              book_author: 'Daniel Kahneman',
-              chapter: '第三章',
-              location: String(1284 + index),
-              highlight_color: 'yellow',
-              annotation_note: '这里对应直觉判断。',
-            },
-          },
-            story: { id: `story-${index}` },
-          })),
-          total_entries: 4,
-          reader_counts: {
-            inbox_stories: 4,
-            unread_stories: 4,
-            starred_stories: 0,
-            later_stories: 0,
-            hidden_stories: 0,
-          },
-        }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      }
-      if (url.endsWith('/api/v1/sources/annotation-source/annotations') && init?.method === 'POST') {
-        return new Response('{"id":"annotation-job","status":"pending"}', {
-          status: 202,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      }
-      return defaultFetch(input, init)
-    })
-
-    renderApp()
-    await screen.findByText('Reader article')
-    fireEvent.click(screen.getByRole('link', { name: '阅读笔记' }))
-
-    expect(await screen.findByRole('heading', { name: '阅读笔记' })).toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: '思考，快与慢' })).toBeInTheDocument()
-    expect(screen.getByText('4 条批注')).toBeInTheDocument()
-    expect(screen.queryByText('第四条可展开的批注。')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '展开全部 4 条' }))
-    expect(screen.getByText('第四条可展开的批注。')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: '导入批注' }))
-    fireEvent.change(screen.getByLabelText('来源平台'), { target: { value: 'apple-books' } })
-    fireEvent.change(screen.getByLabelText('书名'), { target: { value: '原则' } })
-    fireEvent.change(screen.getByLabelText('作者'), { target: { value: 'Ray Dalio' } })
-    fireEvent.change(screen.getByLabelText('高亮原文'), { target: { value: '可信度加权决策。' } })
-    fireEvent.click(screen.getByRole('button', { name: '加入导入队列' }))
-
-    await waitFor(() => {
-      const request = vi.mocked(fetch).mock.calls.find(([url, init]) =>
-        String(url).endsWith('/api/v1/sources/annotation-source/annotations') &&
-        init?.method === 'POST')
-      expect(request).toBeDefined()
-      expect(String(request?.[1]?.body)).toContain('可信度加权决策')
-    })
   })
 
   it('saves a bookmarklet URL into an existing Manual Source', async () => {

@@ -21,8 +21,8 @@ import (
 	"unicode"
 
 	"github.com/catwenlabs/pulse/internal/ai"
-	"github.com/catwenlabs/pulse/internal/annotation"
 	"github.com/catwenlabs/pulse/internal/aichat"
+	"github.com/catwenlabs/pulse/internal/document"
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/events"
 	"github.com/catwenlabs/pulse/internal/ingestion"
@@ -57,6 +57,18 @@ type Backend interface {
 	ListViews(context.Context) ([]organization.View, error)
 	DeleteView(context.Context, string) error
 	Enqueue(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error)
+	ImportDocument(context.Context, document.ImportRequest) (document.Document, error)
+	ListDocuments(context.Context, string) ([]document.Summary, error)
+	GetDocument(context.Context, document.ID) (document.Document, error)
+	SaveDocumentProgress(context.Context, document.ID, document.Progress) error
+	GetDocumentAsset(context.Context, document.ID, string) ([]byte, string, error)
+	GetDocumentOriginal(context.Context, document.ID) ([]byte, string, error)
+	CreateDocumentNote(context.Context, document.ID, document.NoteInput) (document.Note, error)
+	ListDocumentNotes(context.Context, document.ID) ([]document.Note, error)
+	ImportDocumentNotes(context.Context, document.NoteImportFile) (document.NoteImportSummary, error)
+	ListUnmatchedDocumentNotes(context.Context) ([]document.Note, error)
+	ListAllDocumentNotes(context.Context, string) ([]document.Note, error)
+	LinkDocumentNote(context.Context, string, document.ID) error
 	ListSourceEntries(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
 	ListSourceEntryPage(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
 	GetEntry(context.Context, entry.ID) (entry.Entry, error)
@@ -124,6 +136,18 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 		mux.HandleFunc("GET /api/v1/events", streamLibraryChanges(hub))
 	}
 	mux.HandleFunc("POST /api/v1/sources", createSource(backend))
+	mux.HandleFunc("POST /api/v1/documents", importDocument(backend))
+	mux.HandleFunc("GET /api/v1/documents", listDocuments(backend))
+	mux.HandleFunc("GET /api/v1/documents/{id}", getDocument(backend))
+	mux.HandleFunc("PUT /api/v1/documents/{id}/progress", saveDocumentProgress(backend))
+	mux.HandleFunc("GET /api/v1/documents/{id}/asset/{path...}", getDocumentAsset(backend))
+	mux.HandleFunc("GET /api/v1/documents/{id}/original", getDocumentOriginal(backend))
+	mux.HandleFunc("POST /api/v1/documents/{id}/notes", createDocumentNote(backend))
+	mux.HandleFunc("GET /api/v1/documents/{id}/notes", listDocumentNotes(backend))
+	mux.HandleFunc("POST /api/v1/documents/notes/import", importDocumentNotes(backend))
+	mux.HandleFunc("GET /api/v1/documents/notes/unmatched", listUnmatchedDocumentNotes(backend))
+	mux.HandleFunc("GET /api/v1/notes", listAllDocumentNotes(backend))
+	mux.HandleFunc("PUT /api/v1/documents/notes/{id}/link", linkDocumentNote(backend))
 	mux.HandleFunc("POST /api/v1/sources/preview", previewSource(backend))
 	mux.HandleFunc("GET /api/v1/sources", listSources(backend))
 	mux.HandleFunc("PUT /api/v1/sources/order", reorderRootSources(backend))
@@ -133,7 +157,6 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("POST /api/v1/sources/{id}/runs", runSource(backend))
 	mux.HandleFunc("POST /api/v1/sources/{id}/entries", createManualEntry(backend))
 	mux.HandleFunc("GET /api/v1/sources/{id}/entries", listSourceEntries(backend))
-	mux.HandleFunc("POST /api/v1/sources/{id}/annotations", importAnnotations(backend))
 	mux.HandleFunc("POST /api/v1/sources/{id}/secret", rotateSourceSecret(backend))
 	mux.HandleFunc("GET /api/v1/sources/{id}/health", getSourceHealth(backend))
 	mux.HandleFunc("POST /api/v1/webhooks/{id}", receiveWebhook(backend))
@@ -1081,44 +1104,233 @@ func validateManualEntryURL(payload []byte) error {
 	return nil
 }
 
-func importAnnotations(backend Backend) http.HandlerFunc {
+// maxDocumentUploadBytes bounds one imported document file. Epub books can
+// reach tens of megabytes, far above the JSON payload budget.
+const maxDocumentUploadBytes int64 = 64 << 20
+
+func importDocument(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
-		src, err := backend.GetSource(request.Context(), source.ID(request.PathValue("id")))
+		request.Body = http.MaxBytesReader(w, request.Body, maxDocumentUploadBytes)
+		file, header, err := request.FormFile("file")
 		if err != nil {
-			writeDomainError(w, err)
+			writeProblem(w, http.StatusBadRequest, "invalid_request", "multipart field 'file' is required", "file")
 			return
 		}
-		if src.Kind != source.KindAnnotations {
-			writeProblem(w, http.StatusUnprocessableEntity, "wrong_source_kind", "source is not annotations", "")
-			return
-		}
-		if !src.Enabled {
-			writeProblem(w, http.StatusConflict, "source_paused", "source is paused", "")
-			return
-		}
-		payload, err := readJSONPayload(w, request)
+		defer file.Close()
+		content, err := io.ReadAll(file)
 		if err != nil {
-			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			writeProblem(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("read file: %v", err), "file")
 			return
 		}
-		if _, err := annotation.DecodeBatch(payload); err != nil {
-			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "annotations")
-			return
-		}
-		key := strings.TrimSpace(request.Header.Get("Idempotency-Key"))
-		if key == "" {
-			digest := sha256.Sum256(payload)
-			key = hex.EncodeToString(digest[:])
-		}
-		acquisition, err := backend.Enqueue(request.Context(), ingestion.EnqueueRequest{
-			SourceID: src.ID, Trigger: ingestion.TriggerImport, Payload: payload,
-			IdempotencyKey: key, Priority: 100,
+		imported, err := backend.ImportDocument(request.Context(), document.ImportRequest{
+			Filename: header.Filename,
+			Content:  content,
 		})
 		if err != nil {
 			writeDomainError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusAccepted, acquisition)
+		writeJSON(w, http.StatusCreated, imported)
+	}
+}
+
+func listDocuments(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		summaries, err := backend.ListDocuments(request.Context(), strings.TrimSpace(request.URL.Query().Get("search")))
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, summaries)
+	}
+}
+
+func getDocument(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		fetched, err := backend.GetDocument(request.Context(), document.ID(request.PathValue("id")))
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, fetched)
+	}
+}
+
+func saveDocumentProgress(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		request.Body = http.MaxBytesReader(w, request.Body, 1<<20)
+		var progress document.Progress
+		if err := json.NewDecoder(request.Body).Decode(&progress); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		if err := progress.Validate(); err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		if err := backend.SaveDocumentProgress(
+			request.Context(), document.ID(request.PathValue("id")), progress,
+		); err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func getDocumentAsset(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		content, contentType, err := backend.GetDocumentAsset(
+			request.Context(),
+			document.ID(request.PathValue("id")),
+			request.PathValue("path"),
+		)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "private, max-age=86400")
+		if _, err := w.Write(content); err != nil {
+			slog.Warn("write document asset", "error", err)
+		}
+	}
+}
+
+func getDocumentOriginal(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		content, filename, err := backend.GetDocumentOriginal(
+			request.Context(),
+			document.ID(request.PathValue("id")),
+		)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", originalContentType(filename))
+		w.Header().Set("Content-Disposition",
+			"attachment; filename*=UTF-8''"+url.PathEscape(filename))
+		if _, err := w.Write(content); err != nil {
+			slog.Warn("write document original", "error", err)
+		}
+	}
+}
+
+// originalContentType picks a download type from the stored filename's
+// extension; unknown types fall back to a generic binary stream.
+func originalContentType(filename string) string {
+	switch strings.ToLower(path.Ext(filename)) {
+	case ".epub":
+		return "application/epub+zip"
+	case ".txt":
+		return "text/plain; charset=utf-8"
+	case ".md", ".markdown":
+		return "text/markdown; charset=utf-8"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+func createDocumentNote(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		request.Body = http.MaxBytesReader(w, request.Body, 1<<20)
+		var input document.NoteInput
+		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		created, err := backend.CreateDocumentNote(
+			request.Context(), document.ID(request.PathValue("id")), input,
+		)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, created)
+	}
+}
+
+func listDocumentNotes(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		notes, err := backend.ListDocumentNotes(request.Context(), document.ID(request.PathValue("id")))
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, notes)
+	}
+}
+
+// importDocumentNotes accepts the neutral note-import contract, validates it,
+// and delegates the batch write; the summary reports matched and unmatched
+// counts for the UI.
+func importDocumentNotes(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		data, err := io.ReadAll(request.Body)
+		if err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		file, err := document.ParseNoteImport(data)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		summary, err := backend.ImportDocumentNotes(request.Context(), file)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, summary)
+	}
+}
+
+// listAllDocumentNotes serves the grouped notes hub: every note across
+// books, optionally filtered by a search term.
+func listAllDocumentNotes(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		notes, err := backend.ListAllDocumentNotes(request.Context(), strings.TrimSpace(request.URL.Query().Get("search")))
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, notes)
+	}
+}
+
+func listUnmatchedDocumentNotes(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		notes, err := backend.ListUnmatchedDocumentNotes(request.Context())
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, notes)
+	}
+}
+
+func linkDocumentNote(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		var body struct {
+			DocumentID string `json:"document_id"`
+		}
+		if err := decodeJSONBody(w, request, &body); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		if strings.TrimSpace(body.DocumentID) == "" {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", "document_id must not be empty", "document_id")
+			return
+		}
+		if err := backend.LinkDocumentNote(request.Context(), request.PathValue("id"), document.ID(body.DocumentID)); err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -1461,6 +1673,7 @@ func writeDomainError(w http.ResponseWriter, err error) {
 	var scopeValidationErr *ai.ScopeValidationError
 	var queueLimitErr *ai.QueueLimitError
 	var chatValidationErr *aichat.ValidationError
+	var documentValidationErr *document.ValidationError
 	var duplicateToolErr *aichat.DuplicateToolError
 	var selectionSizeErr *aichat.SelectionSizeError
 	var chatBudgetErr *aichat.MemoryBudgetError
@@ -1475,6 +1688,12 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusNotFound, "source_not_found", err.Error(), "")
 	case errors.Is(err, entry.ErrNotFound):
 		writeProblem(w, http.StatusNotFound, "entry_not_found", err.Error(), "")
+	case errors.Is(err, document.ErrUnavailable):
+		writeProblem(w, http.StatusServiceUnavailable, "documents_unavailable", err.Error(), "")
+	case errors.Is(err, document.ErrNotFound):
+		writeProblem(w, http.StatusNotFound, "document_not_found", err.Error(), "")
+	case errors.Is(err, document.ErrDuplicate):
+		writeProblem(w, http.StatusConflict, "document_exists", err.Error(), "")
 	case errors.Is(err, story.ErrSelfMerge):
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "into")
 	case errors.Is(err, story.ErrMetadataConflict):
@@ -1501,6 +1720,8 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusUnprocessableEntity, "source_parse_failed", err.Error(), "")
 	case errors.As(err, &chatValidationErr):
 		writeProblem(w, http.StatusUnprocessableEntity, "validation_error", chatValidationErr.Message, chatValidationErr.Field)
+	case errors.As(err, &documentValidationErr):
+		writeProblem(w, http.StatusUnprocessableEntity, "validation_error", documentValidationErr.Message, documentValidationErr.Field)
 	case errors.As(err, &duplicateToolErr):
 		writeProblem(w, http.StatusConflict, "ai_tool_exists", duplicateToolErr.Error(), "name")
 	case errors.As(err, &selectionSizeErr):

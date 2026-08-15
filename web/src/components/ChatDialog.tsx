@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 
 import * as api from '../api'
-import type { ChatMessage, ChatStreamEvent, SelectionTool } from '../api'
+import type { ChatMessage, ChatStreamEvent, ConversationContext, SelectionTool } from '../api'
 import { Button } from './ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog'
 import { ChatMarkdown } from './ChatMarkdown'
@@ -22,6 +22,9 @@ const firstUseStorageKey = 'pulse:ai-chat:first-use-ack'
 export interface ChatDialogStart {
   tool: SelectionTool
   selection: string
+  /** Document coordinates of the selection; the server assembles the
+      chapter context from them. */
+  context?: ConversationContext
 }
 
 export interface ChatDialogProps {
@@ -101,7 +104,7 @@ export function ChatDialog({ open, onOpenChange, start, conversationId, tools = 
     void (async () => {
       try {
         const created = await api.createConversation(
-          { tool_id: start.tool.id, selection: start.selection },
+          { tool_id: start.tool.id, selection: start.selection, context: start.context },
           `start-${Date.now()}`,
         )
         setConversation(created.conversation)

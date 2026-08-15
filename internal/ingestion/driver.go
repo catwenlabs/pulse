@@ -8,7 +8,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/catwenlabs/pulse/internal/annotation"
 	"github.com/catwenlabs/pulse/internal/source"
 )
 
@@ -50,7 +49,6 @@ type Candidate struct {
 	ContentHTML string
 	PublishedAt *time.Time
 	RawMeta     map[string]any
-	Annotation  *annotation.Detail
 }
 
 type Diagnostics struct {

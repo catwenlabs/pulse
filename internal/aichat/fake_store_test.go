@@ -14,9 +14,9 @@ import (
 type fakeStore struct {
 	mu sync.Mutex
 
-	tools           map[string]SelectionTool
-	toolOrder       []string
-	toolNames       map[string]string // lower(name) -> id
+	tools     map[string]SelectionTool
+	toolOrder []string
+	toolNames map[string]string // lower(name) -> id
 
 	conversations        map[string]Conversation
 	conversationCreated  map[string]string // idempotency key -> conversation id
@@ -31,14 +31,14 @@ type fakeStore struct {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		tools:           make(map[string]SelectionTool),
-		toolNames:       make(map[string]string),
-		conversations:   make(map[string]Conversation),
+		tools:               make(map[string]SelectionTool),
+		toolNames:           make(map[string]string),
+		conversations:       make(map[string]Conversation),
 		conversationCreated: make(map[string]string),
 		userMessageByKey:    make(map[string]Message),
 		generationByKey:     make(map[string]string),
-		messages:        make(map[string][]Message),
-		now:             func() time.Time { return time.Unix(1700000000, 0).UTC() },
+		messages:            make(map[string][]Message),
+		now:                 func() time.Time { return time.Unix(1700000000, 0).UTC() },
 	}
 }
 

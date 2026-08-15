@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 )
 
 const (
@@ -206,6 +207,16 @@ func (s *Service) CreateConversation(
 	initialPrompt, err := ExpandTemplate(tool.PromptTemplate, selection)
 	if err != nil {
 		return Conversation{}, Message{}, err
+	}
+	contextMaterial := strings.TrimSpace(input.ContextMaterial)
+	if count := utf8.RuneCountInString(contextMaterial); count > MaxContextMaterialCharacters {
+		return Conversation{}, Message{}, &ValidationError{
+			Field:   "context_material",
+			Message: fmt.Sprintf("must not exceed %d characters", MaxContextMaterialCharacters),
+		}
+	}
+	if contextMaterial != "" {
+		initialPrompt = initialPrompt + "\n\n" + contextMaterial
 	}
 	conversation, userMessage, err := s.store.CreateConversation(ctx, CreateConversationParams{
 		IdempotencyKey: boundedIdempotencyKey(idempotencyKey),

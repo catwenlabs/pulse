@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/catwenlabs/pulse/internal/ai"
+	"github.com/catwenlabs/pulse/internal/document"
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/ingestion"
 	"github.com/catwenlabs/pulse/internal/opml"
@@ -24,37 +27,49 @@ import (
 )
 
 type fakeBackend struct {
-	createSource         func(context.Context, source.Spec) (source.Source, error)
-	listSources          func(context.Context) ([]source.Source, error)
-	getSource            func(context.Context, source.ID) (source.Source, error)
-	updateSource         func(context.Context, source.ID, string, string) (source.Source, error)
-	setEnabled           func(context.Context, source.ID, bool) (source.Source, error)
-	archiveSource        func(context.Context, source.ID) error
-	setSecret            func(context.Context, source.ID, string) error
-	getSourceHealth      func(context.Context, source.ID) (source.Health, error)
-	listFolders          func(context.Context) ([]organization.Folder, error)
-	reorderRootSources   func(context.Context, []source.ID) error
-	reorderFolders       func(context.Context, []string) error
-	reorderFolderSources func(context.Context, string, []source.ID) error
-	enqueue              func(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error)
-	listSourceEntries    func(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
-	listSourceEntryPage  func(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
-	getEntry             func(context.Context, entry.ID) (entry.Entry, error)
-	deleteEntry          func(context.Context, entry.ID, bool) error
-	listStories          func(context.Context, story.Query) ([]story.Story, error)
-	listStoryPage        func(context.Context, story.Query) (story.Page, error)
-	getStory             func(context.Context, story.ID) (story.Story, error)
-	updateStory          func(context.Context, story.ID, story.Patch) (story.Story, error)
-	setRepresentative    func(context.Context, story.ID, entry.ID) (story.Story, error)
-	markStoriesRead      func(context.Context, string, []string) (int64, error)
-	markDigestRead       func(context.Context, string) (int64, error)
-	mergeStories         func(context.Context, story.ID, story.ID) (story.Story, error)
-	splitStory           func(context.Context, story.ID, entry.ID) (story.Story, error)
-	recluster            func(context.Context) (int, error)
-	importOPML           func(context.Context, []opml.Subscription) (opml.ImportResult, error)
-	exportOPML           func(context.Context) ([]opml.Subscription, error)
-	previewSource        func(context.Context, source.Spec) (preview.Result, error)
-	replayRule           func(context.Context, string, bool) (rule.ReplayResult, error)
+	createSource               func(context.Context, source.Spec) (source.Source, error)
+	listSources                func(context.Context) ([]source.Source, error)
+	getSource                  func(context.Context, source.ID) (source.Source, error)
+	updateSource               func(context.Context, source.ID, string, string) (source.Source, error)
+	setEnabled                 func(context.Context, source.ID, bool) (source.Source, error)
+	archiveSource              func(context.Context, source.ID) error
+	setSecret                  func(context.Context, source.ID, string) error
+	getSourceHealth            func(context.Context, source.ID) (source.Health, error)
+	listFolders                func(context.Context) ([]organization.Folder, error)
+	reorderRootSources         func(context.Context, []source.ID) error
+	reorderFolders             func(context.Context, []string) error
+	reorderFolderSources       func(context.Context, string, []source.ID) error
+	enqueue                    func(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error)
+	importDocument             func(context.Context, document.ImportRequest) (document.Document, error)
+	listDocuments              func(context.Context, string) ([]document.Summary, error)
+	getDocument                func(context.Context, document.ID) (document.Document, error)
+	saveProgress               func(context.Context, document.ID, document.Progress) error
+	getDocumentAsset           func(context.Context, document.ID, string) ([]byte, string, error)
+	getDocumentOriginal        func(context.Context, document.ID) ([]byte, string, error)
+	createDocumentNote         func(context.Context, document.ID, document.NoteInput) (document.Note, error)
+	listDocumentNotes          func(context.Context, document.ID) ([]document.Note, error)
+	importDocumentNotes        func(context.Context, document.NoteImportFile) (document.NoteImportSummary, error)
+	listAllDocumentNotes       func(context.Context, string) ([]document.Note, error)
+	listUnmatchedDocumentNotes func(context.Context) ([]document.Note, error)
+	linkDocumentNote           func(context.Context, string, document.ID) error
+	listSourceEntries          func(context.Context, source.ID, entry.Query) ([]story.SourceEntry, error)
+	listSourceEntryPage        func(context.Context, source.ID, entry.Query) (story.SourceEntryPage, error)
+	getEntry                   func(context.Context, entry.ID) (entry.Entry, error)
+	deleteEntry                func(context.Context, entry.ID, bool) error
+	listStories                func(context.Context, story.Query) ([]story.Story, error)
+	listStoryPage              func(context.Context, story.Query) (story.Page, error)
+	getStory                   func(context.Context, story.ID) (story.Story, error)
+	updateStory                func(context.Context, story.ID, story.Patch) (story.Story, error)
+	setRepresentative          func(context.Context, story.ID, entry.ID) (story.Story, error)
+	markStoriesRead            func(context.Context, string, []string) (int64, error)
+	markDigestRead             func(context.Context, string) (int64, error)
+	mergeStories               func(context.Context, story.ID, story.ID) (story.Story, error)
+	splitStory                 func(context.Context, story.ID, entry.ID) (story.Story, error)
+	recluster                  func(context.Context) (int, error)
+	importOPML                 func(context.Context, []opml.Subscription) (opml.ImportResult, error)
+	exportOPML                 func(context.Context) ([]opml.Subscription, error)
+	previewSource              func(context.Context, source.Spec) (preview.Result, error)
+	replayRule                 func(context.Context, string, bool) (rule.ReplayResult, error)
 }
 
 type aiFakeBackend struct {
@@ -170,6 +185,57 @@ func (fake fakeBackend) Enqueue(
 	request ingestion.EnqueueRequest,
 ) (ingestion.Acquisition, error) {
 	return fake.enqueue(ctx, request)
+}
+
+func (fake fakeBackend) ImportDocument(
+	ctx context.Context,
+	request document.ImportRequest,
+) (document.Document, error) {
+	return fake.importDocument(ctx, request)
+}
+
+func (fake fakeBackend) ListDocuments(ctx context.Context, search string) ([]document.Summary, error) {
+	return fake.listDocuments(ctx, search)
+}
+
+func (fake fakeBackend) GetDocument(ctx context.Context, id document.ID) (document.Document, error) {
+	return fake.getDocument(ctx, id)
+}
+
+func (fake fakeBackend) SaveDocumentProgress(ctx context.Context, id document.ID, progress document.Progress) error {
+	return fake.saveProgress(ctx, id, progress)
+}
+
+func (fake fakeBackend) GetDocumentAsset(ctx context.Context, id document.ID, entry string) ([]byte, string, error) {
+	return fake.getDocumentAsset(ctx, id, entry)
+}
+
+func (fake fakeBackend) GetDocumentOriginal(ctx context.Context, id document.ID) ([]byte, string, error) {
+	return fake.getDocumentOriginal(ctx, id)
+}
+
+func (fake fakeBackend) CreateDocumentNote(ctx context.Context, id document.ID, input document.NoteInput) (document.Note, error) {
+	return fake.createDocumentNote(ctx, id, input)
+}
+
+func (fake fakeBackend) ListDocumentNotes(ctx context.Context, id document.ID) ([]document.Note, error) {
+	return fake.listDocumentNotes(ctx, id)
+}
+
+func (fake fakeBackend) ImportDocumentNotes(ctx context.Context, file document.NoteImportFile) (document.NoteImportSummary, error) {
+	return fake.importDocumentNotes(ctx, file)
+}
+
+func (fake fakeBackend) ListAllDocumentNotes(ctx context.Context, search string) ([]document.Note, error) {
+	return fake.listAllDocumentNotes(ctx, search)
+}
+
+func (fake fakeBackend) ListUnmatchedDocumentNotes(ctx context.Context) ([]document.Note, error) {
+	return fake.listUnmatchedDocumentNotes(ctx)
+}
+
+func (fake fakeBackend) LinkDocumentNote(ctx context.Context, noteID string, id document.ID) error {
+	return fake.linkDocumentNote(ctx, noteID, id)
 }
 
 func (fake fakeBackend) ListSourceEntries(ctx context.Context, sourceID source.ID, query entry.Query) ([]story.SourceEntry, error) {
@@ -1106,88 +1172,6 @@ func TestManualEntryRejectsUnsafeSnapshotURLBeforeEnqueue(t *testing.T) {
 	}
 }
 
-func TestAnnotationImportQueuesWholeBatch(t *testing.T) {
-	backend := completeFakeBackend()
-	backend.getSource = func(_ context.Context, id source.ID) (source.Source, error) {
-		return source.Source{ID: id, Kind: source.KindAnnotations, Enabled: true}, nil
-	}
-	var queued ingestion.EnqueueRequest
-	backend.enqueue = func(_ context.Context, request ingestion.EnqueueRequest) (ingestion.Acquisition, error) {
-		queued = request
-		return ingestion.Acquisition{ID: "annotation-job", Status: ingestion.StatusPending}, nil
-	}
-	body := `{"annotations":[{"provider":"kindle","book_title":"Deep Work","highlight":"Focus."}]}`
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/sources/annotation-source/annotations",
-		bytes.NewBufferString(body),
-	)
-	request.Header.Set("Idempotency-Key", "annotation-import-1")
-	response := httptest.NewRecorder()
-
-	NewHandler(backend).ServeHTTP(response, request)
-
-	if response.Code != http.StatusAccepted {
-		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
-	}
-	if queued.SourceID != "annotation-source" || queued.Trigger != ingestion.TriggerImport ||
-		queued.IdempotencyKey != "annotation-import-1" || string(queued.Payload) != body {
-		t.Errorf("queued = %#v", queued)
-	}
-}
-
-func TestAnnotationImportRejectsWrongSourceKind(t *testing.T) {
-	backend := completeFakeBackend()
-	backend.getSource = func(_ context.Context, id source.ID) (source.Source, error) {
-		return source.Source{ID: id, Kind: source.KindManual, Enabled: true}, nil
-	}
-	response := httptest.NewRecorder()
-	NewHandler(backend).ServeHTTP(
-		response,
-		httptest.NewRequest(
-			http.MethodPost,
-			"/api/v1/sources/manual-source/annotations",
-			bytes.NewBufferString(`{"annotations":[]}`),
-		),
-	)
-	if response.Code != http.StatusUnprocessableEntity {
-		t.Errorf("status = %d, want 422", response.Code)
-	}
-}
-
-func TestAnnotationImportRejectsInvalidBatchBeforeQueueing(t *testing.T) {
-	backend := completeFakeBackend()
-	backend.getSource = func(_ context.Context, id source.ID) (source.Source, error) {
-		return source.Source{ID: id, Kind: source.KindAnnotations, Enabled: true}, nil
-	}
-	queued := false
-	backend.enqueue = func(_ context.Context, request ingestion.EnqueueRequest) (ingestion.Acquisition, error) {
-		queued = true
-		return ingestion.Acquisition{}, nil
-	}
-	for _, body := range []string{
-		`{"annotations":[]}`,
-		`{"annotations":[{"provider":"kindle","book_title":"","highlight":"text"}]}`,
-		`{"annotations":[{"provider":"` + strings.Repeat("x", 65) + `","book_title":"Book","highlight":"text"}]}`,
-	} {
-		response := httptest.NewRecorder()
-		NewHandler(backend).ServeHTTP(
-			response,
-			httptest.NewRequest(
-				http.MethodPost,
-				"/api/v1/sources/annotation-source/annotations",
-				bytes.NewBufferString(body),
-			),
-		)
-		if response.Code != http.StatusBadRequest {
-			t.Errorf("body %q status = %d, want 400", body, response.Code)
-		}
-	}
-	if queued {
-		t.Fatal("invalid annotation batch was queued")
-	}
-}
-
 func TestHTTPDomainErrors(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -1388,6 +1372,39 @@ func completeFakeBackend() fakeBackend {
 		enqueue: func(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error) {
 			return ingestion.Acquisition{}, errors.New("unexpected Enqueue")
 		},
+		importDocument: func(context.Context, document.ImportRequest) (document.Document, error) {
+			return document.Document{}, errors.New("unexpected ImportDocument")
+		},
+		listDocuments: func(context.Context, string) ([]document.Summary, error) {
+			return nil, nil
+		},
+		getDocument: func(context.Context, document.ID) (document.Document, error) {
+			return document.Document{}, document.ErrNotFound
+		},
+		saveProgress: func(context.Context, document.ID, document.Progress) error {
+			return errors.New("unexpected SaveDocumentProgress")
+		},
+		getDocumentAsset: func(context.Context, document.ID, string) ([]byte, string, error) {
+			return nil, "", document.ErrNotFound
+		},
+		createDocumentNote: func(context.Context, document.ID, document.NoteInput) (document.Note, error) {
+			return document.Note{}, errors.New("unexpected CreateDocumentNote")
+		},
+		importDocumentNotes: func(context.Context, document.NoteImportFile) (document.NoteImportSummary, error) {
+			return document.NoteImportSummary{}, errors.New("unexpected ImportDocumentNotes")
+		},
+		listAllDocumentNotes: func(context.Context, string) ([]document.Note, error) {
+			return nil, errors.New("unexpected ListAllDocumentNotes")
+		},
+		listUnmatchedDocumentNotes: func(context.Context) ([]document.Note, error) {
+			return nil, errors.New("unexpected ListUnmatchedDocumentNotes")
+		},
+		linkDocumentNote: func(context.Context, string, document.ID) error {
+			return errors.New("unexpected LinkDocumentNote")
+		},
+		listDocumentNotes: func(context.Context, document.ID) ([]document.Note, error) {
+			return nil, document.ErrNotFound
+		},
 		getEntry: func(context.Context, entry.ID) (entry.Entry, error) {
 			return entry.Entry{}, entry.ErrNotFound
 		},
@@ -1421,5 +1438,455 @@ func completeFakeBackend() fakeBackend {
 		previewSource: func(context.Context, source.Spec) (preview.Result, error) {
 			return preview.Result{}, errors.New("unexpected PreviewSource")
 		},
+	}
+}
+
+func TestImportTextDocument(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.importDocument = func(_ context.Context, request document.ImportRequest) (document.Document, error) {
+		if request.Filename != "reading-notes.txt" {
+			t.Errorf("Filename = %q, want reading-notes.txt", request.Filename)
+		}
+		if string(request.Content) != "第一段内容。\n\n第二段内容。" {
+			t.Errorf("Content = %q", string(request.Content))
+		}
+		return document.Document{
+			ID:    "doc-1",
+			Title: "reading-notes.txt",
+			Chapters: []document.Chapter{{
+				Index:       0,
+				Title:       "reading-notes.txt",
+				ContentHTML: "<p>第一段内容。</p><p>第二段内容。</p>",
+			}},
+		}, nil
+	}
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, err := writer.CreateFormFile("file", "reading-notes.txt")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := part.Write([]byte("第一段内容。\n\n第二段内容。")); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/documents", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, req)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var imported document.Document
+	if err := json.NewDecoder(response.Body).Decode(&imported); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if imported.ID != "doc-1" {
+		t.Errorf("ID = %q, want doc-1", imported.ID)
+	}
+	if len(imported.Chapters) != 1 || imported.Chapters[0].ContentHTML == "" {
+		t.Errorf("chapters = %+v, want one chapter with content", imported.Chapters)
+	}
+}
+
+func TestListDocuments(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.listDocuments = func(_ context.Context, search string) ([]document.Summary, error) {
+		if search != "复杂性" {
+			t.Errorf("ListDocuments search = %q, want 复杂性", search)
+		}
+		return []document.Summary{{
+			ID:           "doc-1",
+			Title:        "reading-notes.txt",
+			Author:       "作者",
+			ChapterCount: 1,
+		}}, nil
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/documents?search="+url.QueryEscape("复杂性"), nil)
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, req)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var listed []document.Summary
+	if err := json.NewDecoder(response.Body).Decode(&listed); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != "doc-1" || listed[0].ChapterCount != 1 {
+		t.Errorf("listed = %+v, want one summary for doc-1 with 1 chapter", listed)
+	}
+}
+
+func TestImportDocumentRejectsUnsupportedFileType(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.importDocument = func(context.Context, document.ImportRequest) (document.Document, error) {
+		return document.Document{}, &document.ValidationError{Field: "filename", Message: "unsupported file type"}
+	}
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, err := writer.CreateFormFile("file", "paper.pdf")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := part.Write([]byte("%PDF-1.7")); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/documents", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, req)
+
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, body = %s, want 422", response.Code, response.Body.String())
+	}
+}
+
+func TestSaveDocumentProgress(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.saveProgress = func(_ context.Context, id document.ID, progress document.Progress) error {
+		if id != "doc-1" {
+			t.Errorf("ID = %q, want doc-1", id)
+		}
+		if progress.ChapterIndex != 3 || progress.ScrollRatio != 0.42 {
+			t.Errorf("progress = %+v, want chapter 3 at 0.42", progress)
+		}
+		return nil
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/documents/doc-1/progress",
+		bytes.NewBufferString(`{"chapter_index":3,"scroll_ratio":0.42}`))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, req)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestSaveDocumentProgressRejectsOutOfRangeRatio(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.saveProgress = func(context.Context, document.ID, document.Progress) error {
+		t.Fatal("saveProgress must not run for an invalid payload")
+		return nil
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/documents/doc-1/progress",
+		bytes.NewBufferString(`{"chapter_index":0,"scroll_ratio":1.5}`))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, req)
+
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, body = %s, want 422", response.Code, response.Body.String())
+	}
+}
+
+func TestGetDocument(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.getDocument = func(_ context.Context, id document.ID) (document.Document, error) {
+		if id != "doc-1" {
+			t.Errorf("ID = %q, want doc-1", id)
+		}
+		return document.Document{
+			ID:    "doc-1",
+			Title: "reading-notes.txt",
+			Chapters: []document.Chapter{{
+				Index:       0,
+				Title:       "reading-notes.txt",
+				ContentHTML: "<p>第一段内容。</p>",
+			}},
+		}, nil
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/documents/doc-1", nil)
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, req)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var fetched document.Document
+	if err := json.NewDecoder(response.Body).Decode(&fetched); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if fetched.ID != "doc-1" || len(fetched.Chapters) != 1 || fetched.Chapters[0].ContentHTML == "" {
+		t.Errorf("fetched = %+v, want doc-1 with one chapter", fetched)
+	}
+}
+
+func TestGetDocumentAsset(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.getDocumentAsset = func(_ context.Context, id document.ID, entry string) ([]byte, string, error) {
+		if id != "doc-1" || entry != "images/pic.png" {
+			t.Errorf("asset request = %q %q, want doc-1 images/pic.png", id, entry)
+		}
+		return []byte("png-bytes"), "image/png", nil
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/documents/doc-1/asset/images/pic.png", nil)
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, req)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("Content-Type"); got != "image/png" {
+		t.Errorf("Content-Type = %q, want image/png", got)
+	}
+	if response.Body.String() != "png-bytes" {
+		t.Errorf("body = %q, want png-bytes", response.Body.String())
+	}
+}
+
+func TestGetDocumentAssetReturnsNotFound(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.getDocumentAsset = func(context.Context, document.ID, string) ([]byte, string, error) {
+		return nil, "", document.ErrNotFound
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/documents/doc-1/asset/images/missing.png", nil)
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, req)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", response.Code)
+	}
+}
+
+func TestCreateAndListDocumentNotes(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.createDocumentNote = func(_ context.Context, id document.ID, input document.NoteInput) (document.Note, error) {
+		if id != "doc-1" {
+			t.Errorf("ID = %q, want doc-1", id)
+		}
+		if input.ChapterIndex != 2 || input.Highlight != "重要段落" || input.Text != "我的批注" {
+			t.Errorf("input = %+v", input)
+		}
+		return document.Note{
+			ID: "note-1", DocumentID: id, ChapterIndex: input.ChapterIndex,
+			Highlight: input.Highlight, Text: input.Text,
+		}, nil
+	}
+	backend.listDocumentNotes = func(_ context.Context, id document.ID) ([]document.Note, error) {
+		return []document.Note{{ID: "note-1", DocumentID: id, Highlight: "重要段落"}}, nil
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/documents/doc-1/notes",
+		bytes.NewBufferString(`{"chapter_index":2,"highlight":"重要段落","note":"我的批注"}`))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(response, req)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var created document.Note
+	if err := json.NewDecoder(response.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created: %v", err)
+	}
+	if created.ID != "note-1" || created.Highlight != "重要段落" {
+		t.Errorf("created = %+v", created)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/documents/doc-1/notes", nil)
+	response = httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var listed []document.Note
+	if err := json.NewDecoder(response.Body).Decode(&listed); err != nil {
+		t.Fatalf("decode listed: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != "note-1" {
+		t.Errorf("listed = %+v", listed)
+	}
+}
+
+func TestCreateDocumentNoteRejectsEmptyHighlight(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.createDocumentNote = func(context.Context, document.ID, document.NoteInput) (document.Note, error) {
+		t.Fatal("create must not run for an invalid payload")
+		return document.Note{}, nil
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/documents/doc-1/notes",
+		bytes.NewBufferString(`{"chapter_index":0,"highlight":"  "}`))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	NewHandler(backend).ServeHTTP(response, req)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", response.Code)
+	}
+}
+
+func TestImportDocumentNotes(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.importDocumentNotes = func(_ context.Context, file document.NoteImportFile) (document.NoteImportSummary, error) {
+		if len(file.Notes) != 1 || file.Notes[0].BookTitle != "书" || file.Notes[0].Highlight != "高亮" {
+			t.Errorf("ImportDocumentNotes file = %+v, want the parsed contract", file)
+		}
+		return document.NoteImportSummary{Imported: 2, Unmatched: 1}, nil
+	}
+	handler := newHandler(backend, nil, nil)
+
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/api/v1/documents/notes/import", body(t, map[string]any{
+		"notes": []any{map[string]any{"book_title": "书", "highlight": "高亮"}},
+	})))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", resp.Code, resp.Body.String())
+	}
+	var summary document.NoteImportSummary
+	if err := json.Unmarshal(resp.Body.Bytes(), &summary); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if summary.Imported != 2 || summary.Unmatched != 1 {
+		t.Errorf("summary = %+v, want 2 imported 1 unmatched", summary)
+	}
+}
+
+func TestImportDocumentNotesRejectsInvalidContract(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.importDocumentNotes = func(context.Context, document.NoteImportFile) (document.NoteImportSummary, error) {
+		t.Fatal("ImportDocumentNotes must not run for an invalid file")
+		return document.NoteImportSummary{}, nil
+	}
+	handler := newHandler(backend, nil, nil)
+
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/api/v1/documents/notes/import", body(t, map[string]any{
+		"notes": []any{map[string]any{"book_title": "书", "highlight": "   "}},
+	})))
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", resp.Code)
+	}
+}
+
+func TestListUnmatchedDocumentNotes(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.listUnmatchedDocumentNotes = func(context.Context) ([]document.Note, error) {
+		return []document.Note{{ID: "note-1", BookTitle: "没导入的书", Highlight: "高亮"}}, nil
+	}
+	handler := newHandler(backend, nil, nil)
+
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/documents/notes/unmatched", nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", resp.Code, resp.Body.String())
+	}
+	var notes []document.Note
+	if err := json.Unmarshal(resp.Body.Bytes(), &notes); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(notes) != 1 || notes[0].BookTitle != "没导入的书" {
+		t.Errorf("notes = %+v, want the unmatched note", notes)
+	}
+}
+
+func TestLinkDocumentNote(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.linkDocumentNote = func(_ context.Context, noteID string, id document.ID) error {
+		if noteID != "note-1" || id != "doc-9" {
+			t.Errorf("LinkDocumentNote(%q, %q), want (note-1, doc-9)", noteID, id)
+		}
+		return nil
+	}
+	handler := newHandler(backend, nil, nil)
+
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodPut, "/api/v1/documents/notes/note-1/link", body(t, map[string]any{
+		"document_id": "doc-9",
+	})))
+	if resp.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.Code)
+	}
+
+	backend.linkDocumentNote = func(context.Context, string, document.ID) error { return document.ErrNotFound }
+	handler = newHandler(backend, nil, nil)
+	resp = httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodPut, "/api/v1/documents/notes/note-1/link", body(t, map[string]any{
+		"document_id": "doc-9",
+	})))
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("missing-note status = %d, want 404", resp.Code)
+	}
+}
+
+func TestListAllDocumentNotesWithSearch(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.listAllDocumentNotes = func(_ context.Context, search string) ([]document.Note, error) {
+		if search != "复杂性" {
+			t.Errorf("ListAllDocumentNotes search = %q, want 复杂性", search)
+		}
+		return []document.Note{{ID: "note-1", BookTitle: "书", Highlight: "高亮"}}, nil
+	}
+	handler := newHandler(backend, nil, nil)
+
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/notes?search="+url.QueryEscape("复杂性"), nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", resp.Code, resp.Body.String())
+	}
+	var notes []document.Note
+	if err := json.Unmarshal(resp.Body.Bytes(), &notes); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(notes) != 1 || notes[0].ID != "note-1" {
+		t.Errorf("notes = %+v, want the searched note", notes)
+	}
+}
+
+func TestGetDocumentOriginal(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.getDocumentOriginal = func(_ context.Context, id document.ID) ([]byte, string, error) {
+		if id != "doc-1" {
+			t.Errorf("GetDocumentOriginal id = %q, want doc-1", id)
+		}
+		return []byte("epub-bytes"), "我的书.epub", nil
+	}
+	handler := newHandler(backend, nil, nil)
+
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/documents/doc-1/original", nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", resp.Code, resp.Body.String())
+	}
+	if resp.Header().Get("Content-Type") != "application/epub+zip" {
+		t.Errorf("Content-Type = %q, want application/epub+zip", resp.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(resp.Header().Get("Content-Disposition"), "attachment") {
+		t.Errorf("Content-Disposition = %q, want attachment", resp.Header().Get("Content-Disposition"))
+	}
+	if resp.Body.String() != "epub-bytes" {
+		t.Errorf("body = %q, want the original file bytes", resp.Body.String())
+	}
+
+	backend.getDocumentOriginal = func(context.Context, document.ID) ([]byte, string, error) {
+		return nil, "", document.ErrNotFound
+	}
+	handler = newHandler(backend, nil, nil)
+	resp = httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/documents/missing/original", nil))
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("missing status = %d, want 404", resp.Code)
 	}
 }

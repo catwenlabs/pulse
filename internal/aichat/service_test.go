@@ -636,3 +636,44 @@ func joinProviderMessages(messages []ProviderMessage) string {
 
 // ensure time import is retained even if future edits remove its only use.
 var _ = time.Now
+
+func TestCreateConversationAppendsChapterContextMaterial(t *testing.T) {
+	service, store := newService(t, nil)
+	tool := seedTool(t, store, "AI 解读", "请解释：{{selection}}", true)
+
+	_, userMsg, err := service.CreateConversation(context.Background(), CreateConversationInput{
+		ToolID:          tool.ID,
+		Selection:       "该机制",
+		ContextMaterial: "《测试之书》第 8 章：……前文内容。该机制会导致……后文内容。",
+	}, "key-ctx")
+	if err != nil {
+		t.Fatalf("CreateConversation() error = %v", err)
+	}
+	if !strings.Contains(userMsg.Content, "请解释：该机制") {
+		t.Errorf("initial prompt = %q, want expanded selection", userMsg.Content)
+	}
+	if !strings.Contains(userMsg.Content, "第 8 章") || !strings.Contains(userMsg.Content, "前文内容") {
+		t.Errorf("initial prompt = %q, want chapter context appended", userMsg.Content)
+	}
+	if !strings.Contains(userMsg.Content, "请解释：该机制") || strings.Index(userMsg.Content, "请解释：该机制") > strings.Index(userMsg.Content, "前文内容") {
+		t.Errorf("initial prompt = %q, context must come after the prompt", userMsg.Content)
+	}
+}
+
+func TestCreateConversationRejectsOversizedContextMaterial(t *testing.T) {
+	service, store := newService(t, nil)
+	tool := seedTool(t, store, "AI 解读", "请解释：{{selection}}", true)
+
+	_, _, err := service.CreateConversation(context.Background(), CreateConversationInput{
+		ToolID:          tool.ID,
+		Selection:       "x",
+		ContextMaterial: strings.Repeat("字", MaxContextMaterialCharacters+1),
+	}, "")
+	if err == nil {
+		t.Fatal("expected error for oversized context material")
+	}
+	var ve *ValidationError
+	if !errors.As(err, &ve) || ve.Field != "context_material" {
+		t.Fatalf("error = %v, want context_material ValidationError", err)
+	}
+}

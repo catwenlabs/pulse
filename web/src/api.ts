@@ -1,4 +1,4 @@
-export type SourceKind = 'rss' | 'json-api' | 'html' | 'webhook' | 'manual' | 'file' | 'annotations'
+export type SourceKind = 'rss' | 'json-api' | 'html' | 'webhook' | 'manual' | 'file'
 
 export interface Source {
   id: string
@@ -79,7 +79,6 @@ export interface Entry {
   content_html?: string
   published_at?: string
   discovered_at: string
-  annotation?: AnnotationDetail
 }
 
 export interface Tag {
@@ -288,31 +287,7 @@ export interface ManualEntryInput {
   title: string
 }
 
-export interface AnnotationInput {
-  id?: string
-  provider: string
-  book_identity?: string
-  book_title: string
-  book_author?: string
-  chapter?: string
-  location?: string
-  highlight_color?: string
-  highlight: string
-  note?: string
-  highlighted_at?: string
-}
 
-export interface AnnotationDetail {
-  provider: string
-  book_identity: string
-  book_title: string
-  book_author: string
-  chapter: string
-  location: string
-  highlight_color: string
-  annotation_note: string
-  highlighted_at?: string
-}
 
 export interface Problem {
 	code?: string
@@ -480,23 +455,6 @@ export function createManualEntry(
       'Idempotency-Key': idempotencyKey,
     },
     body: JSON.stringify(input),
-  })
-}
-
-export function importAnnotations(
-  sourceId: string,
-  annotations: AnnotationInput[],
-): Promise<{ id: string; status: string }> {
-  const idempotencyKey = typeof globalThis.crypto?.randomUUID === 'function'
-    ? globalThis.crypto.randomUUID()
-    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-  return request(`/api/v1/sources/${sourceId}/annotations`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Idempotency-Key': idempotencyKey,
-    },
-    body: JSON.stringify({ annotations }),
   })
 }
 
@@ -701,9 +659,15 @@ export interface ConversationCreated {
   user_message: ChatMessage
 }
 
+export interface ConversationContext {
+  document_id: string
+  chapter_index: number
+}
+
 export interface CreateConversationInput {
   tool_id: string
   selection: string
+  context?: ConversationContext
 }
 
 export type ChatStreamEventKind = 'metadata' | 'delta' | 'completed' | 'cancelled' | 'failed'
@@ -872,4 +836,134 @@ function parseChatFrame(frame: string): ChatStreamEvent | undefined {
   } catch {
     return undefined
   }
+}
+
+export interface DocumentSummary {
+  id: string
+  identifier?: string
+  title: string
+  author?: string
+  chapter_count: number
+}
+
+export interface DocumentChapter {
+  index: number
+  title: string
+  content_html: string
+}
+
+export interface DocumentProgress {
+  chapter_index: number
+  scroll_ratio: number
+}
+
+export interface Document {
+  id: string
+  identifier?: string
+  title: string
+  author?: string
+  chapters: DocumentChapter[]
+  progress?: DocumentProgress
+}
+
+export interface DocumentNoteInput {
+  chapter_index: number
+  highlight: string
+  note?: string
+  highlight_color?: string
+}
+
+export interface DocumentNote {
+  id: string
+  document_id?: string
+  book_identifier?: string
+  book_title?: string
+  book_author?: string
+  chapter_index: number
+  location?: string
+  highlight: string
+  note?: string
+  highlight_color?: string
+  source?: 'pulse' | 'import'
+  highlighted_at?: string
+}
+
+export interface NoteImportEntry {
+  book_identifier?: string
+  book_title: string
+  book_author?: string
+  chapter_index?: number
+  location?: string
+  highlight: string
+  note?: string
+  highlight_color?: string
+  highlighted_at?: string
+}
+
+export interface NoteImportSummary {
+  imported: number
+  unmatched: number
+}
+
+function withSearch(path: string, search: string): string {
+  const trimmed = search.trim()
+  return trimmed === '' ? path : `${path}?search=${encodeURIComponent(trimmed)}`
+}
+
+export function listDocuments(search = ''): Promise<DocumentSummary[]> {
+  return requestList<DocumentSummary>(withSearch('/api/v1/documents', search))
+}
+
+export function importDocument(file: File): Promise<Document> {
+  const body = new FormData()
+  body.append('file', file)
+  return request<Document>('/api/v1/documents', { method: 'POST', body })
+}
+
+export function getDocument(id: string): Promise<Document> {
+  return request<Document>(`/api/v1/documents/${id}`)
+}
+
+export function saveDocumentProgress(id: string, progress: DocumentProgress): Promise<void> {
+  return request<void>(`/api/v1/documents/${id}/progress`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(progress),
+  })
+}
+
+export function createDocumentNote(id: string, input: DocumentNoteInput): Promise<DocumentNote> {
+  return request<DocumentNote>(`/api/v1/documents/${id}/notes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export function listDocumentNotes(id: string): Promise<DocumentNote[]> {
+  return requestList<DocumentNote>(`/api/v1/documents/${id}/notes`)
+}
+
+export function listAllNotes(search = ''): Promise<DocumentNote[]> {
+  return requestList<DocumentNote>(withSearch('/api/v1/notes', search))
+}
+
+export function listUnmatchedNotes(): Promise<DocumentNote[]> {
+  return requestList<DocumentNote>('/api/v1/documents/notes/unmatched')
+}
+
+export function importDocumentNotes(notes: NoteImportEntry[]): Promise<NoteImportSummary> {
+  return request<NoteImportSummary>('/api/v1/documents/notes/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ notes }),
+  })
+}
+
+export function linkDocumentNote(noteId: string, documentId: string): Promise<void> {
+  return request<void>(`/api/v1/documents/notes/${noteId}/link`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ document_id: documentId }),
+  })
 }
