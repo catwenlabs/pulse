@@ -12,6 +12,8 @@ func Parse(filename string, content []byte) (Document, error) {
 	switch strings.ToLower(filepath.Ext(filename)) {
 	case ".txt":
 		return ParseText(filename, content)
+	case ".md", ".markdown":
+		return ParseMarkdown(filename, content)
 	default:
 		return Document{}, &ValidationError{Field: "filename", Message: "unsupported file type: " + filepath.Ext(filename)}
 	}
