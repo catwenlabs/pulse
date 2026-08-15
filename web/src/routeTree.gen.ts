@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AiConversationsRouteImport } from './routes/ai-conversations'
 import { Route as DigestsRouteImport } from './routes/digests'
+import { Route as DocumentsRouteImport } from './routes/documents'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as LaterRouteImport } from './routes/later'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -35,6 +36,11 @@ const AiConversationsRoute = AiConversationsRouteImport.update({
 const DigestsRoute = DigestsRouteImport.update({
   id: '/digests',
   path: '/digests',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocumentsRoute = DocumentsRouteImport.update({
+  id: '/documents',
+  path: '/documents',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InboxRoute = InboxRouteImport.update({
@@ -87,6 +93,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/ai-conversations': typeof AiConversationsRoute
   '/digests': typeof DigestsRoute
+  '/documents': typeof DocumentsRoute
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
   '/settings': typeof SettingsRoute
@@ -101,6 +108,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/ai-conversations': typeof AiConversationsRoute
   '/digests': typeof DigestsRoute
+  '/documents': typeof DocumentsRoute
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
   '/settings': typeof SettingsRoute
@@ -115,6 +123,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/ai-conversations': typeof AiConversationsRoute
   '/digests': typeof DigestsRoute
+  '/documents': typeof DocumentsRoute
   '/inbox': typeof InboxRoute
   '/later': typeof LaterRoute
   '/settings': typeof SettingsRoute
@@ -131,6 +140,7 @@ export interface FileRouteTypes {
     | '/'
     | '/ai-conversations'
     | '/digests'
+    | '/documents'
     | '/inbox'
     | '/later'
     | '/settings'
@@ -145,6 +155,7 @@ export interface FileRouteTypes {
     | '/'
     | '/ai-conversations'
     | '/digests'
+    | '/documents'
     | '/inbox'
     | '/later'
     | '/settings'
@@ -158,6 +169,7 @@ export interface FileRouteTypes {
     | '/'
     | '/ai-conversations'
     | '/digests'
+    | '/documents'
     | '/inbox'
     | '/later'
     | '/settings'
@@ -173,6 +185,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AiConversationsRoute: typeof AiConversationsRoute
   DigestsRoute: typeof DigestsRoute
+  DocumentsRoute: typeof DocumentsRoute
   InboxRoute: typeof InboxRoute
   LaterRoute: typeof LaterRoute
   SettingsRoute: typeof SettingsRoute
@@ -203,6 +216,13 @@ declare module '@tanstack/react-router' {
       path: '/digests'
       fullPath: '/digests'
       preLoaderRoute: typeof DigestsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/documents': {
+      id: '/documents'
+      path: '/documents'
+      fullPath: '/documents'
+      preLoaderRoute: typeof DocumentsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/inbox': {
@@ -288,6 +308,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AiConversationsRoute: AiConversationsRoute,
   DigestsRoute: DigestsRoute,
+  DocumentsRoute: DocumentsRoute,
   InboxRoute: InboxRoute,
   LaterRoute: LaterRoute,
   SettingsRoute: SettingsRoute,

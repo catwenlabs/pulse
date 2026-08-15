@@ -28,6 +28,7 @@ import { DigestPage, DigestHistoryPanel, StoryDetailPage } from './AISummarizati
 import type { CreateSourceInput, Entry, Folder, PreviewResult, Source, SourceHealth, SourceKind, Story, StoryPatch } from './api'
 import { EntryReader } from './components/EntryReader'
 import { ConversationHistoryPage } from './components/ConversationHistoryPage'
+import { DocumentsPage } from './components/DocumentsPage'
 import { SelectionChatSurface } from './components/SelectionChatSurface'
 import { SelectionToolsSettings } from './components/SelectionToolsSettings'
 import { StoryListItem, type StoryListItemChange } from './components/StoryListItem'
@@ -46,7 +47,7 @@ import { useLibraryRealtime, type LibraryRealtimeSignal, type RealtimeConnection
 import { toast } from 'sonner'
 import './styles.css'
 
-export type View = 'sources' | 'inbox' | 'starred' | 'later' | 'ai' | 'story' | 'settings' | 'ai-conversations' | 'tools'
+export type View = 'sources' | 'inbox' | 'starred' | 'later' | 'ai' | 'story' | 'settings' | 'ai-conversations' | 'tools' | 'documents' | 'notes' | 'document-reader'
 export type ToolKey = 'ai-conversations' | 'sources' | 'settings'
 type SaveRequest = { url: string; title: string }
 type ReaderEntry = Entry & {
@@ -944,6 +945,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
               <DropdownMenuContent side="top" align="start" className="w-[min(17rem,calc(86vw-2rem))]">
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'starred' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'starred' ? 'page' : undefined} onSelect={() => showStream('starred')}><NavIcon name="star" />收藏</DropdownMenuItem>
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'later' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'later' ? 'page' : undefined} onSelect={() => showStream('later')}><NavIcon name="clock" />稍后阅读</DropdownMenuItem>
+                <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'documents' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'documents' ? 'page' : undefined} onSelect={() => { void navigate({ to: '/documents' }) }}><NavIcon name="book" />文档库</DropdownMenuItem>
                 <DropdownMenuItem className={cn('min-h-11 gap-3', activeView === 'ai' && 'bg-accent font-semibold text-primary')} aria-current={activeView === 'ai' ? 'page' : undefined} onSelect={() => {
                   void navigate({ to: '/digests' })
                   closeMobileNavigation()
@@ -985,6 +987,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
               </IconNavTooltip>
               <IconNavTooltip label="稍后阅读">
                 <Link className={iconNavItemClass(activeView === 'later')} to="/later" aria-label="稍后阅读" onClick={() => closeMobileNavigation()}><NavIcon name="clock" /></Link>
+                <Link className={iconNavItemClass(activeView === 'documents')} to="/documents" aria-label="文档库" onClick={() => closeMobileNavigation()}><NavIcon name="book" /></Link>
               </IconNavTooltip>
               <IconNavTooltip label="阅读笔记">
               </IconNavTooltip>
@@ -1159,6 +1162,8 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '' }: {
           <div className="mx-auto w-full max-w-[1280px]">
             {tool === 'ai-conversations' ? <ConversationHistoryPage /> : <SelectionToolsSettings />}
           </div>
+        ) : activeView === 'documents' ? (
+          <DocumentsPage onOpenDocument={(id) => { void navigate({ to: '/documents/$documentID', params: { documentID: id } }) }} />
         ) : activeView === 'ai' ? (
           <DigestPage digestID={selectedDigestID} onSelectDigest={setSelectedDigestID} />
         ) : activeView === 'story' ? (
