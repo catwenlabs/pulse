@@ -175,7 +175,7 @@ func TestParseEpubCanonicalizesSVGImageSources(t *testing.T) {
 		t.Fatalf("ParseEpub() error = %v", err)
 	}
 	content := parsed.Chapters[0].ContentHTML
-	if !strings.Contains(content, `xlink:href="Images/cover.png"`) {
+	if !strings.Contains(content, `xlink:href="OEBPS/Images/cover.png"`) {
 		t.Errorf("ContentHTML = %q, want svg image href canonicalized to the zip entry path", content)
 	}
 }
