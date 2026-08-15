@@ -444,3 +444,20 @@ func (store *DocumentStore) ListAllNotes(ctx context.Context, search string) ([]
 	}
 	return notes, nil
 }
+
+// ReadOriginal returns the stored original file so the user can always take
+// their data back out.
+func (store *DocumentStore) ReadOriginal(ctx context.Context, id document.ID) ([]byte, string, error) {
+	var data []byte
+	var filename string
+	err := store.pool.QueryRow(ctx, `
+		SELECT original, original_filename FROM documents WHERE id = $1
+	`, id).Scan(&data, &filename)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, "", document.ErrNotFound
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("read document original: %w", err)
+	}
+	return data, filename, nil
+}

@@ -1109,6 +1109,26 @@ paths:
             image/*: {}
         "404":
           $ref: "#/components/responses/Problem"
+  /documents/{documentId}/original:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    get:
+      operationId: getDocumentOriginal
+      summary: Download the original imported file
+      description: >
+        Returns the exact bytes uploaded at import time (epub, txt, or
+        markdown) as an attachment, so the source file can be kept or
+        re-imported elsewhere.
+      responses:
+        "200":
+          description: Original file bytes as an attachment
+          content:
+            application/epub+zip: {}
+            text/plain: {}
+            text/markdown: {}
+            application/octet-stream: {}
+        "404":
+          $ref: "#/components/responses/Problem"
   /documents/{documentId}/notes:
     parameters:
       - $ref: "#/components/parameters/DocumentId"

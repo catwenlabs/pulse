@@ -522,3 +522,30 @@ func TestDocumentStoreListSearchesChapters(t *testing.T) {
 		t.Errorf("List() = %d, %v; want both books", len(all), err)
 	}
 }
+
+func TestDocumentStoreReadOriginalRoundTrips(t *testing.T) {
+	pool := testPool(t)
+	store := NewDocumentStore(pool)
+	ctx := context.Background()
+
+	content := []byte("原始文件内容。")
+	saved, err := store.Import(ctx, document.ImportRequest{
+		Filename: "我的书.txt",
+		Content:  content,
+	})
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+
+	data, filename, err := store.ReadOriginal(ctx, saved.ID)
+	if err != nil {
+		t.Fatalf("ReadOriginal() error = %v", err)
+	}
+	if filename != "我的书.txt" || string(data) != string(content) {
+		t.Errorf("ReadOriginal() = (%q, %d bytes), want the uploaded file", filename, len(data))
+	}
+
+	if _, _, err := store.ReadOriginal(ctx, document.ID("00000000-0000-0000-0000-000000000000")); err != document.ErrNotFound {
+		t.Errorf("ReadOriginal(missing) error = %v, want document.ErrNotFound", err)
+	}
+}

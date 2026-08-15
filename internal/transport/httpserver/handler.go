@@ -62,6 +62,7 @@ type Backend interface {
 	GetDocument(context.Context, document.ID) (document.Document, error)
 	SaveDocumentProgress(context.Context, document.ID, document.Progress) error
 	GetDocumentAsset(context.Context, document.ID, string) ([]byte, string, error)
+	GetDocumentOriginal(context.Context, document.ID) ([]byte, string, error)
 	CreateDocumentNote(context.Context, document.ID, document.NoteInput) (document.Note, error)
 	ListDocumentNotes(context.Context, document.ID) ([]document.Note, error)
 	ImportDocumentNotes(context.Context, document.NoteImportFile) (document.NoteImportSummary, error)
@@ -140,6 +141,7 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("GET /api/v1/documents/{id}", getDocument(backend))
 	mux.HandleFunc("PUT /api/v1/documents/{id}/progress", saveDocumentProgress(backend))
 	mux.HandleFunc("GET /api/v1/documents/{id}/asset/{path...}", getDocumentAsset(backend))
+	mux.HandleFunc("GET /api/v1/documents/{id}/original", getDocumentOriginal(backend))
 	mux.HandleFunc("POST /api/v1/documents/{id}/notes", createDocumentNote(backend))
 	mux.HandleFunc("GET /api/v1/documents/{id}/notes", listDocumentNotes(backend))
 	mux.HandleFunc("POST /api/v1/documents/notes/import", importDocumentNotes(backend))
@@ -1192,6 +1194,40 @@ func getDocumentAsset(backend Backend) http.HandlerFunc {
 		if _, err := w.Write(content); err != nil {
 			slog.Warn("write document asset", "error", err)
 		}
+	}
+}
+
+func getDocumentOriginal(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		content, filename, err := backend.GetDocumentOriginal(
+			request.Context(),
+			document.ID(request.PathValue("id")),
+		)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", originalContentType(filename))
+		w.Header().Set("Content-Disposition",
+			"attachment; filename*=UTF-8''"+url.PathEscape(filename))
+		if _, err := w.Write(content); err != nil {
+			slog.Warn("write document original", "error", err)
+		}
+	}
+}
+
+// originalContentType picks a download type from the stored filename's
+// extension; unknown types fall back to a generic binary stream.
+func originalContentType(filename string) string {
+	switch strings.ToLower(path.Ext(filename)) {
+	case ".epub":
+		return "application/epub+zip"
+	case ".txt":
+		return "text/plain; charset=utf-8"
+	case ".md", ".markdown":
+		return "text/markdown; charset=utf-8"
+	default:
+		return "application/octet-stream"
 	}
 }
 

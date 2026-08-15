@@ -235,6 +235,7 @@ type documentRepository interface {
 	Get(context.Context, document.ID) (document.Document, error)
 	SaveProgress(context.Context, document.ID, document.Progress) error
 	ReadAsset(context.Context, document.ID, string) ([]byte, string, error)
+	ReadOriginal(context.Context, document.ID) ([]byte, string, error)
 	CreateNote(context.Context, document.ID, document.NoteInput) (document.Note, error)
 	ListNotes(context.Context, document.ID) ([]document.Note, error)
 	ImportNotes(context.Context, document.NoteImportFile) (document.NoteImportSummary, error)
@@ -285,6 +286,13 @@ func (service *backend) GetDocumentAsset(ctx context.Context, id document.ID, en
 		return nil, "", document.ErrUnavailable
 	}
 	return service.documents.ReadAsset(ctx, id, entry)
+}
+
+func (service *backend) GetDocumentOriginal(ctx context.Context, id document.ID) ([]byte, string, error) {
+	if service.documents == nil {
+		return nil, "", document.ErrUnavailable
+	}
+	return service.documents.ReadOriginal(ctx, id)
 }
 
 func (service *backend) CreateDocumentNote(ctx context.Context, id document.ID, input document.NoteInput) (document.Note, error) {

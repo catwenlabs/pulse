@@ -45,6 +45,7 @@ type fakeBackend struct {
 	getDocument                func(context.Context, document.ID) (document.Document, error)
 	saveProgress               func(context.Context, document.ID, document.Progress) error
 	getDocumentAsset           func(context.Context, document.ID, string) ([]byte, string, error)
+	getDocumentOriginal        func(context.Context, document.ID) ([]byte, string, error)
 	createDocumentNote         func(context.Context, document.ID, document.NoteInput) (document.Note, error)
 	listDocumentNotes          func(context.Context, document.ID) ([]document.Note, error)
 	importDocumentNotes        func(context.Context, document.NoteImportFile) (document.NoteImportSummary, error)
@@ -207,6 +208,10 @@ func (fake fakeBackend) SaveDocumentProgress(ctx context.Context, id document.ID
 
 func (fake fakeBackend) GetDocumentAsset(ctx context.Context, id document.ID, entry string) ([]byte, string, error) {
 	return fake.getDocumentAsset(ctx, id, entry)
+}
+
+func (fake fakeBackend) GetDocumentOriginal(ctx context.Context, id document.ID) ([]byte, string, error) {
+	return fake.getDocumentOriginal(ctx, id)
 }
 
 func (fake fakeBackend) CreateDocumentNote(ctx context.Context, id document.ID, input document.NoteInput) (document.Note, error) {
@@ -1847,5 +1852,41 @@ func TestListAllDocumentNotesWithSearch(t *testing.T) {
 	}
 	if len(notes) != 1 || notes[0].ID != "note-1" {
 		t.Errorf("notes = %+v, want the searched note", notes)
+	}
+}
+
+func TestGetDocumentOriginal(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.getDocumentOriginal = func(_ context.Context, id document.ID) ([]byte, string, error) {
+		if id != "doc-1" {
+			t.Errorf("GetDocumentOriginal id = %q, want doc-1", id)
+		}
+		return []byte("epub-bytes"), "我的书.epub", nil
+	}
+	handler := newHandler(backend, nil, nil)
+
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/documents/doc-1/original", nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", resp.Code, resp.Body.String())
+	}
+	if resp.Header().Get("Content-Type") != "application/epub+zip" {
+		t.Errorf("Content-Type = %q, want application/epub+zip", resp.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(resp.Header().Get("Content-Disposition"), "attachment") {
+		t.Errorf("Content-Disposition = %q, want attachment", resp.Header().Get("Content-Disposition"))
+	}
+	if resp.Body.String() != "epub-bytes" {
+		t.Errorf("body = %q, want the original file bytes", resp.Body.String())
+	}
+
+	backend.getDocumentOriginal = func(context.Context, document.ID) ([]byte, string, error) {
+		return nil, "", document.ErrNotFound
+	}
+	handler = newHandler(backend, nil, nil)
+	resp = httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/documents/missing/original", nil))
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("missing status = %d, want 404", resp.Code)
 	}
 }
