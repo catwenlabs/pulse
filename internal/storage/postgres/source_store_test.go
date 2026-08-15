@@ -34,7 +34,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	}
 	if _, err := pool.Exec(
 		context.Background(),
-		"TRUNCATE sources, folders, rules, tags, views CASCADE",
+		"TRUNCATE sources, folders, rules, tags, views, documents CASCADE",
 	); err != nil {
 		t.Fatalf("truncate test data: %v", err)
 	}

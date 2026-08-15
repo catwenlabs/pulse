@@ -83,6 +83,7 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 	opmlStore := postgresstore.NewOPMLStore(pool)
 	organizationStore := postgresstore.NewOrganizationStore(pool)
 	ruleStore := postgresstore.NewRuleStore(pool)
+	documentStore := postgresstore.NewDocumentStore(pool)
 	safeHTTPClient := httpclient.New()
 	registry, err := ingestion.NewRegistry(
 		feed.New(safeHTTPClient),
@@ -158,6 +159,7 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 		ruleStore,
 	)
 	backend = httpserver.WithAIChat(backend, aiChatService)
+	backend = httpserver.WithDocuments(backend, documentStore)
 
 	if slices.Contains(cfg.Roles, config.RoleWorker) {
 		go func() {

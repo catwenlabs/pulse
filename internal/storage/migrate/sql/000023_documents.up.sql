@@ -1,0 +1,15 @@
+CREATE TABLE documents (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    identifier text NOT NULL DEFAULT '',
+    title text NOT NULL,
+    author text NOT NULL DEFAULT '',
+    imported_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE document_chapters (
+    document_id uuid NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    chapter_index integer NOT NULL,
+    title text NOT NULL DEFAULT '',
+    content_html text NOT NULL,
+    PRIMARY KEY (document_id, chapter_index)
+);

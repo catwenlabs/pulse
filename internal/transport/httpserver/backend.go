@@ -7,6 +7,7 @@ import (
 
 	"github.com/catwenlabs/pulse/internal/ai"
 	"github.com/catwenlabs/pulse/internal/aichat"
+	"github.com/catwenlabs/pulse/internal/document"
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/ingestion"
 	"github.com/catwenlabs/pulse/internal/opml"
@@ -108,6 +109,7 @@ type backend struct {
 	reclusterer   storyReclusterer
 	summarization ai.Summarization
 	chat          aichat.Chat
+	documents     documentRepository
 	publish       func(string)
 }
 
@@ -222,6 +224,45 @@ func WithAIChat(base Backend, chat aichat.Chat) Backend {
 		service.chat = chat
 	}
 	return base
+}
+
+// documentRepository persists imported documents. It is optional: when nil
+// (no document store wired in), document endpoints report documents as
+// unavailable.
+type documentRepository interface {
+	Import(context.Context, document.ImportRequest) (document.Document, error)
+	List(context.Context) ([]document.Summary, error)
+	Get(context.Context, document.ID) (document.Document, error)
+}
+
+// WithDocuments attaches the document store to a backend constructed by one
+// of the NewBackend* constructors.
+func WithDocuments(base Backend, store documentRepository) Backend {
+	if service, ok := base.(*backend); ok {
+		service.documents = store
+	}
+	return base
+}
+
+func (service *backend) ImportDocument(ctx context.Context, request document.ImportRequest) (document.Document, error) {
+	if service.documents == nil {
+		return document.Document{}, document.ErrUnavailable
+	}
+	return service.documents.Import(ctx, request)
+}
+
+func (service *backend) ListDocuments(ctx context.Context) ([]document.Summary, error) {
+	if service.documents == nil {
+		return nil, document.ErrUnavailable
+	}
+	return service.documents.List(ctx)
+}
+
+func (service *backend) GetDocument(ctx context.Context, id document.ID) (document.Document, error) {
+	if service.documents == nil {
+		return document.Document{}, document.ErrUnavailable
+	}
+	return service.documents.Get(ctx, id)
 }
 
 func (service *backend) ListChatTools(ctx context.Context) ([]aichat.SelectionTool, error) {
