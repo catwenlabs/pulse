@@ -988,6 +988,25 @@ paths:
             text/x-opml:
               schema:
                 type: string
+  /notes:
+    get:
+      operationId: listAllDocumentNotes
+      summary: List every note across books for the grouped notes hub
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Matches highlight, note text, and book title.
+      responses:
+        "200":
+          description: Notes grouped by book in a stable order
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DocumentNote"
   /documents:
     post:
       operationId: importDocument
@@ -1020,6 +1039,12 @@ paths:
     get:
       operationId: listDocuments
       summary: List imported documents
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Matches title, author, and full chapter content.
       responses:
         "200":
           description: Documents in import order, newest first
