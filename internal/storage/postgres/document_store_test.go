@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/catwenlabs/pulse/internal/document"
 )
@@ -311,5 +312,61 @@ func TestDocumentStoreNotes(t *testing.T) {
 	}
 	if _, err := store.ListNotes(ctx, missing); err != document.ErrNotFound {
 		t.Errorf("ListNotes(missing) error = %v, want document.ErrNotFound", err)
+	}
+}
+
+func TestDocumentStoreImportNotesMatchesAndStoresUnmatched(t *testing.T) {
+	pool := testPool(t)
+	store := NewDocumentStore(pool)
+	ctx := context.Background()
+
+	doc, err := store.Import(ctx, document.ImportRequest{
+		Filename: "书.txt",
+		Content:  []byte("第一章内容。"),
+	})
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	when := time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC)
+	file := document.NoteImportFile{Notes: []document.NoteImport{
+		{BookTitle: "书", Highlight: "高亮一", Note: "想法", HighlightedAt: &when},
+		{BookTitle: "没导入的书", BookAuthor: "某作者", ChapterIndex: 2, Location: "loc-9", Highlight: "高亮二"},
+	}}
+
+	summary, err := store.ImportNotes(ctx, file)
+	if err != nil {
+		t.Fatalf("ImportNotes() error = %v", err)
+	}
+	if summary.Imported != 1 || summary.Unmatched != 1 {
+		t.Fatalf("ImportNotes() summary = %+v, want 1 imported 1 unmatched", summary)
+	}
+
+	notes, err := store.ListNotes(ctx, doc.ID)
+	if err != nil {
+		t.Fatalf("ListNotes() error = %v", err)
+	}
+	if len(notes) != 1 || notes[0].Highlight != "高亮一" || notes[0].Text != "想法" {
+		t.Fatalf("ListNotes() = %+v, want the matched imported note", notes)
+	}
+	if notes[0].Source != "import" {
+		t.Errorf("matched note Source = %q, want import", notes[0].Source)
+	}
+	if notes[0].HighlightedAt == nil || !notes[0].HighlightedAt.Equal(when) {
+		t.Errorf("matched note HighlightedAt = %v, want %v", notes[0].HighlightedAt, when)
+	}
+
+	unmatched, err := store.ListUnmatchedNotes(ctx)
+	if err != nil {
+		t.Fatalf("ListUnmatchedNotes() error = %v", err)
+	}
+	if len(unmatched) != 1 {
+		t.Fatalf("ListUnmatchedNotes() = %+v, want the unmatched note", unmatched)
+	}
+	entry := unmatched[0]
+	if entry.DocumentID != "" || entry.BookTitle != "没导入的书" || entry.BookAuthor != "某作者" {
+		t.Errorf("unmatched note = %+v, want book identity and no document", entry)
+	}
+	if entry.Highlight != "高亮二" || entry.ChapterIndex != 2 || entry.Location != "loc-9" {
+		t.Errorf("unmatched note payload = %+v", entry)
 	}
 }

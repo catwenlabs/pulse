@@ -111,13 +111,30 @@ func (input NoteInput) Validate() error {
 	return nil
 }
 
-// Note is one highlight (with optional personal note) on a document.
+// Note is one highlight (with optional personal note). Notes created in
+// Pulse carry their document; imported notes carry the book identity from
+// the import file until they are matched or manually linked to a document.
 type Note struct {
 	ID            string     `json:"id"`
-	DocumentID    ID         `json:"document_id"`
+	DocumentID    ID         `json:"document_id,omitempty"`
+	BookIdentifier string    `json:"book_identifier,omitempty"`
+	BookTitle     string     `json:"book_title,omitempty"`
+	BookAuthor    string     `json:"book_author,omitempty"`
 	ChapterIndex  int        `json:"chapter_index"`
+	Location      string     `json:"location,omitempty"`
 	Highlight     string     `json:"highlight"`
 	Text          string     `json:"note,omitempty"`
 	Color         string     `json:"highlight_color,omitempty"`
+	Source        string     `json:"source,omitempty"`
 	HighlightedAt *time.Time `json:"highlighted_at,omitempty"`
+}
+
+// NoteSourcePulse marks notes written while reading in Pulse; imported
+// notes carry their own marker. The distinction is display-only.
+const NoteSourcePulse = "pulse"
+
+// NoteImportSummary reports one batch note import.
+type NoteImportSummary struct {
+	Imported  int `json:"imported"`
+	Unmatched int `json:"unmatched"`
 }
