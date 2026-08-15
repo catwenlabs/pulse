@@ -1222,6 +1222,32 @@ describe('App', () => {
     }
   })
 
+  it('opens the document reader at /documents/:documentID', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/v1/documents/doc-1') {
+        return new Response(JSON.stringify({
+          id: 'doc-1',
+          title: '测试之书',
+          author: '作者',
+          chapters: [{ index: 0, title: '第一章', content_html: '<p>开头内容。</p>' }],
+          progress: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (url === '/api/v1/documents/doc-1/notes') {
+        return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return defaultFetch(input, init)
+    })
+    window.history.replaceState(null, '', '/documents/doc-1')
+
+    renderApp()
+
+    expect(await screen.findByRole('heading', { name: '测试之书' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '文档库' })).not.toBeInTheDocument()
+  })
+
   it('uses an accessible off-canvas navigation drawer on mobile', async () => {
     vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
       matches: query === '(max-width: 767px)',
