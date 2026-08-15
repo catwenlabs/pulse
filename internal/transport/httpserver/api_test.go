@@ -41,7 +41,7 @@ type fakeBackend struct {
 	reorderFolderSources       func(context.Context, string, []source.ID) error
 	enqueue                    func(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error)
 	importDocument             func(context.Context, document.ImportRequest) (document.Document, error)
-	listDocuments              func(context.Context) ([]document.Summary, error)
+	listDocuments              func(context.Context, string) ([]document.Summary, error)
 	getDocument                func(context.Context, document.ID) (document.Document, error)
 	saveProgress               func(context.Context, document.ID, document.Progress) error
 	getDocumentAsset           func(context.Context, document.ID, string) ([]byte, string, error)
@@ -193,8 +193,8 @@ func (fake fakeBackend) ImportDocument(
 	return fake.importDocument(ctx, request)
 }
 
-func (fake fakeBackend) ListDocuments(ctx context.Context) ([]document.Summary, error) {
-	return fake.listDocuments(ctx)
+func (fake fakeBackend) ListDocuments(ctx context.Context, search string) ([]document.Summary, error) {
+	return fake.listDocuments(ctx, search)
 }
 
 func (fake fakeBackend) GetDocument(ctx context.Context, id document.ID) (document.Document, error) {
@@ -1370,7 +1370,7 @@ func completeFakeBackend() fakeBackend {
 		importDocument: func(context.Context, document.ImportRequest) (document.Document, error) {
 			return document.Document{}, errors.New("unexpected ImportDocument")
 		},
-		listDocuments: func(context.Context) ([]document.Summary, error) {
+		listDocuments: func(context.Context, string) ([]document.Summary, error) {
 			return nil, nil
 		},
 		getDocument: func(context.Context, document.ID) (document.Document, error) {
@@ -1491,7 +1491,10 @@ func TestImportTextDocument(t *testing.T) {
 
 func TestListDocuments(t *testing.T) {
 	backend := completeFakeBackend()
-	backend.listDocuments = func(context.Context) ([]document.Summary, error) {
+	backend.listDocuments = func(_ context.Context, search string) ([]document.Summary, error) {
+		if search != "复杂性" {
+			t.Errorf("ListDocuments search = %q, want 复杂性", search)
+		}
 		return []document.Summary{{
 			ID:           "doc-1",
 			Title:        "reading-notes.txt",
@@ -1500,7 +1503,7 @@ func TestListDocuments(t *testing.T) {
 		}}, nil
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/documents", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/documents?search="+url.QueryEscape("复杂性"), nil)
 	response := httptest.NewRecorder()
 
 	NewHandler(backend).ServeHTTP(response, req)

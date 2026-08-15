@@ -231,7 +231,7 @@ func WithAIChat(base Backend, chat aichat.Chat) Backend {
 // unavailable.
 type documentRepository interface {
 	Import(context.Context, document.ImportRequest) (document.Document, error)
-	List(context.Context) ([]document.Summary, error)
+	List(context.Context, string) ([]document.Summary, error)
 	Get(context.Context, document.ID) (document.Document, error)
 	SaveProgress(context.Context, document.ID, document.Progress) error
 	ReadAsset(context.Context, document.ID, string) ([]byte, string, error)
@@ -259,11 +259,11 @@ func (service *backend) ImportDocument(ctx context.Context, request document.Imp
 	return service.documents.Import(ctx, request)
 }
 
-func (service *backend) ListDocuments(ctx context.Context) ([]document.Summary, error) {
+func (service *backend) ListDocuments(ctx context.Context, search string) ([]document.Summary, error) {
 	if service.documents == nil {
 		return nil, document.ErrUnavailable
 	}
-	return service.documents.List(ctx)
+	return service.documents.List(ctx, search)
 }
 
 func (service *backend) GetDocument(ctx context.Context, id document.ID) (document.Document, error) {

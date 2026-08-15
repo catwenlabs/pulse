@@ -170,14 +170,24 @@ func (store *DocumentStore) SaveProgress(ctx context.Context, id document.ID, pr
 	return nil
 }
 
-func (store *DocumentStore) List(ctx context.Context) ([]document.Summary, error) {
+// List returns document summaries, newest first. The optional search term
+// matches title, author, and full chapter content case-insensitively, so
+// book content is reachable from the same search box as the feed.
+func (store *DocumentStore) List(ctx context.Context, search string) ([]document.Summary, error) {
 	rows, err := store.pool.Query(ctx, `
 		SELECT d.id, d.identifier, d.title, d.author, COUNT(c.chapter_index)
 		FROM documents d
 		LEFT JOIN document_chapters c ON c.document_id = d.id
+		WHERE ($1 = ''
+			OR lower(d.title || ' ' || d.author) LIKE '%' || lower($1) || '%'
+			OR EXISTS (
+				SELECT 1 FROM document_chapters chapter
+				WHERE chapter.document_id = d.id
+				  AND lower(chapter.content_html) LIKE '%' || lower($1) || '%'
+			))
 		GROUP BY d.id, d.identifier, d.title, d.author
 		ORDER BY d.imported_at DESC
-	`)
+	`, search)
 	if err != nil {
 		return nil, fmt.Errorf("list documents: %w", err)
 	}

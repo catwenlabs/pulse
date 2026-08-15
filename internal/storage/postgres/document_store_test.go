@@ -45,7 +45,7 @@ func TestDocumentStoreRoundTrip(t *testing.T) {
 		t.Errorf("Get() chapters = %+v, want persisted chapter content", fetched.Chapters)
 	}
 
-	summaries, err := store.List(ctx)
+	summaries, err := store.List(ctx, "")
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
@@ -480,5 +480,45 @@ func TestDocumentStoreListAllNotesAcrossBooksAndSearch(t *testing.T) {
 	}
 	if len(byBook) != 1 || byBook[0].BookTitle != "另一本书" {
 		t.Errorf("ListAllNotes(另一本) = %+v, want the unmatched book's note", byBook)
+	}
+}
+
+func TestDocumentStoreListSearchesChapters(t *testing.T) {
+	pool := testPool(t)
+	store := NewDocumentStore(pool)
+	ctx := context.Background()
+
+	if _, err := store.Import(ctx, document.ImportRequest{
+		Filename: "复杂性.txt",
+		Content:  []byte("这一章讨论秩序的涌现。"),
+	}); err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	if _, err := store.Import(ctx, document.ImportRequest{
+		Filename: "另一本.txt",
+		Content:  []byte("完全不同的内容。"),
+	}); err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+
+	byTitle, err := store.List(ctx, "复杂性")
+	if err != nil {
+		t.Fatalf("List(search) error = %v", err)
+	}
+	if len(byTitle) != 1 || byTitle[0].Title != "复杂性" {
+		t.Errorf("List(复杂性) = %+v, want the titled book", byTitle)
+	}
+
+	byChapter, err := store.List(ctx, "秩序的涌现")
+	if err != nil {
+		t.Fatalf("List(search chapters) error = %v", err)
+	}
+	if len(byChapter) != 1 || byChapter[0].Title != "复杂性" {
+		t.Errorf("List(秩序的涌现) = %+v, want the book whose chapter matches", byChapter)
+	}
+
+	all, err := store.List(ctx, "")
+	if err != nil || len(all) != 2 {
+		t.Errorf("List() = %d, %v; want both books", len(all), err)
 	}
 }

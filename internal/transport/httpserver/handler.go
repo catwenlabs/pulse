@@ -58,7 +58,7 @@ type Backend interface {
 	DeleteView(context.Context, string) error
 	Enqueue(context.Context, ingestion.EnqueueRequest) (ingestion.Acquisition, error)
 	ImportDocument(context.Context, document.ImportRequest) (document.Document, error)
-	ListDocuments(context.Context) ([]document.Summary, error)
+	ListDocuments(context.Context, string) ([]document.Summary, error)
 	GetDocument(context.Context, document.ID) (document.Document, error)
 	SaveDocumentProgress(context.Context, document.ID, document.Progress) error
 	GetDocumentAsset(context.Context, document.ID, string) ([]byte, string, error)
@@ -1134,7 +1134,7 @@ func importDocument(backend Backend) http.HandlerFunc {
 
 func listDocuments(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
-		summaries, err := backend.ListDocuments(request.Context())
+		summaries, err := backend.ListDocuments(request.Context(), strings.TrimSpace(request.URL.Query().Get("search")))
 		if err != nil {
 			writeDomainError(w, err)
 			return
