@@ -49,18 +49,18 @@ type StreamingProvider interface {
 // metadata event always comes first; terminal events (Completed, Cancelled,
 // Failed) come last and carry persisted status and safe usage metadata.
 type ChatStreamEvent struct {
-	Kind             StreamEventKind `json:"kind"`
-	ConversationID   string          `json:"conversation_id,omitempty"`
-	MessageID        string          `json:"message_id,omitempty"`
-	Delta            string          `json:"delta,omitempty"`
-	Content          string          `json:"content,omitempty"`
+	Kind             StreamEventKind  `json:"kind"`
+	ConversationID   string           `json:"conversation_id,omitempty"`
+	MessageID        string           `json:"message_id,omitempty"`
+	Delta            string           `json:"delta,omitempty"`
+	Content          string           `json:"content,omitempty"`
 	Status           GenerationStatus `json:"status,omitempty"`
-	Provider         string          `json:"provider,omitempty"`
-	Model            string          `json:"model,omitempty"`
-	PromptTokens     int             `json:"prompt_tokens,omitempty"`
-	CompletionTokens int             `json:"completion_tokens,omitempty"`
-	FinishReason     string          `json:"finish_reason,omitempty"`
-	Error            string          `json:"error,omitempty"`
+	Provider         string           `json:"provider,omitempty"`
+	Model            string           `json:"model,omitempty"`
+	PromptTokens     int              `json:"prompt_tokens,omitempty"`
+	CompletionTokens int              `json:"completion_tokens,omitempty"`
+	FinishReason     string           `json:"finish_reason,omitempty"`
+	Error            string           `json:"error,omitempty"`
 }
 
 // StreamEventKind identifies the shape of a ChatStreamEvent.

@@ -22,6 +22,9 @@ const (
 	MaxPromptTemplateLength = 4000
 	// MaxSelectionCharacters bounds the selected text supplied by the client.
 	MaxSelectionCharacters = 10000
+	// MaxContextMaterialCharacters bounds the server-assembled chapter
+	// context appended to the initial prompt.
+	MaxContextMaterialCharacters = 20000
 )
 
 // MessageRole identifies the author of a Message.
@@ -115,6 +118,10 @@ type ToolInput struct {
 type CreateConversationInput struct {
 	ToolID    string `json:"tool_id"`
 	Selection string `json:"selection"`
+	// ContextMaterial is optional, server-assembled chapter context for the
+	// selection (book, chapter, and an excerpt around the selection). The
+	// client never supplies its content directly, only document coordinates.
+	ContextMaterial string `json:"context_material,omitempty"`
 }
 
 // FollowUpInput is a follow-up user message in an existing Conversation.

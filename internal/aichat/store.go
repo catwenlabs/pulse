@@ -18,9 +18,9 @@ type CreateConversationParams struct {
 // Conversation. It is idempotent by key so a transport retry cannot duplicate
 // the message.
 type AppendUserMessageParams struct {
-	ConversationID  string
-	IdempotencyKey  string
-	Content         string
+	ConversationID string
+	IdempotencyKey string
+	Content        string
 }
 
 // Store is the persistence seam for the AI Chat domain. Implementations keep

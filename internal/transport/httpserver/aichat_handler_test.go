@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/catwenlabs/pulse/internal/aichat"
+	"github.com/catwenlabs/pulse/internal/document"
 )
 
 type chatFakeBackend struct {
@@ -324,4 +325,67 @@ func body(t *testing.T, value any) io.Reader {
 		t.Fatalf("marshal: %v", err)
 	}
 	return bytes.NewReader(data)
+}
+
+func TestCreateConversationResolvesChapterContextServerSide(t *testing.T) {
+	fake := chatFakeBackend{
+		fakeBackend: fakeBackend{
+			getDocument: func(_ context.Context, id document.ID) (document.Document, error) {
+				if id != "doc-1" {
+					t.Errorf("GetDocument id = %q, want doc-1", id)
+				}
+				return document.Document{
+					ID: "doc-1", Title: "测试之书", Author: "作者",
+					Chapters: []document.Chapter{
+						{Index: 0, Title: "第一章", ContentHTML: "<p>开头。</p>"},
+						{Index: 1, Title: "第八章", ContentHTML: "<p>前文。该机制会导致复杂性上升。后文。</p>"},
+					},
+				}, nil
+			},
+		},
+		createConversation: func(_ context.Context, in aichat.CreateConversationInput, _ string) (aichat.Conversation, aichat.Message, error) {
+			if !strings.Contains(in.ContextMaterial, "测试之书") || !strings.Contains(in.ContextMaterial, "第八章") {
+				t.Errorf("ContextMaterial = %q, want book and chapter", in.ContextMaterial)
+			}
+			if !strings.Contains(in.ContextMaterial, "该机制") {
+				t.Errorf("ContextMaterial = %q, want excerpt around the selection", in.ContextMaterial)
+			}
+			return aichat.Conversation{ID: "conv-1"}, aichat.Message{ID: "msg-1"}, nil
+		},
+	}
+	handler := chatHandler(fake)
+
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/api/v1/ai/conversations", body(t, map[string]any{
+		"tool_id":   "t1",
+		"selection": "该机制",
+		"context":   map[string]any{"document_id": "doc-1", "chapter_index": 1},
+	})))
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("status = %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestCreateConversationRejectsMissingContextDocument(t *testing.T) {
+	fake := chatFakeBackend{
+		fakeBackend: fakeBackend{
+			getDocument: func(context.Context, document.ID) (document.Document, error) {
+				return document.Document{}, document.ErrNotFound
+			},
+		},
+		createConversation: func(context.Context, aichat.CreateConversationInput, string) (aichat.Conversation, aichat.Message, error) {
+			t.Fatal("CreateConversation must not run for a missing context document")
+			return aichat.Conversation{}, aichat.Message{}, nil
+		},
+	}
+	handler := chatHandler(fake)
+
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/api/v1/ai/conversations", body(t, map[string]any{
+		"tool_id": "t1", "selection": "x",
+		"context": map[string]any{"document_id": "missing", "chapter_index": 0},
+	})))
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", resp.Code)
+	}
 }

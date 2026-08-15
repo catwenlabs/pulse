@@ -33,9 +33,9 @@ func TestValidateToolInputTrimsNameAndToleratesWhitespaceInPlaceholder(t *testin
 
 func TestValidateToolInputRejectsEmptyAndOversizedNames(t *testing.T) {
 	cases := []struct {
-		name   string
-		input  ToolInput
-		field  string
+		name  string
+		input ToolInput
+		field string
 	}{
 		{
 			name:  "empty name",
