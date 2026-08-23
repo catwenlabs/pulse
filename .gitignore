@@ -7,6 +7,7 @@ pulse-config.json
 web/node_modules/
 web/coverage/
 web/dist/
+web/.tanstack/
 web/vite.config.js
 web/vite.config.d.ts
 *.tsbuildinfo
