@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>Pulse 本地开发种子订阅</title>
+  </head>
+  <body>
+    <outline text="电脑配件" title="电脑配件" type="rss" xmlUrl="https://rss.mydrivers.com/Rss.aspx?cid=2" htmlUrl="https://www.mydrivers.com"/>
+    <outline text="手机通讯" title="手机通讯" type="rss" xmlUrl="https://rss.mydrivers.com/Rss.aspx?cid=3" htmlUrl="https://www.mydrivers.com"/>
+    <outline text="家电数码" title="家电数码" type="rss" xmlUrl="https://rss.mydrivers.com/Rss.aspx?cid=4" htmlUrl="https://www.mydrivers.com"/>
+    <outline text="软件相关" title="软件相关" type="rss" xmlUrl="https://rss.mydrivers.com/Rss.aspx?cid=8" htmlUrl="https://www.mydrivers.com"/>
+    <outline text="游戏相关" title="游戏相关" type="rss" xmlUrl="https://rss.mydrivers.com/Rss.aspx?cid=7" htmlUrl="https://www.mydrivers.com"/>
+    <outline text="业界相关" title="业界相关" type="rss" xmlUrl="https://rss.mydrivers.com/Rss.aspx?cid=9" htmlUrl="https://www.mydrivers.com"/>
+    <outline text="品牌整机" title="品牌整机" type="rss" xmlUrl="https://rss.mydrivers.com/Rss.aspx?cid=10" htmlUrl="https://www.mydrivers.com"/>
+    <outline text="网络设备" title="网络设备" type="rss" xmlUrl="https://rss.mydrivers.com/Rss.aspx?cid=5" htmlUrl="https://www.mydrivers.com"/>
+    <outline text="办公外设" title="办公外设" type="rss" xmlUrl="https://rss.mydrivers.com/Rss.aspx?cid=6" htmlUrl="https://www.mydrivers.com"/>
+    <outline text="科学动态" title="科学动态" type="rss" xmlUrl="https://rss.mydrivers.com/Rss.aspx?cid=192" htmlUrl="https://www.mydrivers.com"/>
+  </body>
+</opml>

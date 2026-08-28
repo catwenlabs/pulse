@@ -100,6 +100,8 @@ make dev
 
 访问 [http://localhost:5173](http://localhost:5173)，`/api` 与 `/healthz` 会代理到本机 `8080`。也可分别启动：`make dev-db-up`、`make dev-api`、`make dev-web`（首次需 `make dev-web-install`）；停止开发库用 `make dev-db-down`。AI 配置等应用配置统一放在 `.env` 中，也可用 `make dev-api PULSE_DATABASE_URL=...` 临时覆盖本机开发数据库地址。
 
+开发数据库是持久卷（`pulse-postgres-v17`），`make dev-db-down` 不会删除数据。需要重置测试订阅时，可在界面「添加信息源 → 来源类型 → OPML 批量导入」手动导入 `scripts/dev-sources.opml`（已存在的订阅会自动跳过，不会被覆盖）。
+
 参与开发或使用 AI 编码 Agent 前，请阅读 [AGENTS.md](AGENTS.md)。
 
 ## Deployment & Operations

@@ -386,6 +386,18 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '', doc
     }
   }
 
+  async function handleImportOPML(opml: string) {
+    const result = await api.importOPML(opml)
+    await load()
+    setShowCreate(false)
+    const summary = [
+      `新增 ${result.created_sources} 个订阅`,
+      result.created_folders > 0 ? `新建 ${result.created_folders} 个文件夹` : '',
+      result.existing_sources > 0 ? `已存在 ${result.existing_sources} 个（保持不变）` : '',
+    ].filter(Boolean).join('，')
+    toast.success(`导入完成：${summary}`, { duration: 5000 })
+  }
+
   function beginNavigationDrag(item: NavigationDragItem, event: DragEvent<HTMLElement>) {
     navigationDragItemRef.current = item
     setNavigationDropTarget(null)
@@ -1208,6 +1220,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '', doc
           folders={folders}
           onClose={() => setShowCreate(false)}
           onCreate={handleCreate}
+          onImportOPML={handleImportOPML}
         />
       )}
       {sourceToDelete && (
@@ -2181,14 +2194,18 @@ function CreateSourceDialog({
   folders,
   onClose,
   onCreate,
+  onImportOPML,
 }: {
   folders: Folder[]
   onClose: () => void
   onCreate: (input: CreateSourceInput, selectedFolderIDs: Set<string>) => Promise<void>
+  onImportOPML: (opml: string) => Promise<void>
 }) {
   const [name, setName] = useState('')
   const [locator, setLocator] = useState('')
   const [kind, setKind] = useState<SourceKind>('rss')
+  const [mode, setMode] = useState<'single' | 'opml'>('single')
+  const [opmlFile, setOpmlFile] = useState<File | null>(null)
   const [itemsPath, setItemsPath] = useState('items')
   const [idField, setIDField] = useState('id')
   const [titleField, setTitleField] = useState('title')
@@ -2203,6 +2220,7 @@ function CreateSourceDialog({
   const [contentSelector, setContentSelector] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [importing, setImporting] = useState(false)
   const [error, setError] = useState('')
   const [preview, setPreview] = useState<PreviewResult | null>(null)
   const [selectedFolderIDs, setSelectedFolderIDs] = useState<Set<string>>(() => new Set())
@@ -2270,33 +2288,83 @@ function CreateSourceDialog({
     }
   }
 
+  async function importOPMLFile(event: FormEvent) {
+    event.preventDefault()
+    if (!opmlFile) return
+    setImporting(true)
+    setError('')
+    try {
+      await onImportOPML(await opmlFile.text())
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '导入 OPML 失败')
+      setImporting(false)
+    }
+  }
+
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogClose className="absolute right-4 top-4 grid size-8 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="关闭"><X className="size-4" aria-hidden="true" /></DialogClose>
         <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">NEW SOURCE</p>
         <DialogTitle>添加信息源</DialogTitle>
-        <div className="mt-3.5 flex gap-2 text-[10px] font-bold text-[#99958b]" aria-label="配置步骤">
-          <span className={cn('rounded-full bg-muted px-2.5 py-1 text-muted-foreground', !preview && 'bg-primary text-primary-foreground', preview && 'bg-emerald-100 text-emerald-700')}>1 配置</span>
-          <span className={cn('rounded-full bg-muted px-2.5 py-1 text-muted-foreground', preview && 'bg-primary text-primary-foreground')}>2 预览并保存</span>
-        </div>
-        <DialogDescription className="mb-[25px] mt-[9px] text-[13px] leading-normal text-muted-foreground">先临时抓取并检查文章身份；确认前不会写入数据库。</DialogDescription>
+        {mode === 'single' && (
+          <div className="mt-3.5 flex gap-2 text-[10px] font-bold text-[#99958b]" aria-label="配置步骤">
+            <span className={cn('rounded-full bg-muted px-2.5 py-1 text-muted-foreground', !preview && 'bg-primary text-primary-foreground', preview && 'bg-emerald-100 text-emerald-700')}>1 配置</span>
+            <span className={cn('rounded-full bg-muted px-2.5 py-1 text-muted-foreground', preview && 'bg-primary text-primary-foreground')}>2 预览并保存</span>
+          </div>
+        )}
+        <DialogDescription className="mb-[25px] mt-[9px] text-[13px] leading-normal text-muted-foreground">
+          {mode === 'opml'
+            ? '从其他阅读器导出的 OPML 文件批量导入订阅；已存在的订阅会自动跳过，不会被覆盖。'
+            : '先临时抓取并检查文章身份；确认前不会写入数据库。'}
+        </DialogDescription>
 
-        <form onSubmit={(event) => void testSource(event)}>
+        <form
+          onSubmit={(event) => {
+            if (mode === 'opml') {
+              void importOPMLFile(event)
+              return
+            }
+            void testSource(event)
+          }}
+        >
           <label>
             <span>来源类型</span>
             <Select
-              value={kind}
+              value={mode === 'opml' ? 'opml' : kind}
               onChange={(event) => {
-                setKind(event.target.value as SourceKind)
+                const value = event.target.value
+                if (value === 'opml') {
+                  setMode('opml')
+                  setPreview(null)
+                  return
+                }
+                setMode('single')
+                setKind(value as SourceKind)
                 setPreview(null)
               }}
             >
               <option value="rss">RSS / Atom / JSON Feed</option>
               <option value="json-api">JSON API</option>
               <option value="html">静态 HTML</option>
+              <option value="opml">OPML 批量导入</option>
             </Select>
           </label>
+          {mode === 'opml' && (
+            <label>
+              <span>OPML 文件</span>
+              <Input
+                type="file"
+                accept=".opml,.xml,application/xml,text/xml,text/x-opml"
+                onChange={(event) => {
+                  setOpmlFile(event.target.files?.[0] ?? null)
+                  setError('')
+                }}
+              />
+            </label>
+          )}
+          {mode === 'single' && (
+          <>
           <label>
             <span>名称</span>
             <Input
@@ -2417,7 +2485,7 @@ function CreateSourceDialog({
               </div>
             </div>
           )}
-          {folders.length > 0 && (
+          {mode === 'single' && folders.length > 0 && (
             <FolderPicker
               folders={folders}
               selectedFolderIDs={selectedFolderIDs}
@@ -2425,6 +2493,8 @@ function CreateSourceDialog({
               disabled={submitting || testing}
               legend="添加到文件夹（可选）"
             />
+          )}
+          </>
           )}
           {error && <p className="m-0 text-xs" role="alert">{error}</p>}
           {preview && (
@@ -2453,12 +2523,17 @@ function CreateSourceDialog({
           )}
           <div className="mt-[7px] flex justify-end gap-[9px] max-md:flex-wrap">
             <Button variant="secondary" type="button" onClick={onClose}>取消</Button>
-            {!preview && (
+            {mode === 'opml' && (
+              <Button type="submit" disabled={!opmlFile || importing}>
+                {importing ? '正在导入…' : '导入订阅'}
+              </Button>
+            )}
+            {mode === 'single' && !preview && (
               <Button type="submit" disabled={testing}>
                 {testing ? '正在测试…' : '测试并预览'}
               </Button>
             )}
-            {preview && (
+            {mode === 'single' && preview && (
               <>
                 <Button variant="secondary" type="button" onClick={() => setPreview(null)}>
                   返回修改

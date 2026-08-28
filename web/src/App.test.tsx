@@ -567,6 +567,63 @@ describe('App', () => {
     })
   })
 
+  it('imports subscriptions from an OPML file and reports skipped duplicates', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/api/v1/opml/import') && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          created_sources: 1,
+          existing_sources: 1,
+          created_folders: 1,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return defaultFetch(input, init)
+    })
+    renderApp()
+    await screen.findByRole('button', { name: 'Example Feed' })
+
+    fireEvent.click(screen.getByRole('button', { name: '添加信息源' }))
+    fireEvent.change(screen.getByLabelText('来源类型'), { target: { value: 'opml' } })
+    const opmlDocument = '<opml><body><outline text="Feed" xmlUrl="https://example.com/feed"/></body></opml>'
+    fireEvent.change(screen.getByLabelText('OPML 文件'), {
+      target: { files: [new File([opmlDocument], 'subscriptions.opml', { type: 'text/xml' })] },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '导入订阅' }))
+
+    expect(await screen.findByText(/导入完成：新增 1 个订阅，新建 1 个文件夹，已存在 1 个（保持不变）/)).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    const importCall = vi.mocked(fetch).mock.calls.find(([url]) => String(url).endsWith('/api/v1/opml/import'))
+    expect(String(importCall?.[1]?.body)).toContain('https://example.com/feed')
+  })
+
+  it('keeps the OPML import dialog open when the file is rejected', async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/api/v1/opml/import') && init?.method === 'POST') {
+        return new Response(JSON.stringify({ detail: 'decode OPML: XML syntax error' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return defaultFetch(input, init)
+    })
+    renderApp()
+    await screen.findByRole('button', { name: 'Example Feed' })
+
+    fireEvent.click(screen.getByRole('button', { name: '添加信息源' }))
+    fireEvent.change(screen.getByLabelText('来源类型'), { target: { value: 'opml' } })
+    fireEvent.change(screen.getByLabelText('OPML 文件'), {
+      target: { files: [new File(['<opml>'], 'subscriptions.opml', { type: 'text/xml' })] },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '导入订阅' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('decode OPML: XML syntax error')
+    expect(screen.getByRole('button', { name: '导入订阅' })).toBeEnabled()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
   it('keeps a newly assigned source in its folder when folder refresh fails', async () => {
     renderApp()
     await screen.findByRole('button', { name: 'Example Feed' })

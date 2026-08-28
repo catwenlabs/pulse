@@ -26,6 +26,7 @@ import {
   reorderFolders,
   reorderRootSources,
   getStory,
+  importOPML,
   mergeStory,
   previewSource,
   reclusterStories,
@@ -90,6 +91,24 @@ describe('source API', () => {
     expect(String(fetchMock.mock.calls[7][0])).toContain('/api/v1/stories?')
     expect(String(fetchMock.mock.calls[7][0])).toContain('cursor=story-cursor')
     expect(fetchMock).toHaveBeenNthCalledWith(9, '/api/v1/stories/story-1', undefined)
+  })
+
+  it('imports OPML subscriptions as XML', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      '{"created_sources":2,"existing_sources":1,"created_folders":1}',
+      { status: 200 },
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const opml = '<?xml version="1.0"?><opml><body><outline text="Feed" xmlUrl="https://example.com/feed"/></body></opml>'
+    const result = await importOPML(opml)
+
+    expect(result).toEqual({ created_sources: 2, existing_sources: 1, created_folders: 1 })
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/opml/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/xml; charset=utf-8' },
+      body: opml,
+    })
   })
 
   it('enqueues a manually saved web page with an idempotency key', async () => {
