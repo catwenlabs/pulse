@@ -114,16 +114,11 @@ describe('DigestPage', () => {
     renderWithQueryClient(<DigestPage />)
 
     expect(await screen.findByText('今天主要有两个值得关注的主题。')).toBeInTheDocument()
-    const scopeDialog = screen.getByRole('dialog', { name: '设置追更范围' })
-    expect(scopeDialog).toHaveClass('ai-scope-dialog')
-    expect(screen.getByRole('button', { name: '关闭' })).toHaveClass('ai-scope-dialog-close')
-    expect(screen.getByLabelText('最多 Story（可选）')).toHaveFocus()
-    expect(scopeDialog.querySelector('.ai-scope-preview')).not.toBeNull()
-    await waitFor(() => expect(scopeDialog.querySelector('.ai-scope-preview')).toHaveClass('is-ready'))
-    expect(screen.getByLabelText('最早时间（可选）')).toHaveAttribute('aria-haspopup', 'dialog')
-    expect(screen.getByLabelText('最晚时间（可选）')).toHaveAttribute('aria-haspopup', 'dialog')
-    expect(screen.getByLabelText('最早时间（可选）')).toHaveClass('w-full')
-    expect(screen.getByLabelText('最晚时间（可选）')).toHaveClass('w-full')
+    // The oversized backlog is reported in the subtitle and the scope dialog is
+    // gone; the header action generates directly.
+    expect(await screen.findByText(/当前未读 Story 超过 100 条，生成时将自动只处理最早的 100 条/)).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '设置追更范围' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '范围' })).not.toBeInTheDocument()
     expect(screen.getAllByText('标题一').length).toBeGreaterThan(0)
     // The label (S1) is a separate badge and the title is not duplicated into
     // the source column. Available references render as expandable rows (no
@@ -142,38 +137,25 @@ describe('DigestPage', () => {
     })))
     expect(await screen.findByRole('button', { name: '相关 Story 已标为已读', hidden: true })).toBeDisabled()
 
-    fireEvent.change(screen.getByLabelText('最多 Story（可选）'), { target: { value: '12' } })
-    fireEvent.click(screen.getByLabelText('最早时间（可选）'))
-    const calendar = await screen.findByRole('grid')
-    const popoverContent = calendar.closest('[data-radix-popper-content-wrapper]')?.querySelector('[role="dialog"]')
-    expect(popoverContent).toHaveClass(
-      'max-h-[var(--radix-popover-content-available-height)]',
-      'overflow-y-auto',
-    )
-    fireEvent.click(within(calendar).getByRole('button', { name: /2026年8月1日/ }))
-    fireEvent.change(screen.getByRole('combobox', { name: '选择时间' }), { target: { value: '08:00' } })
-    await screen.findByText(/当前范围（08\/01 08:00 之后）匹配 2 个未读 Story/)
-    fireEvent.click(screen.getByRole('button', { name: '生成追更摘要' }))
+    fireEvent.click(screen.getByRole('button', { name: '生成AI追更' }))
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/digests', expect.objectContaining({
       method: 'POST',
-      body: expect.stringContaining('"max_stories":12'),
+      body: expect.stringContaining('"max_stories":100'),
     })))
   }, 20000)
 
-  it('prefills the safety limit when the default scope is oversized', async () => {
+  it('caps an oversized digest scope at the safety limit without a dialog', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url === '/api/v1/digests?limit=50') return new Response('[]', { status: 200 })
       if (url.startsWith('/api/v1/digests/preview')) {
-        const maxStories = new URL(url, 'http://localhost').searchParams.get('max_stories')
-        const selectedStories = maxStories ? Number(maxStories) : 0
         return new Response(JSON.stringify({
-          scope: maxStories ? { max_stories: selectedStories } : {},
+          scope: {},
           matching_stories: 101,
           matching_stories_truncated: true,
-          selected_stories: selectedStories,
+          selected_stories: 0,
           safety_limit: 100,
-          can_queue: Boolean(maxStories),
+          can_queue: false,
         }), { status: 200 })
       }
       if (url === '/api/v1/digests' && init?.method === 'POST') {
@@ -188,10 +170,9 @@ describe('DigestPage', () => {
 
     renderWithQueryClient(<DigestPage />)
 
-    const maxStoriesInput = await screen.findByLabelText('最多 Story（可选）')
-    await waitFor(() => expect(maxStoriesInput).toHaveValue('100'))
-    const generateButton = await screen.findByRole('button', { name: '生成追更摘要' })
+    const generateButton = await screen.findByRole('button', { name: '生成AI追更' })
     expect(generateButton).toBeEnabled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
     fireEvent.click(generateButton)
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/digests', expect.objectContaining({
@@ -225,7 +206,7 @@ describe('DigestPage', () => {
     expect(screen.queryByRole('dialog', { name: '设置追更范围' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('最多 Story（可选）')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '生成追更摘要' }))
+    fireEvent.click(screen.getByRole('button', { name: '生成AI追更' }))
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/digests', expect.objectContaining({
       method: 'POST',
       body: '{"order":"oldest"}',
@@ -253,7 +234,7 @@ describe('DigestPage', () => {
 
     renderWithQueryClient(<DigestHarness />)
 
-    const action = await screen.findByRole('button', { name: '生成追更摘要' })
+    const action = await screen.findByRole('button', { name: '生成AI追更' })
     expect(action).toHaveClass('min-w-[148px]')
     expect(action).toHaveClass('cursor-pointer')
     fireEvent.click(action)
@@ -300,23 +281,6 @@ describe('DigestPage', () => {
 
     releaseSecond?.(new Response(JSON.stringify(secondDigest), { status: 200 }))
     expect(await screen.findByText('第二份摘要已经更新。')).toBeInTheDocument()
-  })
-
-  it('rejects a non-positive Story limit before making a request', async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
-      const url = String(input)
-      if (url.startsWith('/api/v1/digests/preview')) {
-        return Promise.resolve(new Response('{"scope":{},"matching_stories":101,"matching_stories_truncated":true,"selected_stories":0,"safety_limit":100,"can_queue":false}', { status: 200 }))
-      }
-      return Promise.resolve(new Response('[]', { status: 200 }))
-    })
-    vi.stubGlobal('fetch', fetchMock)
-    renderWithQueryClient(<DigestPage />)
-    await screen.findByRole('dialog', { name: '设置追更范围' })
-    fireEvent.change(screen.getByLabelText('最多 Story（可选）'), { target: { value: '0' } })
-    fireEvent.click(screen.getByRole('button', { name: '数量必须是正整数' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('数量必须是正整数')
-    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
   })
 
   it('refreshes the history status after a Digest completes', async () => {

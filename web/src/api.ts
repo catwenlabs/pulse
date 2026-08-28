@@ -396,6 +396,20 @@ export function createSource(input: CreateSourceInput): Promise<Source> {
   })
 }
 
+export interface OPMLImportResult {
+  created_sources: number
+  existing_sources: number
+  created_folders: number
+}
+
+export function importOPML(opml: string): Promise<OPMLImportResult> {
+  return request<OPMLImportResult>('/api/v1/opml/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/xml; charset=utf-8' },
+    body: opml,
+  })
+}
+
 export function runSource(sourceId: string): Promise<{ id: string; status: string }> {
   return request(`/api/v1/sources/${sourceId}/runs`, { method: 'POST' })
 }

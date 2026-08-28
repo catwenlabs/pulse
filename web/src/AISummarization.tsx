@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, BookOpen, CalendarDays, CheckCircle2, ChevronDown, Clock3, FileText, Info, Loader2, RefreshCw, Sparkles, Star, Tag, X } from 'lucide-react'
+import { ArrowLeft, BookOpen, CheckCircle2, ChevronDown, FileText, Loader2, RefreshCw, Sparkles, Star, Tag } from 'lucide-react'
 
 import * as api from './api'
 import type { Digest, DigestPriority, DigestStory, DigestTheme, Entry } from './api'
@@ -8,10 +8,6 @@ import { EntryReader } from './components/EntryReader'
 import { StoryListItem, type StoryListItemChange, type StoryMergeCandidate } from './components/StoryListItem'
 import { isActiveStorySummary, isStoredStorySummary, statusLabels, StorySummaryCard } from './components/storySummary'
 import { Button } from './components/ui/button'
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog'
-import { DateTimePicker } from './components/ui/date-time-picker'
-import { Input } from './components/ui/input'
-import { Select } from './components/ui/select'
 import { queryKeys } from './query'
 
 const activeJobStatuses = new Set(['pending', 'running', 'retry', 'queued'])
@@ -33,23 +29,11 @@ interface DigestReferenceContext {
 
 export function DigestPage({ digestID = '', onSelectDigest }: { digestID?: string; onSelectDigest?: (digestID: string) => void }) {
   const queryClient = useQueryClient()
-  const [maxStories, setMaxStories] = useState('')
-  const [startAt, setStartAt] = useState('')
-  const [endAt, setEndAt] = useState('')
-  const [order, setOrder] = useState<api.DigestOrder>('oldest')
-  const [formError, setFormError] = useState('')
   const [markedDigestID, setMarkedDigestID] = useState('')
-  const [scopeDialogOpen, setScopeDialogOpen] = useState(false)
-  const [scopePrompted, setScopePrompted] = useState(false)
-  const parsedMaxStories = maxStories.trim() ? Number(maxStories) : undefined
-  const maxStoriesValid = parsedMaxStories === undefined
-    || (Number.isInteger(parsedMaxStories) && parsedMaxStories >= 1)
-  const draftScope = useMemo<api.DigestScope>(() => removeEmpty({
-    start_at: localDateTimeToISOString(startAt),
-    end_at: localDateTimeToISOString(endAt),
-    max_stories: parsedMaxStories,
-    order,
-  }), [endAt, order, parsedMaxStories, startAt])
+  // The catch-up scope is fixed to sane defaults: every unread Story, oldest
+  // first. When the backlog exceeds the safety limit the create request caps
+  // itself at that limit, so generation never needs a scope dialog.
+  const defaultScope = useMemo<api.DigestScope>(() => ({ order: 'oldest' }), [])
   const digestsQuery = useQuery({
     queryKey: queryKeys.digests,
     queryFn: () => api.listDigests(),
@@ -58,9 +42,8 @@ export function DigestPage({ digestID = '', onSelectDigest }: { digestID?: strin
   const digests = digestsQuery.data ?? []
   const effectiveDigestID = digestID || digests[0]?.id || ''
   const previewQuery = useQuery({
-    queryKey: queryKeys.digestPreview({ startAt, endAt, maxStories, order }),
-    queryFn: () => api.previewDigest(draftScope),
-    enabled: maxStoriesValid,
+    queryKey: queryKeys.digestPreview(defaultScope),
+    queryFn: () => api.previewDigest(defaultScope),
     placeholderData: (previousData) => previousData,
   })
   const selectedDigestQuery = useQuery({
@@ -89,61 +72,30 @@ export function DigestPage({ digestID = '', onSelectDigest }: { digestID?: strin
 
   const selectedDigest = selectedDigestQuery.data
   const preview = previewQuery.data
-  const scopeSelectionRequired = Boolean(preview?.matching_stories_truncated)
-  const scopeDialogRequired = scopeSelectionRequired || scopePrompted
-  const previewReady = maxStoriesValid
-    && !previewQuery.isFetching
-    && !previewQuery.error
-    && preview !== undefined
-    && digestScopesEqual(preview.scope, draftScope)
+  const cappedScope = useMemo<api.DigestScope>(() => removeEmpty({
+    max_stories: preview?.matching_stories_truncated ? preview.safety_limit : undefined,
+    order: 'oldest' as const,
+  }), [preview?.matching_stories_truncated, preview?.safety_limit])
+  const previewReady = preview !== undefined
     && preview.matching_stories > 0
-    && preview.can_queue
+    && (preview.can_queue || preview.matching_stories_truncated)
   const digestActionLabel = createMutation.isPending
     ? '正在排队…'
     : previewQuery.isPending || !preview
       ? '正在检查…'
       : previewQuery.error
         ? '重试检查'
-        : scopeDialogRequired
-          ? '设置追更范围'
-          : preview.matching_stories === 0
-            ? '没有未读 Story'
-            : '生成追更摘要'
+        : preview.matching_stories === 0
+          ? '没有未读 Story'
+          : '生成AI追更'
   const digestActionDisabled = previewQuery.isPending
-    || (previewQuery.error
-      ? false
-      : scopeDialogRequired
-        ? previewQuery.isFetching
-        : createMutation.isPending || !previewReady)
+    || (previewQuery.error ? false : createMutation.isPending || !previewReady)
 
-  useEffect(() => {
-    if (scopeSelectionRequired && !scopePrompted) {
-      if (!maxStories.trim()) setMaxStories(String(preview?.safety_limit ?? 100))
-      setScopePrompted(true)
-      setScopeDialogOpen(true)
-    }
-  }, [maxStories, preview?.safety_limit, scopePrompted, scopeSelectionRequired])
-
-  async function createDigest(event?: FormEvent) {
-    event?.preventDefault()
-    setFormError('')
-    if (!maxStoriesValid) {
-      setFormError('数量必须是正整数')
-      return
-    }
-    if (!previewReady) {
-      setFormError(preview?.matching_stories === 0
-        ? '当前范围没有可处理的 Story'
-        : preview?.can_queue === false
-          ? '请先缩小范围或指定最多 Story 数'
-          : '正在检查处理范围，请稍后再试')
-      return
-    }
+  async function createDigest() {
     try {
-      await createMutation.mutateAsync(draftScope)
-      setScopeDialogOpen(false)
-    } catch (cause) {
-      setFormError(cause instanceof Error ? cause.message : '无法创建追更摘要')
+      await createMutation.mutateAsync(cappedScope)
+    } catch {
+      // The failure is rendered under the header from createMutation.error.
     }
   }
 
@@ -159,23 +111,11 @@ export function DigestPage({ digestID = '', onSelectDigest }: { digestID?: strin
         </div>
         <div className="ai-header-actions">
           <Button
-            type="button"
-            variant="secondary"
-            className="cursor-pointer"
-            aria-label="设置追更范围"
-            onClick={() => setScopeDialogOpen(true)}
-          >
-            <CalendarDays className="size-4" aria-hidden="true" />
-            <span>范围</span>
-          </Button>
-          <Button
             className="ai-header-action min-w-[148px] cursor-pointer"
             disabled={digestActionDisabled}
             onClick={() => {
               if (previewQuery.error) {
                 void previewQuery.refetch()
-              } else if (scopeDialogRequired) {
-                setScopeDialogOpen(true)
               } else {
                 void createDigest()
               }
@@ -185,116 +125,15 @@ export function DigestPage({ digestID = '', onSelectDigest }: { digestID?: strin
               ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
               : previewQuery.error
                 ? <RefreshCw className="size-4" aria-hidden="true" />
-                : scopeDialogRequired
-                  ? <CalendarDays className="size-4" aria-hidden="true" />
-                  : <Sparkles className="size-4" aria-hidden="true" />}
+                : <Sparkles className="size-4" aria-hidden="true" />}
             <span>{digestActionLabel}</span>
           </Button>
         </div>
       </header>
 
-      <Dialog
-        open={scopeDialogOpen}
-        onOpenChange={(open) => {
-          setScopeDialogOpen(open)
-          if (open) setFormError('')
-        }}
-      >
-        <DialogContent
-          className="ai-scope-dialog"
-          onOpenAutoFocus={(event) => {
-            event.preventDefault()
-            document.getElementById('digest-max-stories')?.focus()
-          }}
-        >
-          <div className="ai-scope-dialog-header">
-            <div className="ai-scope-dialog-heading">
-              <span className="ai-scope-dialog-icon" aria-hidden="true"><CalendarDays size={20} /></span>
-              <div>
-                <p className="ai-scope-dialog-kicker">AI CATCH-UP</p>
-                <DialogTitle>设置追更范围</DialogTitle>
-              </div>
-            </div>
-            <DialogClose className="ai-scope-dialog-close" aria-label="关闭">
-              <X className="size-4" aria-hidden="true" />
-            </DialogClose>
-          </div>
-          <DialogDescription className="ai-scope-dialog-description">
-            当前未读 Story 已超过 <strong>{preview?.safety_limit ?? 100} 个</strong> 的安全上限。缩小时间范围或限制数量，生成更聚焦的追更摘要。
-          </DialogDescription>
-          <form onSubmit={(event) => void createDigest(event)}>
-            <fieldset className="ai-scope-fieldset">
-              <legend>
-                <span>追更窗口</span>
-                <span>按需筛选</span>
-              </legend>
-              <p className="ai-scope-fieldset-hint" id="digest-scope-hint">设置任一条件即可缩小本次处理范围，留空表示不限制。</p>
-              <div className="ai-form-grid">
-                <div className="ai-scope-field">
-                  <label htmlFor="digest-start-at">
-                    <span className="ai-field-label"><CalendarDays size={16} aria-hidden="true" />最早时间（可选）</span>
-                    <DateTimePicker id="digest-start-at" value={startAt} onChange={setStartAt} defaultTime="00:00" aria-describedby="digest-start-at-hint digest-scope-hint" />
-                  </label>
-                  <p className="ai-field-hint" id="digest-start-at-hint">只处理此时间之后的未读 Story</p>
-                </div>
-                <div className="ai-scope-field">
-                  <label htmlFor="digest-end-at">
-                    <span className="ai-field-label"><CalendarDays size={16} aria-hidden="true" />最晚时间（可选）</span>
-                    <DateTimePicker id="digest-end-at" value={endAt} onChange={setEndAt} defaultTime="23:59" aria-describedby="digest-end-at-hint digest-scope-hint" />
-                  </label>
-                  <p className="ai-field-hint" id="digest-end-at-hint">只处理此时间之前的未读 Story</p>
-                </div>
-                <div className="ai-scope-field">
-                  <label htmlFor="digest-max-stories">
-                    <span className="ai-field-label"><FileText size={16} aria-hidden="true" />最多 Story（可选）</span>
-                    <Input id="digest-max-stories" inputMode="numeric" min={1} placeholder="默认安全上限" aria-describedby="digest-max-stories-hint digest-scope-hint" value={maxStories} onChange={(event) => setMaxStories(event.target.value)} />
-                  </label>
-                  <p className="ai-field-hint" id="digest-max-stories-hint">控制本次最多处理的数量</p>
-                </div>
-                <div className="ai-scope-field">
-                  <label htmlFor="digest-order">
-                    <span className="ai-field-label"><Clock3 size={16} aria-hidden="true" />处理顺序</span>
-                    <Select id="digest-order" aria-describedby="digest-order-hint digest-scope-hint" value={order} onChange={(event) => setOrder(event.target.value as api.DigestOrder)}>
-                      <option value="oldest">从旧到新（先补最早的）</option>
-                      <option value="newest">从新到旧（先看最新的）</option>
-                    </Select>
-                  </label>
-                  <p className="ai-field-hint" id="digest-order-hint">数量受限时决定从哪一端开始处理</p>
-                </div>
-              </div>
-            </fieldset>
-            {formError && <p className="ai-form-error" role="alert">{formError}</p>}
-            {createMutation.isError && !formError && <p className="ai-form-error" role="alert">{createMutation.error.message}</p>}
-            {previewQuery.error && <p className="ai-form-error" role="alert">{previewQuery.error.message}</p>}
-            {previewQuery.data && (
-              <p className={`ai-scope-preview ${previewQuery.data.can_queue ? 'is-ready' : 'is-warning'}`} aria-live="polite">
-                <Info size={15} aria-hidden="true" />
-                <span className="ai-scope-preview-copy">
-                  <strong>范围预览</strong>
-                  <span>{formatScopePreview(previewQuery.data)}</span>
-                </span>
-              </p>
-            )}
-            <div className="ai-dialog-actions">
-              <DialogClose asChild><Button type="button" variant="secondary">取消</Button></DialogClose>
-              <Button type="submit" className="cursor-pointer" disabled={createMutation.isPending || (maxStoriesValid && !previewReady)}>
-                {createMutation.isPending ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Sparkles className="size-4" aria-hidden="true" />}
-                <span>{createMutation.isPending
-                  ? '正在排队…'
-                  : !maxStoriesValid && maxStories.trim()
-                    ? '数量必须是正整数'
-                    : previewQuery.isFetching || !preview
-                      ? '正在检查范围…'
-                      : preview.matching_stories === 0
-                        ? '没有可处理的 Story'
-                        : !preview.can_queue
-                          ? '请先缩小范围'
-                          : '生成追更摘要'}</span>
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {createMutation.isError && (
+        <p className="ai-form-error mt-3" role="alert">{createMutation.error.message}</p>
+      )}
 
         <DigestResult
           digest={selectedDigest}
@@ -364,27 +203,13 @@ export function DigestHistoryPanel({ digestID, onSelect }: { digestID: string; o
   )
 }
 
-function formatScopePreview(preview: api.DigestPreview) {
-  const range = formatScopeRange(preview.scope)
-  if (preview.matching_stories === 0) {
-    return `当前范围${range}没有未读 Story。`
-  }
-  if (!preview.can_queue) {
-    return `当前范围${range}匹配超过 ${preview.safety_limit} 个 Story，请缩小时间范围或指定最多 Story 数。`
-  }
-  const matching = preview.matching_stories_truncated
-    ? `至少 ${preview.matching_stories}`
-    : `${preview.matching_stories}`
-  return `当前范围${range}匹配 ${matching} 个未读 Story，本次将处理 ${preview.selected_stories} 个。`
-}
-
 function formatDigestSubtitle(preview: api.DigestPreview | undefined, loading: boolean, error: Error | null) {
   const behaviorNote = '生成本身不会标记任何 Story 为已读。'
   if (loading && !preview) return `正在检查当前未读 Story 数量。${behaviorNote}`
   if (error && !preview) return `暂时无法获取当前未读 Story 数量。${behaviorNote}`
   if (!preview) return behaviorNote
   if (preview.matching_stories_truncated) {
-    return `当前未读 Story 超过 ${preview.safety_limit} 条。${behaviorNote}`
+    return `当前未读 Story 超过 ${preview.safety_limit} 条，生成时将自动只处理最早的 ${preview.safety_limit} 条。${behaviorNote}`
   }
   return `当前有 ${preview.matching_stories} 条未读 Story。${behaviorNote}`
 }
@@ -394,13 +219,6 @@ function formatScopeRange(scope: api.DigestScope) {
   if (scope.start_at) return `（${formatDate(scope.start_at)} 之后）`
   if (scope.end_at) return `（${formatDate(scope.end_at)} 之前）`
   return ''
-}
-
-function digestScopesEqual(left: api.DigestScope, right: api.DigestScope) {
-  return (left.start_at ?? '') === (right.start_at ?? '')
-    && (left.end_at ?? '') === (right.end_at ?? '')
-    && (left.max_stories ?? 0) === (right.max_stories ?? 0)
-    && (left.order ?? 'oldest') === (right.order ?? 'oldest')
 }
 
 function DigestResult({
@@ -827,10 +645,6 @@ function isActiveStatus(status?: string) {
 function formatDate(value?: string) {
   if (!value) return '刚刚'
   return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
-}
-
-function localDateTimeToISOString(value: string) {
-  return value ? new Date(value).toISOString() : undefined
 }
 
 function removeEmpty<T extends object>(value: T): T {
