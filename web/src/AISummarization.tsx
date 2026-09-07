@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, BookOpen, CheckCircle2, ChevronDown, FileText, Loader2, RefreshCw, Sparkles, Star, Tag } from 'lucide-react'
 
@@ -69,6 +69,16 @@ export function DigestPage({ digestID = '', onSelectDigest }: { digestID?: strin
       setMarkedDigestID(variables.digestID)
     },
   })
+  const pageRef = useRef<HTMLDivElement>(null)
+  // Switching digests swaps the whole result card, so reset the app shell's
+  // main scroll region to the top; otherwise the new digest opens wherever
+  // the previous one was left. Keyed on the effective selection so clicking
+  // the already-open digest doesn't jump. (scrollTo is optional-called because
+  // jsdom does not implement element scrolling.)
+  useEffect(() => {
+    if (!effectiveDigestID) return
+    pageRef.current?.closest('main')?.scrollTo?.({ top: 0 })
+  }, [effectiveDigestID])
 
   const selectedDigest = selectedDigestQuery.data
   const preview = previewQuery.data
@@ -100,7 +110,7 @@ export function DigestPage({ digestID = '', onSelectDigest }: { digestID?: strin
   }
 
   return (
-    <div className="ai-page">
+    <div className="ai-page" ref={pageRef}>
       <header className="ai-page-header">
         <div className="ai-page-header-copy">
           <p className="ai-eyebrow ai-eyebrow-with-icon"><Sparkles size={14} aria-hidden="true" />AI CATCH-UP</p>

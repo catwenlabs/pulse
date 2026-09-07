@@ -30,6 +30,7 @@ function DigestHarness() {
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  delete (Element.prototype as { scrollTo?: unknown }).scrollTo
 })
 
 describe('DigestPage', () => {
@@ -60,6 +61,48 @@ describe('DigestPage', () => {
     const historyScrollRegion = document.querySelector('.ai-history-list')!
     expect(historyScrollRegion).toHaveClass('ai-history-scroll-list')
     expect(historyScrollRegion.children).toHaveLength(digests.length)
+  })
+
+  it('scrolls the main region back to the top when switching history digests', async () => {
+    const digests = [
+      { id: 'digest-1', status: 'completed', mode: 'catch_up', story_count: 1, created_at: '2026-08-04T09:00:00Z', stories: [] },
+      { id: 'digest-2', status: 'completed', mode: 'catch_up', story_count: 2, created_at: '2026-08-04T10:00:00Z', stories: [] },
+    ]
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/v1/digests?limit=50') return new Response(JSON.stringify(digests), { status: 200 })
+      if (url.startsWith('/api/v1/digests/preview')) {
+        return new Response('{"scope":{},"matching_stories":0,"matching_stories_truncated":false,"selected_stories":0,"safety_limit":100,"can_queue":true}', { status: 200 })
+      }
+      if (url === '/api/v1/digests/digest-1') return new Response(JSON.stringify(digests[0]), { status: 200 })
+      if (url === '/api/v1/digests/digest-2') return new Response(JSON.stringify(digests[1]), { status: 200 })
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const scrollTo = vi.fn()
+    Object.defineProperty(Element.prototype, 'scrollTo', {
+      configurable: true,
+      value: scrollTo,
+    })
+
+    // The app shell scrolls the digest content inside <main>; mimic that
+    // wrapping so the page can find its scroll container.
+    renderWithQueryClient(<main><DigestHarness /></main>)
+
+    // The most recent digest is selected by default; the initial '' → id
+    // transition already fired, so only user-driven switches count from here.
+    expect(await screen.findByRole('heading', { name: '1 个未读 Story' })).toBeInTheDocument()
+    scrollTo.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: /2 个未读 Story/ }))
+    expect(await screen.findByRole('heading', { name: '2 个未读 Story' })).toBeInTheDocument()
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0 })
+    expect((scrollTo.mock.contexts.at(-1) as HTMLElement | undefined)?.tagName).toBe('MAIN')
+
+    // Re-clicking the already-selected digest must not scroll again.
+    scrollTo.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: /2 个未读 Story/ }))
+    expect(scrollTo).not.toHaveBeenCalled()
   })
 
   it('renders structured title-only results and queues a scoped Digest on demand', async () => {
