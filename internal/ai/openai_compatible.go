@@ -117,13 +117,14 @@ func (adapter *OpenAICompatibleAdapter) generate(ctx context.Context, request Ge
 		return GenerateResponse{}, fmt.Errorf("AI request requires at least one message")
 	}
 	payload := struct {
-		Model          string          `json:"model"`
-		Messages       []Message       `json:"messages"`
-		MaxTokens      int             `json:"max_tokens,omitempty"`
-		Temperature    *float32        `json:"temperature,omitempty"`
-		Thinking       *thinkingConfig `json:"thinking,omitempty"`
-		ResponseFormat *responseFormat `json:"response_format,omitempty"`
-		Stream         bool            `json:"stream"`
+		Model          string           `json:"model"`
+		Messages       []Message        `json:"messages"`
+		MaxTokens      int              `json:"max_tokens,omitempty"`
+		Temperature    *float32         `json:"temperature,omitempty"`
+		Thinking       *thinkingConfig  `json:"thinking,omitempty"`
+		Reasoning      *reasoningConfig `json:"reasoning,omitempty"`
+		ResponseFormat *responseFormat  `json:"response_format,omitempty"`
+		Stream         bool             `json:"stream"`
 	}{
 		Model:       adapter.model,
 		Messages:    request.Messages,
@@ -133,6 +134,10 @@ func (adapter *OpenAICompatibleAdapter) generate(ctx context.Context, request Ge
 	}
 	if adapter.disableThinking {
 		payload.Thinking = &thinkingConfig{Type: "disabled"}
+		// OpenRouter ignores the DeepSeek-style thinking field and expects its
+		// own reasoning switch; sending both keeps reasoning models from
+		// burning the token budget before emitting content.
+		payload.Reasoning = &reasoningConfig{Enabled: false}
 	}
 	if nativeJSON {
 		payload.ResponseFormat = &responseFormat{Type: "json_object"}
@@ -278,4 +283,8 @@ type responseFormat struct {
 
 type thinkingConfig struct {
 	Type string `json:"type"`
+}
+
+type reasoningConfig struct {
+	Enabled bool `json:"enabled"`
 }

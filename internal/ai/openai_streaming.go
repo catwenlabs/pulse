@@ -39,13 +39,14 @@ func (adapter *OpenAICompatibleAdapter) Stream(
 		return StreamResult{}, fmt.Errorf("AI request requires at least one message")
 	}
 	payload := struct {
-		Model          string          `json:"model"`
-		Messages       []Message       `json:"messages"`
-		MaxTokens      int             `json:"max_tokens,omitempty"`
-		Temperature    *float32        `json:"temperature,omitempty"`
-		Thinking       *thinkingConfig `json:"thinking,omitempty"`
-		Stream         bool            `json:"stream"`
-		StreamOptions  *streamOptions  `json:"stream_options,omitempty"`
+		Model         string           `json:"model"`
+		Messages      []Message        `json:"messages"`
+		MaxTokens     int              `json:"max_tokens,omitempty"`
+		Temperature   *float32         `json:"temperature,omitempty"`
+		Thinking      *thinkingConfig  `json:"thinking,omitempty"`
+		Reasoning     *reasoningConfig `json:"reasoning,omitempty"`
+		Stream        bool             `json:"stream"`
+		StreamOptions *streamOptions   `json:"stream_options,omitempty"`
 	}{
 		Model:         adapter.model,
 		Messages:      request.Messages,
@@ -56,6 +57,10 @@ func (adapter *OpenAICompatibleAdapter) Stream(
 	}
 	if adapter.disableThinking {
 		payload.Thinking = &thinkingConfig{Type: "disabled"}
+		// OpenRouter ignores the DeepSeek-style thinking field and expects its
+		// own reasoning switch; sending both keeps reasoning models from
+		// burning the token budget before emitting content.
+		payload.Reasoning = &reasoningConfig{Enabled: false}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
