@@ -16,22 +16,28 @@ const (
 )
 
 type ProcessorOptions struct {
-	Lease time.Duration
+	Lease           time.Duration
+	MaxDigestTokens int
 }
 
 type Processor struct {
-	store    Store
-	provider Provider
-	lease    time.Duration
-	now      func() time.Time
+	store           Store
+	provider        Provider
+	lease           time.Duration
+	maxDigestTokens int
+	now             func() time.Time
 }
 
 func NewProcessor(store Store, provider Provider, options ...ProcessorOptions) *Processor {
 	lease := defaultAILease
-	if len(options) > 0 && options[0].Lease > 0 {
-		lease = options[0].Lease
+	maxDigestTokens := 0
+	if len(options) > 0 {
+		if options[0].Lease > 0 {
+			lease = options[0].Lease
+		}
+		maxDigestTokens = options[0].MaxDigestTokens
 	}
-	return &Processor{store: store, provider: provider, lease: lease, now: time.Now}
+	return &Processor{store: store, provider: provider, lease: lease, maxDigestTokens: maxDigestTokens, now: time.Now}
 }
 
 func (processor *Processor) ProcessNext(ctx context.Context, owner string) error {
@@ -115,7 +121,7 @@ func (processor *Processor) processDigest(ctx context.Context, job Job) error {
 	if err := json.Unmarshal(job.Payload, &payload); err != nil {
 		return fmt.Errorf("decode Digest job payload: %w", err)
 	}
-	response, err := processor.provider.Generate(ctx, digestRequest(payload.Items))
+	response, err := processor.provider.Generate(ctx, digestRequest(payload.Items, processor.maxDigestTokens))
 	if err != nil {
 		return fmt.Errorf("generate Digest: %w", err)
 	}
