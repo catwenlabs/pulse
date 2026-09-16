@@ -21,23 +21,24 @@ const (
 var allRoles = []Role{RoleWeb, RoleScheduler, RoleWorker, RoleEffect}
 
 type Config struct {
-	HTTPAddr           string
-	DatabaseURL        string
-	WebDir             string
-	ImportRoots        []string
-	MasterKey          string
-	Roles              []Role
-	EmbeddingProvider  string
-	EmbeddingBaseURL   string
-	EmbeddingModel     string
-	AIProvider         string
-	AIBaseURL          string
-	AIAPIKey           string
-	AIHeaders          map[string]string
-	AIModel            string
-	AITimeout          time.Duration
-	AIMaxDigestStories int
-	AIMaxActiveJobs    int
+	HTTPAddr                 string
+	DatabaseURL              string
+	WebDir                   string
+	ImportRoots              []string
+	MasterKey                string
+	Roles                    []Role
+	EmbeddingProvider        string
+	EmbeddingBaseURL         string
+	EmbeddingModel           string
+	AIProvider               string
+	AIBaseURL                string
+	AIAPIKey                 string
+	AIHeaders                map[string]string
+	AIModel                  string
+	AITimeout                time.Duration
+	AIMaxDigestStories       int
+	AIMaxDigestOutputTokens  int
+	AIMaxActiveJobs          int
 	AIChatMaxInputTokens     int
 	AIChatMaxConcurrent      int
 	AIChatProviderInputLimit int
@@ -47,22 +48,23 @@ type LookupEnv func(string) (string, bool)
 
 func Load(lookup LookupEnv) (Config, error) {
 	cfg := Config{
-		HTTPAddr:           "127.0.0.1:8080",
-		DatabaseURL:        "postgres://pulse:pulse@postgres:5432/pulse?sslmode=disable",
-		WebDir:             "/web",
-		ImportRoots:        []string{"/data/imports"},
-		Roles:              append([]Role(nil), allRoles...),
-		EmbeddingProvider:  "disabled",
-		EmbeddingBaseURL:   "http://127.0.0.1:11434",
-		EmbeddingModel:     "qwen3-embedding",
-		AIProvider:         "disabled",
-		AIBaseURL:          "http://127.0.0.1:11434/v1",
-		AIModel:            "qwen3:8b",
-		AITimeout:          2 * time.Minute,
-		AIMaxDigestStories: 100,
-		AIMaxActiveJobs:    4,
-		AIChatMaxInputTokens: 16000,
-		AIChatMaxConcurrent:  4,
+		HTTPAddr:                "127.0.0.1:8080",
+		DatabaseURL:             "postgres://pulse:pulse@postgres:5432/pulse?sslmode=disable",
+		WebDir:                  "/web",
+		ImportRoots:             []string{"/data/imports"},
+		Roles:                   append([]Role(nil), allRoles...),
+		EmbeddingProvider:       "disabled",
+		EmbeddingBaseURL:        "http://127.0.0.1:11434",
+		EmbeddingModel:          "qwen3-embedding",
+		AIProvider:              "disabled",
+		AIBaseURL:               "http://127.0.0.1:11434/v1",
+		AIModel:                 "qwen3:8b",
+		AITimeout:               2 * time.Minute,
+		AIMaxDigestStories:      100,
+		AIMaxDigestOutputTokens: 4096,
+		AIMaxActiveJobs:         4,
+		AIChatMaxInputTokens:    16000,
+		AIChatMaxConcurrent:     4,
 	}
 
 	if value, ok := lookup("PULSE_HTTP_ADDR"); ok && strings.TrimSpace(value) != "" {
@@ -128,6 +130,13 @@ func Load(lookup LookupEnv) (Config, error) {
 			return Config{}, fmt.Errorf("invalid PULSE_AI_MAX_DIGEST_STORIES: positive integer required")
 		}
 		cfg.AIMaxDigestStories = limit
+	}
+	if value, ok := lookup("PULSE_AI_MAX_DIGEST_OUTPUT_TOKENS"); ok && strings.TrimSpace(value) != "" {
+		limit, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || limit <= 0 {
+			return Config{}, fmt.Errorf("invalid PULSE_AI_MAX_DIGEST_OUTPUT_TOKENS: positive integer required")
+		}
+		cfg.AIMaxDigestOutputTokens = limit
 	}
 	if value, ok := lookup("PULSE_AI_MAX_ACTIVE_JOBS"); ok && strings.TrimSpace(value) != "" {
 		limit, err := strconv.Atoi(strings.TrimSpace(value))

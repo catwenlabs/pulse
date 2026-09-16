@@ -105,6 +105,7 @@ make export-entry ID=ENTRY_UUID
 | `PULSE_AI_MODEL` | `qwen3:8b` | 模型名称 |
 | `PULSE_AI_TIMEOUT` | `2m` | 单次 AI 请求超时 |
 | `PULSE_AI_MAX_DIGEST_STORIES` | `100` | 默认 Catch-up Digest 的安全上限 |
+| `PULSE_AI_MAX_DIGEST_OUTPUT_TOKENS` | `4096` | Catch-up Digest 单次生成的输出 token 上限；调大单次条数（如 1000 条）时需同步调大，否则 JSON 会被截断导致解析失败 |
 | `PULSE_AI_MAX_ACTIVE_JOBS` | `4` | 全局 AI Provider 的排队、运行和重试 Job 上限 |
 
 ### Story 语义聚合（可选）

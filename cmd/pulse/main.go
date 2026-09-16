@@ -178,7 +178,8 @@ func runContext(ctx context.Context, cfg config.Config, ready ...chan<- struct{}
 		}()
 		if aiStore != nil && aiProvider != nil {
 			aiProcessor := ai.NewProcessor(aiStore, aiProvider, ai.ProcessorOptions{
-				Lease: cfg.AITimeout + time.Minute,
+				Lease:           cfg.AITimeout + time.Minute,
+				MaxDigestTokens: cfg.AIMaxDigestOutputTokens,
 			})
 			aiRunner := worker.New(aiProcessor, owner+"-ai")
 			go func() {

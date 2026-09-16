@@ -44,11 +44,18 @@ func TestParseDigestMapsAndValidatesStoryLabels(t *testing.T) {
 }
 
 func TestDigestRequestDoesNotIncludeEntryBody(t *testing.T) {
-	request := digestRequest([]DigestStorySnapshot{{Label: "S1", Title: "A title", SourceTitle: "A source"}})
+	request := digestRequest([]DigestStorySnapshot{{Label: "S1", Title: "A title", SourceTitle: "A source"}}, 0)
 	if len(request.Messages) != 2 || strings.Contains(request.Messages[1].Content, "body-secret") {
 		t.Errorf("Digest prompt exposes content fields: %q", request.Messages[1].Content)
 	}
-	if request.MaxTokens != 4096 {
-		t.Errorf("Digest MaxTokens = %d, want 4096", request.MaxTokens)
+	if request.MaxTokens != defaultDigestMaxTokens {
+		t.Errorf("Digest MaxTokens = %d, want %d", request.MaxTokens, defaultDigestMaxTokens)
+	}
+}
+
+func TestDigestRequestUsesConfiguredMaxTokens(t *testing.T) {
+	request := digestRequest([]DigestStorySnapshot{{Label: "S1", Title: "A title"}}, 16384)
+	if request.MaxTokens != 16384 {
+		t.Errorf("Digest MaxTokens = %d, want 16384", request.MaxTokens)
 	}
 }

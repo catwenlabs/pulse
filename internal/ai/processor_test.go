@@ -106,3 +106,40 @@ func TestProcessorDoesNotRetryNonRetryableProviderErrors(t *testing.T) {
 		t.Errorf("retries/failures = %d/%d", store.retries, store.failures)
 	}
 }
+
+func digestPayload(t *testing.T) json.RawMessage {
+	t.Helper()
+	payload, err := json.Marshal(struct {
+		Scope DigestScope           `json:"scope"`
+		Items []DigestStorySnapshot `json:"items"`
+	}{Items: []DigestStorySnapshot{{Label: "S1", Title: "Story title"}}})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	return payload
+}
+
+func TestProcessorDigestUsesDefaultMaxTokens(t *testing.T) {
+	provider := &processingProvider{content: `{"overview":"overview","themes":[{"title":"Theme","summary":"summary","story_labels":["S1"]}],"priorities":[],"omitted_labels":[]}`}
+	store := &processingStore{job: Job{ID: "job-1", Kind: JobKindDigest, TargetID: "digest-1", Payload: digestPayload(t), Attempts: 1, LeaseOwner: "worker"}}
+	if err := NewProcessor(store, provider).ProcessNext(context.Background(), "worker"); err != nil {
+		t.Fatalf("ProcessNext() error = %v", err)
+	}
+	if provider.request.MaxTokens != defaultDigestMaxTokens {
+		t.Errorf("Digest MaxTokens = %d, want %d", provider.request.MaxTokens, defaultDigestMaxTokens)
+	}
+}
+
+func TestProcessorDigestUsesConfiguredMaxTokens(t *testing.T) {
+	provider := &processingProvider{content: `{"overview":"overview","themes":[{"title":"Theme","summary":"summary","story_labels":["S1"]}],"priorities":[],"omitted_labels":[]}`}
+	store := &processingStore{job: Job{ID: "job-1", Kind: JobKindDigest, TargetID: "digest-1", Payload: digestPayload(t), Attempts: 1, LeaseOwner: "worker"}}
+	if err := NewProcessor(store, provider, ProcessorOptions{MaxDigestTokens: 16384}).ProcessNext(context.Background(), "worker"); err != nil {
+		t.Fatalf("ProcessNext() error = %v", err)
+	}
+	if provider.request.MaxTokens != 16384 {
+		t.Errorf("Digest MaxTokens = %d, want 16384", provider.request.MaxTokens)
+	}
+	if store.retries != 0 || store.failures != 0 {
+		t.Errorf("retries/failures = %d/%d", store.retries, store.failures)
+	}
+}

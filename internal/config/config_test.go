@@ -40,30 +40,31 @@ func TestLoadUsesDefaults(t *testing.T) {
 	}
 	if cfg.AIProvider != "disabled" || cfg.AIBaseURL != "http://127.0.0.1:11434/v1" ||
 		cfg.AIModel != "qwen3:8b" || cfg.AITimeout != 2*time.Minute || cfg.AIMaxDigestStories != 100 ||
-		cfg.AIMaxActiveJobs != 4 {
+		cfg.AIMaxDigestOutputTokens != 4096 || cfg.AIMaxActiveJobs != 4 {
 		t.Errorf("AI defaults = %#v", cfg)
 	}
 }
 
 func TestLoadParsesRoles(t *testing.T) {
 	env := map[string]string{
-		"PULSE_HTTP_ADDR":             "127.0.0.1:9090",
-		"PULSE_DATABASE_URL":          "postgres://custom",
-		"PULSE_ROLES":                 "web, worker ,scheduler",
-		"PULSE_WEB_DIR":               "/custom/web",
-		"PULSE_IMPORT_ROOTS":          "/imports,/more-imports",
-		"PULSE_MASTER_KEY":            "external-key",
-		"PULSE_EMBEDDING_PROVIDER":    "ollama",
-		"PULSE_EMBEDDING_BASE_URL":    "http://ollama:11434/",
-		"PULSE_EMBEDDING_MODEL":       "qwen3-embedding:0.6b",
-		"PULSE_AI_PROVIDER":           "openai-compatible",
-		"PULSE_AI_BASE_URL":           "https://openrouter.ai/api/v1/",
-		"PULSE_AI_API_KEY":            "secret",
-		"PULSE_AI_MODEL":              "deepseek/deepseek-chat",
-		"PULSE_AI_HEADERS_JSON":       `{"HTTP-Referer":"https://pulse.example"}`,
-		"PULSE_AI_TIMEOUT":            "45s",
-		"PULSE_AI_MAX_DIGEST_STORIES": "25",
-		"PULSE_AI_MAX_ACTIVE_JOBS":    "2",
+		"PULSE_HTTP_ADDR":                   "127.0.0.1:9090",
+		"PULSE_DATABASE_URL":                "postgres://custom",
+		"PULSE_ROLES":                       "web, worker ,scheduler",
+		"PULSE_WEB_DIR":                     "/custom/web",
+		"PULSE_IMPORT_ROOTS":                "/imports,/more-imports",
+		"PULSE_MASTER_KEY":                  "external-key",
+		"PULSE_EMBEDDING_PROVIDER":          "ollama",
+		"PULSE_EMBEDDING_BASE_URL":          "http://ollama:11434/",
+		"PULSE_EMBEDDING_MODEL":             "qwen3-embedding:0.6b",
+		"PULSE_AI_PROVIDER":                 "openai-compatible",
+		"PULSE_AI_BASE_URL":                 "https://openrouter.ai/api/v1/",
+		"PULSE_AI_API_KEY":                  "secret",
+		"PULSE_AI_MODEL":                    "deepseek/deepseek-chat",
+		"PULSE_AI_HEADERS_JSON":             `{"HTTP-Referer":"https://pulse.example"}`,
+		"PULSE_AI_TIMEOUT":                  "45s",
+		"PULSE_AI_MAX_DIGEST_STORIES":       "25",
+		"PULSE_AI_MAX_DIGEST_OUTPUT_TOKENS": "8192",
+		"PULSE_AI_MAX_ACTIVE_JOBS":          "2",
 	}
 
 	cfg, err := Load(func(key string) (string, bool) {
@@ -97,7 +98,7 @@ func TestLoadParsesRoles(t *testing.T) {
 	if cfg.AIProvider != "openai-compatible" || cfg.AIBaseURL != "https://openrouter.ai/api/v1" ||
 		cfg.AIAPIKey != "secret" || cfg.AIModel != "deepseek/deepseek-chat" ||
 		cfg.AITimeout != 45*time.Second || cfg.AIMaxDigestStories != 25 ||
-		cfg.AIMaxActiveJobs != 2 ||
+		cfg.AIMaxDigestOutputTokens != 8192 || cfg.AIMaxActiveJobs != 2 ||
 		cfg.AIHeaders["HTTP-Referer"] != "https://pulse.example" {
 		t.Errorf("AI config = %#v", cfg)
 	}
@@ -139,6 +140,7 @@ func TestLoadRejectsInvalidAIConfiguration(t *testing.T) {
 		{"PULSE_AI_HEADERS_JSON": "[]"},
 		{"PULSE_AI_TIMEOUT": "0s"},
 		{"PULSE_AI_MAX_DIGEST_STORIES": "0"},
+		{"PULSE_AI_MAX_DIGEST_OUTPUT_TOKENS": "0"},
 		{"PULSE_AI_MAX_ACTIVE_JOBS": "0"},
 	}
 	for _, env := range tests {
