@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"net/url"
 	"path"
 	"strings"
 
@@ -15,7 +16,8 @@ import (
 // ParseEpub converts an epub file into a multi-chapter Document. Metadata
 // comes from the OPF package (dc:identifier, dc:title, dc:creator); chapters
 // follow spine order and hold the sanitized body content of each XHTML
-// document. Chapter titles come from the first h1, falling back to the
+// document. Chapter titles prefer the book's table of contents (the EPUB3
+// nav document or the EPUB2 NCX), falling back to the first h1 and then the
 // document title element. Image srcs are canonicalized to their zip entry
 // paths so the asset endpoint can resolve them against the stored original.
 func ParseEpub(content []byte) (Document, error) {
@@ -36,6 +38,7 @@ func ParseEpub(content []byte) (Document, error) {
 		return Document{}, err
 	}
 	baseDir := path.Dir(opfPath)
+	tocTitles := loadTocTitles(reader, book, baseDir)
 
 	document := Document{
 		Identifier: book.Identifier,
@@ -43,29 +46,72 @@ func ParseEpub(content []byte) (Document, error) {
 		Author:     book.Author,
 		Chapters:   []Chapter{},
 	}
+	chapterPaths := make([]chapterMeta, 0, len(book.Spine))
 	for index, itemRef := range book.Spine {
-		href, ok := book.Manifest[itemRef]
+		item, ok := book.Manifest[itemRef]
 		if !ok {
 			return Document{}, fmt.Errorf("spine references unknown manifest item %q", itemRef)
 		}
-		chapterFile, err := readZipEntry(reader, path.Join(baseDir, href))
+		chapterPath := path.Join(baseDir, item.Href)
+		chapterFile, err := readZipEntry(reader, chapterPath)
 		if err != nil {
 			return Document{}, err
 		}
-		title, body, err := extractXHTMLBody(chapterFile, path.Join(baseDir, href))
+		title, fromHeading, body, err := extractXHTMLBody(chapterFile, chapterPath)
 		if err != nil {
-			return Document{}, fmt.Errorf("extract chapter %q: %w", href, err)
+			return Document{}, fmt.Errorf("extract chapter %q: %w", item.Href, err)
+		}
+		titled := fromHeading
+		if tocTitle := strings.TrimSpace(tocTitles[normalizeHref(chapterPath)]); tocTitle != "" {
+			title = tocTitle
+			titled = true
 		}
 		document.Chapters = append(document.Chapters, Chapter{
 			Index:       index,
 			Title:       title,
 			ContentHTML: body,
 		})
+		chapterPaths = append(chapterPaths, chapterMeta{path: chapterPath, ownTitle: titled})
 	}
+	titleSplitContinuations(document.Chapters, chapterPaths)
 	if len(document.Chapters) == 0 {
 		return Document{}, &ValidationError{Field: "file", Message: "epub spine is empty"}
 	}
 	return document, nil
+}
+
+// titleSplitContinuations gives calibre's split continuation files
+// (basename_split_001.html following basename_split_000.html) the previous
+// file's title plus a continuation marker. Only files without their own
+// title (neither TOC entry nor h1) inherit, and only from a previous file
+// carrying a real title — junk head titles never propagate. The marker is
+// not stacked, so a long split chain stays readable.
+func titleSplitContinuations(chapters []Chapter, metas []chapterMeta) {
+	const marker = "（续）"
+	for index := 1; index < len(chapters); index++ {
+		previous := metas[index-1]
+		if metas[index].ownTitle || !previous.ownTitle || chapters[index-1].Title == "" {
+			continue
+		}
+		previousStem, previousOK := splitStem(previous.path)
+		currentStem, currentOK := splitStem(metas[index].path)
+		if !previousOK || !currentOK || previousStem != currentStem {
+			continue
+		}
+		chapters[index].Title = strings.TrimSuffix(chapters[index-1].Title, marker) + marker
+		metas[index].ownTitle = true
+	}
+}
+
+// splitStem reports the calibre split-family stem of a chapter path: for
+// "text/part0005_split_003.html" it returns "text/part0005_split_".
+func splitStem(chapterPath string) (string, bool) {
+	stem := strings.TrimSuffix(chapterPath, path.Ext(chapterPath))
+	trimmed := strings.TrimRight(stem, "0123456789")
+	if trimmed == stem || !strings.HasSuffix(trimmed, "_split_") {
+		return "", false
+	}
+	return trimmed, true
 }
 
 // ReadEpubEntry returns the raw bytes of one zip entry inside an epub file.
@@ -96,12 +142,32 @@ func ImageContentType(name string) string {
 	}
 }
 
+type opfItem struct {
+	Href       string
+	MediaType  string
+	Properties string
+}
+
+// chapterMeta carries per-chapter parsing state alongside the Chapter value:
+// the canonical zip entry path (used for TOC matching) and whether the title
+// is the chapter's own (from the TOC or an h1 heading) rather than a head
+// title fallback.
+type chapterMeta struct {
+	path     string
+	ownTitle bool
+}
+
 type opfPackage struct {
 	Identifier string
 	Title      string
 	Author     string
-	Manifest   map[string]string
+	Manifest   map[string]opfItem
 	Spine      []string
+	TocID      string
+	// Nav and NCX hold the first manifest items of each TOC kind in
+	// document order, so duplicate declarations resolve deterministically.
+	Nav *opfItem
+	NCX *opfItem
 }
 
 type opfXML struct {
@@ -112,11 +178,14 @@ type opfXML struct {
 	} `xml:"metadata"`
 	Manifest struct {
 		Items []struct {
-			ID   string `xml:"id,attr"`
-			Href string `xml:"href,attr"`
+			ID         string `xml:"id,attr"`
+			Href       string `xml:"href,attr"`
+			MediaType  string `xml:"media-type,attr"`
+			Properties string `xml:"properties,attr"`
 		} `xml:"item"`
 	} `xml:"manifest"`
 	Spine struct {
+		Toc      string `xml:"toc,attr"`
 		ItemRefs []struct {
 			IDRef string `xml:"idref,attr"`
 		} `xml:"itemref"`
@@ -148,7 +217,7 @@ func parseOPF(content []byte) (opfPackage, error) {
 	if err := xml.Unmarshal(content, &parsed); err != nil {
 		return opfPackage{}, &ValidationError{Field: "file", Message: "invalid OPF package"}
 	}
-	book := opfPackage{Manifest: map[string]string{}}
+	book := opfPackage{Manifest: map[string]opfItem{}}
 	if len(parsed.Metadata.Identifier) > 0 {
 		book.Identifier = strings.TrimSpace(parsed.Metadata.Identifier[0])
 	}
@@ -159,13 +228,201 @@ func parseOPF(content []byte) (opfPackage, error) {
 		book.Author = strings.TrimSpace(parsed.Metadata.Creator[0])
 	}
 	for _, item := range parsed.Manifest.Items {
-		book.Manifest[item.ID] = item.Href
+		entry := opfItem{
+			Href:       item.Href,
+			MediaType:  item.MediaType,
+			Properties: item.Properties,
+		}
+		if book.Nav == nil && hasProperty(entry.Properties, "nav") {
+			book.Nav = &entry
+		}
+		if book.NCX == nil && entry.MediaType == "application/x-dtbncx+xml" {
+			book.NCX = &entry
+		}
+		book.Manifest[item.ID] = entry
 	}
 	for _, ref := range parsed.Spine.ItemRefs {
 		book.Spine = append(book.Spine, ref.IDRef)
 	}
+	book.TocID = parsed.Spine.Toc
 	return book, nil
 }
+
+// loadTocTitles maps chapter zip entry paths to their table-of-contents
+// labels. The EPUB3 nav document is preferred; otherwise the NCX referenced
+// by the spine toc attribute (or by its media type) is parsed. Books with no
+// usable TOC get an empty map and keep the heading heuristics.
+func loadTocTitles(reader *zip.Reader, book opfPackage, baseDir string) map[string]string {
+	if item := book.Nav; item != nil {
+		navPath := path.Join(baseDir, item.Href)
+		if content, err := readZipEntry(reader, navPath); err == nil {
+			if titles := navTocTitles(content, path.Dir(navPath)); len(titles) > 0 {
+				return titles
+			}
+		}
+	}
+	item, ok := book.ncxItem()
+	if !ok {
+		return nil
+	}
+	ncxPath := path.Join(baseDir, item.Href)
+	if content, err := readZipEntry(reader, ncxPath); err == nil {
+		if titles := ncxTocTitles(content, path.Dir(ncxPath)); len(titles) > 0 {
+			return titles
+		}
+	}
+	return nil
+}
+
+func hasProperty(list, name string) bool {
+	for _, property := range strings.Fields(list) {
+		if property == name {
+			return true
+		}
+	}
+	return false
+}
+
+// ncxItem finds the EPUB2 NCX: the manifest item the spine toc attribute
+// points at, or the first item carrying the NCX media type.
+func (book opfPackage) ncxItem() (opfItem, bool) {
+	if book.TocID != "" {
+		if item, ok := book.Manifest[book.TocID]; ok {
+			return item, true
+		}
+	}
+	if book.NCX != nil {
+		return *book.NCX, true
+	}
+	return opfItem{}, false
+}
+
+type ncxNavPoint struct {
+	Label   string `xml:"navLabel>text"`
+	Content struct {
+		Src string `xml:"src,attr"`
+	} `xml:"content"`
+	NavPoints []ncxNavPoint `xml:"navPoint"`
+}
+
+// ncxTocTitles parses a toc.ncx navMap into chapter path → label entries.
+func ncxTocTitles(content []byte, baseDir string) map[string]string {
+	var parsed struct {
+		NavMap struct {
+			NavPoints []ncxNavPoint `xml:"navPoint"`
+		} `xml:"navMap"`
+	}
+	if err := xml.Unmarshal(content, &parsed); err != nil {
+		return nil
+	}
+	titles := map[string]string{}
+	var walk func(points []ncxNavPoint)
+	walk = func(points []ncxNavPoint) {
+		for _, point := range points {
+			addTocTitle(titles, baseDir, point.Content.Src, point.Label)
+			walk(point.NavPoints)
+		}
+	}
+	walk(parsed.NavMap.NavPoints)
+	return titles
+}
+
+// navTocTitles parses an EPUB3 nav document's toc nav into chapter path →
+// label entries.
+func navTocTitles(content []byte, baseDir string) map[string]string {
+	node, err := html.Parse(bytes.NewReader(content))
+	if err != nil {
+		return nil
+	}
+	nav := findTocNav(node)
+	if nav == nil {
+		return nil
+	}
+	titles := map[string]string{}
+	var walk func(*html.Node)
+	walk = func(current *html.Node) {
+		if current.Type == html.ElementNode && current.Data == "a" {
+			for _, attr := range current.Attr {
+				if attr.Key == "href" {
+					addTocTitle(titles, baseDir, attr.Val, nodeText(current))
+					break
+				}
+			}
+		}
+		for child := current.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(nav)
+	return titles
+}
+
+// findTocNav returns the nav element typed epub:type="toc". An untyped
+// fallback is trusted only when it is the document's sole nav element — the
+// first nav of an untyped book is usually a landmarks or page-list nav whose
+// labels must not override chapter titles.
+func findTocNav(root *html.Node) *html.Node {
+	var typed, only *html.Node
+	navs := 0
+	var walk func(*html.Node)
+	walk = func(current *html.Node) {
+		if current.Type == html.ElementNode && current.Data == "nav" {
+			navs++
+			if only == nil {
+				only = current
+			}
+			for _, attr := range current.Attr {
+				if (attr.Key == "type" || attr.Key == "epub:type") && attr.Val == "toc" {
+					typed = current
+				}
+			}
+		}
+		for child := current.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(root)
+	if typed != nil {
+		return typed
+	}
+	if navs == 1 {
+		return only
+	}
+	return nil
+}
+
+// addTocTitle records a TOC label for a chapter file. Fragments are ignored
+// (one chapter per spine file), external targets are skipped, and the first
+// entry wins — part openers precede their chapters in document order. Keys
+// are percent-decoded because TOC hrefs and manifest hrefs may encode the
+// same entry differently.
+func addTocTitle(titles map[string]string, baseDir, href, label string) {
+	target, _, _ := strings.Cut(href, "#")
+	label = strings.TrimSpace(label)
+	if target == "" || label == "" || strings.Contains(target, "://") {
+		return
+	}
+	key := normalizeHref(path.Join(baseDir, target))
+	if _, exists := titles[key]; !exists {
+		titles[key] = label
+	}
+}
+
+// normalizeHref percent-decodes a joined zip entry path when the decoding
+// succeeds, so "text/chapter%201.xhtml" and "text/chapter 1.xhtml" compare
+// equal. Undecodable paths (a stray % not followed by hex) pass through.
+func normalizeHref(joined string) string {
+	if decoded, err := url.PathUnescape(joined); err == nil {
+		return decoded
+	}
+	return joined
+}
+
+// maxZipEntryBytes bounds one decompressed epub entry. Epubs are untrusted
+// uploads and DEFLATE expands ~1000:1, so reading without a cap lets a small
+// archive demand unbounded memory. 32MB comfortably exceeds any legitimate
+// chapter or TOC document.
+const maxZipEntryBytes = 32 << 20
 
 func readZipEntry(reader *zip.Reader, name string) ([]byte, error) {
 	entry, err := reader.Open(name)
@@ -173,50 +430,51 @@ func readZipEntry(reader *zip.Reader, name string) ([]byte, error) {
 		return nil, fmt.Errorf("open epub entry %q: %w", name, err)
 	}
 	defer entry.Close()
-	body, err := io.ReadAll(entry)
+	body, err := io.ReadAll(io.LimitReader(entry, maxZipEntryBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read epub entry %q: %w", name, err)
+	}
+	if len(body) > maxZipEntryBytes {
+		return nil, fmt.Errorf("read epub entry %q: entry exceeds %d bytes", name, maxZipEntryBytes)
 	}
 	return body, nil
 }
 
-// extractXHTMLBody parses an XHTML chapter document and returns its title
-// (first h1, falling back to head title) and the body's inner HTML. Relative
-// img srcs are resolved to their canonical zip entry path.
-func extractXHTMLBody(content []byte, chapterPath string) (string, string, error) {
+// extractXHTMLBody parses an XHTML chapter document and returns its title,
+// whether the title came from a real heading (h1) rather than the head title
+// fallback, and the body's inner HTML. Relative img srcs are resolved to
+// their canonical zip entry path.
+func extractXHTMLBody(content []byte, chapterPath string) (string, bool, string, error) {
 	node, err := html.Parse(bytes.NewReader(content))
 	if err != nil {
-		return "", "", fmt.Errorf("parse XHTML: %w", err)
+		return "", false, "", fmt.Errorf("parse XHTML: %w", err)
 	}
-	var find func(*html.Node) (*html.Node, *html.Node)
-	find = func(current *html.Node) (*html.Node, *html.Node) {
+	var findBody func(*html.Node) *html.Node
+	findBody = func(current *html.Node) *html.Node {
 		for child := current.FirstChild; child != nil; child = child.NextSibling {
-			if child.Type != html.ElementNode {
-				continue
-			}
-			switch child.Data {
-			case "h1":
-				return child, nil
-			case "body":
-				return nil, child
-			}
-			if heading, body := find(child); heading != nil || body != nil {
-				return heading, body
+			if child.Type == html.ElementNode {
+				if child.Data == "body" {
+					return child
+				}
+				if body := findBody(child); body != nil {
+					return body
+				}
 			}
 		}
-		return nil, nil
+		return nil
 	}
-	_, body := find(node)
+	body := findBody(node)
 	if body == nil {
-		return "", "", &ValidationError{Field: "file", Message: "chapter has no body"}
+		return "", false, "", &ValidationError{Field: "file", Message: "chapter has no body"}
 	}
 	sanitize(body)
 	canonicalizeImageSources(body, chapterPath)
 
 	var title string
-	var h1 *html.Node
-	if h1, _ = find(node); h1 != nil {
+	fromHeading := false
+	if h1 := findFirstTag(node, "h1"); h1 != nil {
 		title = nodeText(h1)
+		fromHeading = true
 	} else if headTitle := findFirstTag(node, "title"); headTitle != nil {
 		title = nodeText(headTitle)
 	}
@@ -224,10 +482,10 @@ func extractXHTMLBody(content []byte, chapterPath string) (string, string, error
 	var rendered bytes.Buffer
 	for child := body.FirstChild; child != nil; child = child.NextSibling {
 		if err := html.Render(&rendered, child); err != nil {
-			return "", "", fmt.Errorf("render chapter body: %w", err)
+			return "", false, "", fmt.Errorf("render chapter body: %w", err)
 		}
 	}
-	return strings.TrimSpace(title), strings.TrimSpace(rendered.String()), nil
+	return strings.TrimSpace(title), fromHeading, strings.TrimSpace(rendered.String()), nil
 }
 
 // droppedElements are removed together with their content.
