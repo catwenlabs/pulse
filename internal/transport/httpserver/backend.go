@@ -233,6 +233,7 @@ type documentRepository interface {
 	Import(context.Context, document.ImportRequest) (document.Document, error)
 	List(context.Context, string) ([]document.Summary, error)
 	Get(context.Context, document.ID) (document.Document, error)
+	Delete(context.Context, document.ID) error
 	SaveProgress(context.Context, document.ID, document.Progress) error
 	ReadAsset(context.Context, document.ID, string) ([]byte, string, error)
 	ReadOriginal(context.Context, document.ID) ([]byte, string, error)
@@ -272,6 +273,13 @@ func (service *backend) GetDocument(ctx context.Context, id document.ID) (docume
 		return document.Document{}, document.ErrUnavailable
 	}
 	return service.documents.Get(ctx, id)
+}
+
+func (service *backend) DeleteDocument(ctx context.Context, id document.ID) error {
+	if service.documents == nil {
+		return document.ErrUnavailable
+	}
+	return service.documents.Delete(ctx, id)
 }
 
 func (service *backend) SaveDocumentProgress(ctx context.Context, id document.ID, progress document.Progress) error {

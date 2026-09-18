@@ -43,6 +43,7 @@ type fakeBackend struct {
 	importDocument             func(context.Context, document.ImportRequest) (document.Document, error)
 	listDocuments              func(context.Context, string) ([]document.Summary, error)
 	getDocument                func(context.Context, document.ID) (document.Document, error)
+	deleteDocument             func(context.Context, document.ID) error
 	saveProgress               func(context.Context, document.ID, document.Progress) error
 	getDocumentAsset           func(context.Context, document.ID, string) ([]byte, string, error)
 	getDocumentOriginal        func(context.Context, document.ID) ([]byte, string, error)
@@ -200,6 +201,10 @@ func (fake fakeBackend) ListDocuments(ctx context.Context, search string) ([]doc
 
 func (fake fakeBackend) GetDocument(ctx context.Context, id document.ID) (document.Document, error) {
 	return fake.getDocument(ctx, id)
+}
+
+func (fake fakeBackend) DeleteDocument(ctx context.Context, id document.ID) error {
+	return fake.deleteDocument(ctx, id)
 }
 
 func (fake fakeBackend) SaveDocumentProgress(ctx context.Context, id document.ID, progress document.Progress) error {
@@ -1381,6 +1386,9 @@ func completeFakeBackend() fakeBackend {
 		getDocument: func(context.Context, document.ID) (document.Document, error) {
 			return document.Document{}, document.ErrNotFound
 		},
+		deleteDocument: func(context.Context, document.ID) error {
+			return errors.New("unexpected DeleteDocument")
+		},
 		saveProgress: func(context.Context, document.ID, document.Progress) error {
 			return errors.New("unexpected SaveDocumentProgress")
 		},
@@ -1628,6 +1636,43 @@ func TestGetDocument(t *testing.T) {
 	}
 	if fetched.ID != "doc-1" || len(fetched.Chapters) != 1 || fetched.Chapters[0].ContentHTML == "" {
 		t.Errorf("fetched = %+v, want doc-1 with one chapter", fetched)
+	}
+}
+
+func TestDeleteDocument(t *testing.T) {
+	backend := completeFakeBackend()
+	var deleted document.ID
+	backend.deleteDocument = func(_ context.Context, id document.ID) error {
+		deleted = id
+		return nil
+	}
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, httptest.NewRequest(
+		http.MethodDelete, "/api/v1/documents/doc-1", nil,
+	))
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if deleted != "doc-1" {
+		t.Errorf("deleted document = %q, want doc-1", deleted)
+	}
+}
+
+func TestDeleteDocumentNotFound(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.deleteDocument = func(_ context.Context, _ document.ID) error {
+		return document.ErrNotFound
+	}
+	response := httptest.NewRecorder()
+
+	NewHandler(backend).ServeHTTP(response, httptest.NewRequest(
+		http.MethodDelete, "/api/v1/documents/missing", nil,
+	))
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
 

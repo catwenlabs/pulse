@@ -1,10 +1,12 @@
 import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { listDocuments, importDocument, type DocumentSummary } from '../api'
+import { listDocuments, importDocument, deleteDocument, type DocumentSummary } from '../api'
 
 // DocumentsPage is the reading hub's library: imported documents, upload,
-// and the shared search box (title, author, chapter content).
+// and the shared search box (title, author, chapter content). Deleting a
+// document cascades to its chapters, reading progress, and notes, so the
+// row delete uses a two-step confirm.
 export function DocumentsPage({ onOpenDocument }: { onOpenDocument: (id: string) => void }) {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
@@ -29,6 +31,15 @@ export function DocumentsPage({ onOpenDocument }: { onOpenDocument: (id: string)
       setUploadError(cause instanceof Error ? cause.message : '导入失败')
     } finally {
       setUploading(false)
+    }
+  }
+
+  const remove = async (doc: DocumentSummary) => {
+    try {
+      await deleteDocument(doc.id)
+      await queryClient.invalidateQueries({ queryKey: ['documents'] })
+    } catch (cause) {
+      setUploadError(cause instanceof Error ? cause.message : '删除失败')
     }
   }
 
@@ -76,7 +87,7 @@ export function DocumentsPage({ onOpenDocument }: { onOpenDocument: (id: string)
       ) : (
         <ul className="divide-y divide-border rounded-lg border border-border">
           {documents.map((doc) => (
-            <DocumentRow key={doc.id} document={doc} onOpen={onOpenDocument} />
+            <DocumentRow key={doc.id} document={doc} onOpen={onOpenDocument} onDelete={() => void remove(doc)} />
           ))}
         </ul>
       )}
@@ -84,12 +95,21 @@ export function DocumentsPage({ onOpenDocument }: { onOpenDocument: (id: string)
   )
 }
 
-function DocumentRow({ document: doc, onOpen }: { document: DocumentSummary; onOpen: (id: string) => void }) {
+function DocumentRow({
+  document: doc,
+  onOpen,
+  onDelete,
+}: {
+  document: DocumentSummary
+  onOpen: (id: string) => void
+  onDelete: () => void
+}) {
+  const [confirming, setConfirming] = useState(false)
   return (
-    <li>
+    <li className="flex items-center">
       <button
         type="button"
-        className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-accent/50"
+        className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left hover:bg-accent/50"
         onClick={() => onOpen(doc.id)}
       >
         <span className="min-w-0 flex-1">
@@ -98,6 +118,25 @@ function DocumentRow({ document: doc, onOpen }: { document: DocumentSummary; onO
         </span>
         <span className="shrink-0 text-sm text-muted-foreground">{doc.chapter_count} 章</span>
       </button>
+      {confirming ? (
+        <button
+          type="button"
+          className="mr-3 shrink-0 rounded-md border border-destructive/50 px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/10"
+          aria-label={`确认删除 ${doc.title}`}
+          onClick={onDelete}
+        >
+          确认删除
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="mr-3 shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-destructive"
+          aria-label={`删除 ${doc.title}`}
+          onClick={() => setConfirming(true)}
+        >
+          删除
+        </button>
+      )}
     </li>
   )
 }

@@ -6,6 +6,9 @@ import { resolveDocumentAssets } from './documentAssets'
 import { SelectionChatSurface } from './SelectionChatSurface'
 
 const PROGRESS_SAVE_DELAY_MS = 1200
+// Progress is recorded from an anchor line this many pixels below the
+// scrollport top — roughly the first line of readable text.
+const READING_ANCHOR_OFFSET_PX = 80
 
 // DocumentReaderPage renders one book as continuous scrolling chapters with a
 // chapter sidebar, restoring and persisting the reading position (chapter
@@ -69,21 +72,31 @@ function ReaderBody({ document: doc }: { document: Document }) {
     sectionRefs.current.get(index)?.scrollIntoView({ block, behavior: 'auto' })
   }, [])
 
+  // scrollToProgress places the anchor line at the exact point currentProgress
+  // records from: the section top plus the saved fraction of its height.
+  const scrollToProgress = useCallback((chapterIndex: number, scrollRatio: number) => {
+    const container = containerRef.current
+    const section = sectionRefs.current.get(chapterIndex)
+    if (!container || !section) return
+    const sectionRect = section.getBoundingClientRect()
+    const anchorY = container.getBoundingClientRect().top + READING_ANCHOR_OFFSET_PX
+    container.scrollTop += sectionRect.top + scrollRatio * sectionRect.height - anchorY
+  }, [])
+
   // Restore the saved position once on mount.
   useEffect(() => {
     if (restoredRef.current) return
     restoredRef.current = true
-    const progress = doc.progress
-    if (progress && sectionRefs.current.has(progress.chapter_index)) {
-      scrollToChapter(progress.chapter_index)
+    if (doc.progress) {
+      scrollToProgress(doc.progress.chapter_index, doc.progress.scroll_ratio)
     }
-  }, [doc.progress, scrollToChapter])
+  }, [doc.progress, scrollToProgress])
 
   const currentProgress = useCallback(() => {
     const container = containerRef.current
     if (!container) return { chapter_index: 0, scroll_ratio: 0 }
     const sections = [...sectionRefs.current.entries()].sort((left, right) => left[0] - right[0])
-    const anchorY = container.getBoundingClientRect().top + 80
+    const anchorY = container.getBoundingClientRect().top + READING_ANCHOR_OFFSET_PX
     let chapter = 0
     let ratio = 0
     for (const [index, section] of sections) {
@@ -96,27 +109,45 @@ function ReaderBody({ document: doc }: { document: Document }) {
     return { chapter_index: chapter, scroll_ratio: ratio }
   }, [])
 
+  const saveProgressNow = useCallback(() => {
+    if (!containerRef.current) return
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    const progress = currentProgress()
+    const key = `${progress.chapter_index}:${progress.scroll_ratio.toFixed(3)}`
+    if (key === lastSavedRef.current) return
+    lastSavedRef.current = key
+    void saveDocumentProgress(doc.id, progress).catch(() => undefined)
+  }, [currentProgress, doc.id])
+
   const scheduleSave = useCallback(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
-      const progress = currentProgress()
-      const key = `${progress.chapter_index}:${progress.scroll_ratio.toFixed(3)}`
-      if (key === lastSavedRef.current) return
-      lastSavedRef.current = key
-      void saveDocumentProgress(doc.id, progress).catch(() => undefined)
+      saveTimerRef.current = null
+      saveProgressNow()
     }, PROGRESS_SAVE_DELAY_MS)
-  }, [currentProgress, doc.id])
+  }, [saveProgressNow])
 
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
     const onScroll = () => scheduleSave()
+    // pagehide flushes the latest position when the tab closes or navigates
+    // away inside the save debounce window.
+    const onPageHide = () => saveProgressNow()
     container.addEventListener('scroll', onScroll)
+    window.addEventListener('pagehide', onPageHide)
     return () => {
       container.removeEventListener('scroll', onScroll)
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      window.removeEventListener('pagehide', onPageHide)
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
     }
-  }, [scheduleSave])
+  }, [scheduleSave, saveProgressNow])
 
   const chapters = useMemo(() => doc.chapters, [doc.chapters])
 

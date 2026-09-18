@@ -74,14 +74,26 @@ describe('DocumentReaderPage', () => {
     expect(svgImage?.getAttribute('xlink:href')).toBe('/api/v1/documents/doc-1/asset/cover1.jpeg')
   })
 
-  it('restores the saved reading position', async () => {
-    const scrollSpy = vi.fn()
-    Element.prototype.scrollIntoView = scrollSpy
+  it('restores the saved reading position inside the chapter', async () => {
+    // Saved progress: chapter 1 at scroll_ratio 0.5. Mock geometry so the
+    // restore math is observable: container top 0, chapter-1 section top
+    // 1000 height 400 → scrollTop must land at 1000 + 0.5*400 - 80 = 1120.
+    const rect = (top: number, height: number) => ({
+      top, height, bottom: top + height, left: 0, right: 0, width: 0, x: 0, y: 0, toJSON: () => ({}),
+    })
+    const rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const element = this as HTMLElement
+      if (element.dataset?.testid === 'reader-scroll') return rect(0, 800)
+      if (element.dataset?.chapterIndex === '1') return rect(1000, 400)
+      return rect(0, 0)
+    })
     renderPage()
 
     await screen.findByRole('heading', { name: '第八章' })
     await act(async () => {})
-    expect(scrollSpy).toHaveBeenCalled()
+    const container = screen.getByTestId('reader-scroll') as HTMLElement
+    expect(container.scrollTop).toBe(1120)
+    rectSpy.mockRestore()
   })
 
   it('jumps to a chapter from the sidebar', async () => {

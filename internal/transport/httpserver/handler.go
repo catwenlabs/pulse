@@ -60,6 +60,7 @@ type Backend interface {
 	ImportDocument(context.Context, document.ImportRequest) (document.Document, error)
 	ListDocuments(context.Context, string) ([]document.Summary, error)
 	GetDocument(context.Context, document.ID) (document.Document, error)
+	DeleteDocument(context.Context, document.ID) error
 	SaveDocumentProgress(context.Context, document.ID, document.Progress) error
 	GetDocumentAsset(context.Context, document.ID, string) ([]byte, string, error)
 	GetDocumentOriginal(context.Context, document.ID) ([]byte, string, error)
@@ -139,6 +140,7 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("POST /api/v1/documents", importDocument(backend))
 	mux.HandleFunc("GET /api/v1/documents", listDocuments(backend))
 	mux.HandleFunc("GET /api/v1/documents/{id}", getDocument(backend))
+	mux.HandleFunc("DELETE /api/v1/documents/{id}", deleteDocument(backend))
 	mux.HandleFunc("PUT /api/v1/documents/{id}/progress", saveDocumentProgress(backend))
 	mux.HandleFunc("GET /api/v1/documents/{id}/asset/{path...}", getDocumentAsset(backend))
 	mux.HandleFunc("GET /api/v1/documents/{id}/original", getDocumentOriginal(backend))
@@ -1153,6 +1155,16 @@ func getDocument(backend Backend) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, fetched)
+	}
+}
+
+func deleteDocument(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		if err := backend.DeleteDocument(request.Context(), document.ID(request.PathValue("id"))); err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
