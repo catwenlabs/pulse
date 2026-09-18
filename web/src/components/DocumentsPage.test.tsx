@@ -83,4 +83,48 @@ describe('DocumentsPage', () => {
       expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('search=%E5%A4%8D%E6%9D%82%E6%80%A7'))).toBe(true)
     })
   })
+
+  it('deletes a document after a two-step confirm and refreshes the list', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'DELETE') return new Response(null, { status: 204 })
+      return new Response(JSON.stringify([
+        { id: 'doc-1', title: '激荡三十年', chapter_count: 53 },
+      ]), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage()
+
+    await screen.findByText('激荡三十年')
+    const deleteButton = screen.getByRole('button', { name: '删除 激荡三十年' })
+    fireEvent.click(deleteButton)
+    // The first click only arms the confirm; nothing is sent yet.
+    expect(fetchMock.mock.calls.some((call) => call[1]?.method === 'DELETE')).toBe(false)
+
+    fireEvent.click(screen.getByRole('button', { name: '确认删除 激荡三十年' }))
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/api/v1/documents/doc-1') && call[1]?.method === 'DELETE')).toBe(true)
+    })
+    // The list refetches after the delete.
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.filter((call) => call[1]?.method === undefined).length).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  it('shows the server message when the delete fails', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'DELETE') return new Response('{"detail":"document missing"}', { status: 404 })
+      return new Response(JSON.stringify([
+        { id: 'doc-1', title: '激荡三十年', chapter_count: 53 },
+      ]), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage()
+
+    await screen.findByText('激荡三十年')
+    fireEvent.click(screen.getByRole('button', { name: '删除 激荡三十年' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认删除 激荡三十年' }))
+
+    expect(await screen.findByText('document missing')).toBeTruthy()
+  })
 })
