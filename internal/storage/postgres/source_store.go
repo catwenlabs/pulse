@@ -28,11 +28,16 @@ func NewSourceStore(pool *pgxpool.Pool, ciphers ...*security.CredentialCipher) *
 	return store
 }
 
-// sourceColumns is the column list every Source read returns. The trailing scalar
-// subquery computes distinct Story unread counts: Source browsing still exposes
-// Entry rows, but Reader state belongs to the owning Story.
-const sourceColumns = `id, name, driver_kind, locator, normalized_locator, config,
-	secret_ref, enabled, created_at, updated_at, archived_at,
+// sourceBaseColumns is the column prefix shared by every Source read.
+const sourceBaseColumns = `id, name, driver_kind, locator, normalized_locator, config,
+	secret_ref, enabled, created_at, updated_at, archived_at`
+
+// sourceUnreadCountColumn computes distinct Story unread counts with a
+// correlated subquery: Source browsing still exposes Entry rows, but Reader
+// state belongs to the owning Story. The shape suits single-Source reads,
+// where the planner drives from entries(source_id) and probes only that
+// Source's membership edges.
+const sourceUnreadCountColumn = `,
 	(SELECT COUNT(DISTINCT member.story_id)::int
 	 FROM story_entries AS member
 	 JOIN entries AS unread_entry ON unread_entry.id = member.entry_id
@@ -40,6 +45,9 @@ const sourceColumns = `id, name, driver_kind, locator, normalized_locator, confi
 	 WHERE unread_entry.source_id = sources.id
 	   AND unread_story.read_at IS NULL
 	   AND unread_story.hidden_at IS NULL) AS unread_count`
+
+// sourceColumns is the full column list for single-row Source reads.
+const sourceColumns = sourceBaseColumns + sourceUnreadCountColumn
 
 func (store *SourceStore) Create(ctx context.Context, spec source.Spec) (source.Source, error) {
 	validated, err := spec.Validate()
@@ -106,10 +114,27 @@ func (store *SourceStore) Get(ctx context.Context, id source.ID) (source.Source,
 }
 
 func (store *SourceStore) List(ctx context.Context) ([]source.Source, error) {
+	// Unread counts are computed in a single pass over the unread Stories'
+	// membership edges (stories_unread_sort_idx keeps that side proportional
+	// to the backlog) instead of one correlated subquery per Source, each of
+	// which scans that Source's full entry history on every request.
 	rows, err := store.pool.Query(ctx, `
+		WITH unread AS (
+			SELECT
+				entry.source_id,
+				count(DISTINCT member.story_id)::integer AS unread_count
+			FROM stories AS unread_story
+			JOIN story_entries AS member ON member.story_id = unread_story.id
+			JOIN entries AS entry ON entry.id = member.entry_id
+			WHERE unread_story.read_at IS NULL
+			  AND unread_story.hidden_at IS NULL
+			GROUP BY entry.source_id
+		)
 		SELECT
-		`+sourceColumns+`
+			`+sourceBaseColumns+`,
+			coalesce(unread.unread_count, 0)::integer AS unread_count
 		FROM sources
+		LEFT JOIN unread ON unread.source_id = sources.id
 		WHERE archived_at IS NULL
 		ORDER BY navigation_position, lower(name), id
 	`)
