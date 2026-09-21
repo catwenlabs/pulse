@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"os"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -54,6 +55,66 @@ func TestRunIsIdempotent(t *testing.T) {
 	}
 	if count < 4 {
 		t.Errorf("migration count = %d, want at least 4", count)
+	}
+}
+
+func TestRunCreatesReaderStateIndexes(t *testing.T) {
+	databaseURL := os.Getenv("PULSE_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("PULSE_TEST_DATABASE_URL is not set")
+	}
+	pool, err := pgxpool.New(context.Background(), databaseURL)
+	if err != nil {
+		t.Fatalf("open PostgreSQL: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	if err := Run(context.Background(), pool); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	partial := map[string]bool{
+		"stories_unread_sort_idx":  true,
+		"stories_starred_idx":      true,
+		"stories_later_idx":        true,
+		"stories_reader_order_idx": false,
+	}
+	rows, err := pool.Query(context.Background(), `
+		SELECT indexname, indexdef
+		FROM pg_indexes
+		WHERE schemaname = 'public'
+		  AND indexname = ANY($1)
+	`, []string{
+		"stories_unread_sort_idx",
+		"stories_reader_order_idx",
+		"stories_starred_idx",
+		"stories_later_idx",
+	})
+	if err != nil {
+		t.Fatalf("query pg_indexes: %v", err)
+	}
+	defer rows.Close()
+
+	found := make(map[string]string)
+	for rows.Next() {
+		var name, definition string
+		if err := rows.Scan(&name, &definition); err != nil {
+			t.Fatalf("scan pg_indexes row: %v", err)
+		}
+		found[name] = definition
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read pg_indexes: %v", err)
+	}
+	for name, wantPartial := range partial {
+		definition, ok := found[name]
+		if !ok {
+			t.Errorf("index %s missing after migrations", name)
+			continue
+		}
+		if isPartial := strings.Contains(definition, " WHERE "); isPartial != wantPartial {
+			t.Errorf("index %s partial = %v, want %v (definition: %s)", name, isPartial, wantPartial, definition)
+		}
 	}
 }
 

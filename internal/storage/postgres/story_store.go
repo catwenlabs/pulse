@@ -49,17 +49,6 @@ func (store *StoryStore) Search(ctx context.Context, query story.Query) ([]story
 		cursorID = cursor.ID
 	}
 	rows, err := store.pool.Query(ctx, `
-		WITH aggregates AS (
-			SELECT
-				member.story_id,
-				count(*)::integer AS entry_count,
-				count(DISTINCT entry.source_id)::integer AS source_count,
-				min(coalesce(entry.published_at, entry.discovered_at)) AS first_published_at,
-				max(coalesce(entry.published_at, entry.discovered_at)) AS last_published_at
-			FROM story_entries AS member
-			JOIN entries AS entry ON entry.id = member.entry_id
-			GROUP BY member.story_id
-		)
 		SELECT
 			story.id, story.sort_time, story.display_title, story.note,
 			COALESCE((
@@ -75,7 +64,20 @@ func (store *StoryStore) Search(ctx context.Context, query story.Query) ([]story
 			entry.source_title, entry.author, entry.summary, entry.content_html,
 			entry.published_at, entry.discovered_at
 		FROM stories AS story
-		JOIN aggregates AS aggregate ON aggregate.story_id = story.id
+		JOIN LATERAL (
+			-- Per-story aggregate instead of one database-wide GROUP BY: the
+			-- lateral is evaluated only for rows that survive the filters, so
+			-- the LIMIT stops the whole plan instead of aggregating every
+			-- story_entries edge on each page load.
+			SELECT
+				count(*)::integer AS entry_count,
+				count(DISTINCT member_entry.source_id)::integer AS source_count,
+				min(coalesce(member_entry.published_at, member_entry.discovered_at)) AS first_published_at,
+				max(coalesce(member_entry.published_at, member_entry.discovered_at)) AS last_published_at
+			FROM story_entries AS member
+			JOIN entries AS member_entry ON member_entry.id = member.entry_id
+			WHERE member.story_id = story.id
+		) AS aggregate ON true
 		JOIN entries AS entry ON entry.id = story.representative_entry_id
 		WHERE
 			($2 = '' OR (
