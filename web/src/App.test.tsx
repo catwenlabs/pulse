@@ -1857,6 +1857,24 @@ describe('App', () => {
     await waitFor(() => expect(document.title).toBe('(7) Pulse'))
   })
 
+  it.each([
+    { path: '/', link: /全部文章/, heading: '全部文章' },
+    { path: '/starred', link: '收藏', heading: '收藏' },
+    { path: '/later', link: '稍后阅读', heading: '稍后阅读' },
+  ])('scrolls the stream back to the top when re-clicking $heading', async ({ path, link, heading }) => {
+    window.history.replaceState(null, '', path)
+
+    renderApp()
+    await screen.findByRole('heading', { name: heading })
+    await screen.findByText('Reader article')
+    scrollTo.mockClear()
+
+    fireEvent.click(screen.getByRole('link', { name: link }))
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0 })
+    expect(scrollTo.mock.contexts.at(-1)).toHaveAttribute('aria-label', '文章列表')
+  })
+
   it('refreshes source counts after marking an entry read', async () => {
     const defaultFetch = vi.mocked(fetch).getMockImplementation()!
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {

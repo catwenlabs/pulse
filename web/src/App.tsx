@@ -368,6 +368,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '', doc
   const [selectedDigestID, setSelectedDigestID] = useState('')
   const [saveRequest, setSaveRequest] = useState<SaveRequest | null>(() => readSaveRequest())
   const [navigationDropTarget, setNavigationDropTarget] = useState<NavigationDragItem | null>(null)
+  const [readerScrollToken, setReaderScrollToken] = useState(0)
   const isMobile = useMediaQuery('(max-width: 767px)')
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
   const mobileDrawerCloseRef = useRef<HTMLButtonElement>(null)
@@ -691,6 +692,13 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '', doc
     }
   }
 
+  // Re-clicking the current view's navigation entry keeps the same route, so
+  // bump a token to force the stream back to the newest items.
+  function reopenReaderStream() {
+    closeMobileNavigation()
+    setReaderScrollToken((token) => token + 1)
+  }
+
   const activeView = view
   const isReaderView = activeView === 'inbox' || activeView === 'starred' || activeView === 'later'
   const isToolsView = activeView === 'tools'
@@ -825,7 +833,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '', doc
             <Link
               className={navItemClass(activeView === 'inbox' && !selectedSourceID, 'min-h-10 max-md:min-h-11')}
               to="/"
-              onClick={() => closeMobileNavigation()}
+              onClick={reopenReaderStream}
             >
               <NavIcon name="inbox" />全部文章
               <UnreadBadge count={totalUnread} className="ml-auto" />
@@ -998,10 +1006,10 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '', doc
             </nav>
             <div className="m-0 grid gap-2 border-t border-[#d8d4ca] px-2 pb-4 pt-2 text-xs leading-5 text-muted-foreground md:col-start-1 md:row-start-3">
               <IconNavTooltip label="收藏">
-                <Link className={iconNavItemClass(activeView === 'starred')} to="/starred" aria-label="收藏" onClick={() => closeMobileNavigation()}><NavIcon name="star" /></Link>
+                <Link className={iconNavItemClass(activeView === 'starred')} to="/starred" aria-label="收藏" onClick={reopenReaderStream}><NavIcon name="star" /></Link>
               </IconNavTooltip>
               <IconNavTooltip label="稍后阅读">
-                <Link className={iconNavItemClass(activeView === 'later')} to="/later" aria-label="稍后阅读" onClick={() => closeMobileNavigation()}><NavIcon name="clock" /></Link>
+                <Link className={iconNavItemClass(activeView === 'later')} to="/later" aria-label="稍后阅读" onClick={reopenReaderStream}><NavIcon name="clock" /></Link>
               </IconNavTooltip>
               <IconNavTooltip label="文档库">
                 <Link className={iconNavItemClass(activeView === 'documents')} to="/documents" aria-label="文档库" onClick={() => closeMobileNavigation()}><NavIcon name="book" /></Link>
@@ -1211,6 +1219,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '', doc
             refreshSources={refreshSources}
             realtimeSignal={signal}
             realtimeConnectionState={connectionState}
+            scrollToTopToken={readerScrollToken}
           />
         )}
       </main>
@@ -1751,6 +1760,7 @@ function Reader({
   refreshSources,
   realtimeSignal,
   realtimeConnectionState,
+  scrollToTopToken = 0,
 }: {
   view: Exclude<View, 'sources' | 'ai' | 'story' | 'settings' | 'ai-conversations'>
   sourceID: string
@@ -1763,6 +1773,7 @@ function Reader({
   refreshSources: () => void
   realtimeSignal: LibraryRealtimeSignal | null
   realtimeConnectionState: RealtimeConnectionState
+  scrollToTopToken?: number
 }) {
   const navigate = useNavigate()
   const [entries, setEntries] = useState<ReaderEntry[]>([])
@@ -1869,6 +1880,13 @@ function Reader({
     clearReaderNotice()
     entryStreamElement.current?.scrollTo({ top: 0 })
   }, [debouncedSearch, sourceID, view])
+
+  // Re-clicking the "全部文章" navigation entry while already in the inbox
+  // keeps the same route, so the reset effect above never fires. The shell
+  // bumps this token on those clicks to bring the newest items back into view.
+  useEffect(() => {
+    entryStreamElement.current?.scrollTo({ top: 0 })
+  }, [scrollToTopToken])
 
   useEffect(() => {
     if (!readerQuery.data) return
