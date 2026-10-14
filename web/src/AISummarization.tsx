@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, BookOpen, CheckCircle2, ChevronDown, FileText, Loader2, RefreshCw, Sparkles, Star, Tag } from 'lucide-react'
 
 import * as api from './api'
 import type { Digest, DigestPriority, DigestStory, DigestTheme, Entry } from './api'
 import { EntryReader } from './components/EntryReader'
-import { StoryListItem, type StoryListItemChange, type StoryMergeCandidate } from './components/StoryListItem'
+import { StoryListItem, type StoryListItemChange, type StoryListItemRow, type StoryMergeCandidate } from './components/StoryListItem'
 import { isActiveStorySummary, isStoredStorySummary, statusLabels, StorySummaryCard } from './components/storySummary'
 import { Button } from './components/ui/button'
 import { queryKeys } from './query'
@@ -298,33 +298,42 @@ function DigestResult({
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set())
   const [storyNotice, setStoryNotice] = useState('')
   const queryClient = useQueryClient()
-  const mergeCandidates = readableStories.map((story) => ({
+  // Every poll replaces the digest object graph even when values are
+  // unchanged; keying derived props by value keeps the referenced rows'
+  // memo checks passing so polls only re-render the summary sections.
+  const mergeCandidatesKey = JSON.stringify(readableStories.map((story) => [story.story_id, story.title]))
+  const mergeCandidates = useMemo<StoryMergeCandidate[]>(() => readableStories.map((story) => ({
     storyId: story.story_id,
     title: story.title || '无标题',
-  }))
-  const referenceContext: DigestReferenceContext = {
-    digestId: digest.id,
-    mergeCandidates,
-    expandedKeys,
-    toggleExpanded: (referenceKey, open) => setExpandedKeys((current) => {
+  })), [mergeCandidatesKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const toggleExpanded = useCallback((referenceKey: string, open: boolean) => {
+    setExpandedKeys((current) => {
       if (open ? current.has(referenceKey) : !current.has(referenceKey)) return current
       const next = new Set(current)
       if (open) next.add(referenceKey); else next.delete(referenceKey)
       return next
-    }),
-    onChanged: (change) => {
-      // Skip the auto mark-read-on-expand (a read-only patch) so expanding a row
-      // doesn't reload the whole digest card; any other change refreshes it so
-      // availability and counts stay in sync.
-      if (change.kind === 'patched' && Object.keys(change.patch).length === 1 && change.patch.read !== undefined) return
-      void queryClient.invalidateQueries({ queryKey: queryKeys.digest(digest.id) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.digests })
-    },
-    onRemoved: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.digest(digest.id) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.digests })
-    },
-    onError: (message) => setStoryNotice(message),
+    })
+  }, [])
+  const invalidateDigest = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.digest(digest.id) })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.digests })
+  }, [digest.id, queryClient])
+  const handleChanged = useCallback((change: StoryListItemChange) => {
+    // Skip the auto mark-read-on-expand (a read-only patch) so expanding a row
+    // doesn't reload the whole digest card; any other change refreshes it so
+    // availability and counts stay in sync.
+    if (change.kind === 'patched' && Object.keys(change.patch).length === 1 && change.patch.read !== undefined) return
+    invalidateDigest()
+  }, [invalidateDigest])
+  const handleError = useCallback((message: string) => setStoryNotice(message), [])
+  const referenceContext: DigestReferenceContext = {
+    digestId: digest.id,
+    mergeCandidates,
+    expandedKeys,
+    toggleExpanded,
+    onChanged: handleChanged,
+    onRemoved: invalidateDigest,
+    onError: handleError,
   }
   return (
     <section className="ai-result-card" aria-labelledby="digest-result-title" aria-live={processing || refreshing ? 'polite' : undefined}>
@@ -490,28 +499,35 @@ function StoryReferenceList({ ids, storyByID, origin, referenceContext }: { ids:
 }
 
 function StoryReference({ story, referenceKey, referenceContext }: { story: DigestStory; referenceKey: string; referenceContext: DigestReferenceContext }) {
+	const { mergeCandidates, toggleExpanded, onChanged, onRemoved, onError } = referenceContext
+	// Identity-stable callbacks and a value-keyed row keep StoryListItem's memo
+	// effective: digest polls replace the data objects even when nothing
+	// changed, and hundreds of rows re-rendering per poll jank the page.
+	const handleExpandedChange = useCallback((open: boolean) => toggleExpanded(referenceKey, open), [referenceKey, toggleExpanded])
+	const handleRemoved = useCallback(() => onRemoved(story.story_id), [onRemoved, story.story_id])
+	const row = useMemo<StoryListItemRow>(() => ({
+		label: story.label,
+		title: story.title || '无标题',
+		// Only multi-source stories carry distinct source info; a single source's
+		// source_title is the article title itself, so showing it would duplicate
+		// the title column.
+		sourceLabel: story.source_count > 1 ? `${story.source_count} 个来源` : '',
+		timestamp: story.sort_time ?? '',
+		read: false,
+	}), [story.label, story.title, story.source_count, story.sort_time])
 	if (!story.story_id || !story.available) {
 		return <span className="ai-reference ai-reference-unavailable">{story.label} · {story.title || '来源 Story 已不可用'}</span>
 	}
   return (
     <StoryListItem
       storyId={story.story_id}
-      row={{
-        label: story.label,
-        title: story.title || '无标题',
-        // Only multi-source stories carry distinct source info; a single source's
-        // source_title is the article title itself, so showing it would duplicate
-        // the title column.
-        sourceLabel: story.source_count > 1 ? `${story.source_count} 个来源` : '',
-        timestamp: story.sort_time ?? '',
-        read: false,
-      }}
+      row={row}
       expanded={referenceContext.expandedKeys.has(referenceKey)}
-      onExpandedChange={(open) => referenceContext.toggleExpanded(referenceKey, open)}
-      mergeCandidates={referenceContext.mergeCandidates}
-      onChanged={referenceContext.onChanged}
-      onRemoved={() => referenceContext.onRemoved(story.story_id)}
-      onError={referenceContext.onError}
+      onExpandedChange={handleExpandedChange}
+      mergeCandidates={mergeCandidates}
+      onChanged={onChanged}
+      onRemoved={handleRemoved}
+      onError={onError}
     />
   )
 }

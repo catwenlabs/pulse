@@ -194,9 +194,16 @@ func (store *EntryStore) SearchSourceEntryPage(ctx context.Context, query entry.
 	state := strings.TrimSpace(query.State)
 	tag := strings.TrimSpace(query.Tag)
 	sourceID := strings.TrimSpace(string(query.SourceID))
-	total, counts, err := store.sourceReaderCounts(ctx, search, state, tag, sourceID)
-	if err != nil {
-		return story.SourceEntryPage{}, err
+	// Whole-table reader counts only make sense on first pages; cursor pages
+	// skip the aggregate and carry zero counts like the story page does.
+	var total int
+	var counts story.ReaderCounts
+	if strings.TrimSpace(query.Cursor) == "" {
+		var err error
+		total, counts, err = store.sourceReaderCounts(ctx, search, state, tag, sourceID)
+		if err != nil {
+			return story.SourceEntryPage{}, err
+		}
 	}
 	query.Limit++
 	items, err := store.searchSourceEntries(ctx, query, true)

@@ -131,7 +131,7 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 
 	if backend == nil {
 		registerWeb(mux, web)
-		return mux
+		return withGzip(mux)
 	}
 	if hub != nil {
 		mux.HandleFunc("GET /api/v1/events", streamLibraryChanges(hub))
@@ -204,7 +204,7 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("GET /api/v1/export/config", exportConfig(backend))
 	registerAIChatRoutes(mux, backend)
 	registerWeb(mux, web)
-	return mux
+	return withGzip(mux)
 }
 
 func listStories(backend Backend) http.HandlerFunc {
