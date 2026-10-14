@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { memo, useEffect, useRef, useState, type RefObject } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, MoreHorizontal, Sparkles, X } from 'lucide-react'
@@ -76,7 +76,10 @@ function projectEntry(entry: Entry, story: Story): Entry & { display_title: stri
   }
 }
 
-export function StoryListItem({
+// memo keeps digest polling (which swaps the parent's data object every
+// interval) from re-rendering hundreds of collapsed rows; props are stable
+// except where a parent deliberately changes them.
+export const StoryListItem = memo(function StoryListItem({
   storyId,
   row,
   expanded,
@@ -661,4 +664,4 @@ export function StoryListItem({
       </Dialog>
     </article>
   )
-}
+})

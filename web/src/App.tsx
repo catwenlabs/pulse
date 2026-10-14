@@ -1805,7 +1805,6 @@ function Reader({
   const readerQuery = useInfiniteQuery<ReaderPage, Error, InfiniteData<ReaderPage, string | undefined>, typeof readerKey, string | undefined>({
     queryKey: readerKey,
     initialPageParam: undefined as string | undefined,
-    refetchOnMount: 'always',
     queryFn: ({ pageParam }) => {
       const query = {
         q: debouncedSearch,
@@ -1821,9 +1820,12 @@ function Reader({
     getNextPageParam: (lastPage) => lastPage.next_cursor || undefined,
   })
   const serverPages = readerQuery.data?.pages ?? []
-  const lastPage = serverPages[serverPages.length - 1]
-  const totalCount = lastPage
-    ? ('entries' in lastPage ? lastPage.total_entries : lastPage.total_stories)
+  // Reader counts and totals are only computed on the page fetched without a
+  // cursor; later cursor pages carry zeros, so the counts always come from
+  // the first page.
+  const countsPage = serverPages[0]
+  const totalCount = countsPage
+    ? ('entries' in countsPage ? countsPage.total_entries : countsPage.total_stories)
     : 0
   const loading = readerQuery.isPending
   const loadingMore = readerQuery.isFetchingNextPage

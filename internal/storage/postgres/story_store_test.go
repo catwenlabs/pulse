@@ -650,8 +650,13 @@ func TestReaderPagesUseExactCountsAndCursors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SearchPage() second error = %v", err)
 	}
-	if len(second.Stories) != 1 || second.NextCursor != "" || second.TotalStories != 3 {
+	// Cursor pages skip the whole-table reader aggregate: counts and totals
+	// are zero, and clients reuse the numbers from their first page.
+	if len(second.Stories) != 1 || second.NextCursor != "" || second.TotalStories != 0 {
 		t.Fatalf("second Story page = %+v", second)
+	}
+	if second.ReaderCounts.UnreadStories != 0 {
+		t.Fatalf("second Story page counts = %+v, want zero", second.ReaderCounts)
 	}
 	if first.Stories[0].ID == second.Stories[0].ID || first.Stories[1].ID == second.Stories[0].ID {
 		t.Fatalf("cursor returned a duplicate Story: first=%+v second=%+v", first.Stories, second.Stories)
@@ -673,6 +678,9 @@ func TestReaderPagesUseExactCountsAndCursors(t *testing.T) {
 	}
 	if len(entryPage2.Entries) != 1 || entryPage2.NextCursor != "" {
 		t.Fatalf("second Source Entry page = %+v", entryPage2)
+	}
+	if entryPage2.TotalEntries != 0 {
+		t.Fatalf("second Source Entry page total = %d, want zero on cursor pages", entryPage2.TotalEntries)
 	}
 }
 

@@ -386,10 +386,14 @@ func (store *AIStore) ListDigests(ctx context.Context, limit int) ([]ai.Digest, 
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
+	// Metadata only: the history list renders status, scope, and counts. The
+	// generated text (overview, themes, priorities, omissions) is fetched per
+	// digest via GetDigest; carrying it here repeated the largest payloads in
+	// the API on every list and every status poll.
 	rows, err := store.pool.Query(ctx, `
-		SELECT id, mode, status, story_count, start_at, end_at, overview,
-		       themes, priorities, omissions, provider, model, prompt_version,
-		       input_fingerprint, error, created_at, updated_at
+		SELECT id, mode, status, story_count, start_at, end_at,
+		       provider, model, prompt_version, input_fingerprint,
+		       error, created_at, updated_at
 		FROM ai_digests
 		ORDER BY created_at DESC, id DESC
 		LIMIT $1
@@ -400,8 +404,12 @@ func (store *AIStore) ListDigests(ctx context.Context, limit int) ([]ai.Digest, 
 	defer rows.Close()
 	items := make([]ai.Digest, 0, limit)
 	for rows.Next() {
-		item, err := scanDigest(rows)
-		if err != nil {
+		var item ai.Digest
+		if err := rows.Scan(
+			&item.ID, &item.Mode, &item.Status, &item.StoryCount, &item.StartAt, &item.EndAt,
+			&item.Provider, &item.Model, &item.PromptVersion, &item.InputFingerprint,
+			&item.Error, &item.CreatedAt, &item.UpdatedAt,
+		); err != nil {
 			return nil, fmt.Errorf("scan Digest: %w", err)
 		}
 		items = append(items, item)

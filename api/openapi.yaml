@@ -617,7 +617,11 @@ paths:
             default: 50
       responses:
         "200":
-          description: Persisted Digest history
+          description: >-
+            Persisted Digest history as metadata records. Generated text
+            (overview, themes, priorities, omissions) and Story references are
+            only returned by GET /digests/{digestId}; list rows omit them so
+            status polling stays small.
           content:
             application/json:
               schema:
@@ -1767,6 +1771,11 @@ components:
     SourceEntryPage:
       type: object
       required: [entries, total_entries, reader_counts]
+      description: >-
+        Source Entry list page. total_entries and reader_counts aggregate the
+        whole library and are only computed on the first page (requests without
+        a cursor); cursor pages carry zeros and clients reuse the first page's
+        numbers.
       properties:
         entries:
           type: array
@@ -1775,7 +1784,7 @@ components:
         total_entries:
           type: integer
           minimum: 0
-          description: Exact number of Entry rows matching the Source query.
+          description: Exact number of Entry rows matching the Source query. Zero on cursor pages.
         reader_counts:
           $ref: "#/components/schemas/ReaderCounts"
         next_cursor:
@@ -1866,6 +1875,11 @@ components:
     StoryPage:
       type: object
       required: [stories, total_stories, reader_counts]
+      description: >-
+        Story list page. total_stories and reader_counts aggregate the whole
+        library and are only computed on the first page (requests without a
+        cursor); cursor pages carry zeros and clients reuse the first page's
+        numbers.
       properties:
         stories:
           type: array
@@ -1874,7 +1888,7 @@ components:
         total_stories:
           type: integer
           minimum: 0
-          description: Exact number of Stories matching the active query.
+          description: Exact number of Stories matching the active query. Zero on cursor pages.
         reader_counts:
           $ref: "#/components/schemas/ReaderCounts"
         next_cursor:

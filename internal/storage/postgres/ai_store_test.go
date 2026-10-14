@@ -102,6 +102,22 @@ func TestAIStorePersistsStorySummaryAndDigestSnapshots(t *testing.T) {
 	if gotDigest.Stories[0].SortTime == nil || gotDigest.Stories[0].SourceTitle == "" {
 		t.Fatalf("Digest Story enrichment = %+v, want non-nil SortTime and non-empty SourceTitle", gotDigest.Stories[0])
 	}
+	if gotDigest.Overview == "" || len(gotDigest.Themes) == 0 {
+		t.Fatalf("GetDigest() generated text = %q themes = %+v, want them persisted", gotDigest.Overview, gotDigest.Themes)
+	}
+
+	// The history list is metadata only; generated text stays behind GetDigest
+	// so status polling never re-downloads whole digests.
+	listed, err := store.ListDigests(ctx, 10)
+	if err != nil || len(listed) != 1 || listed[0].ID != digest.ID {
+		t.Fatalf("ListDigests() = %+v, error = %v", listed, err)
+	}
+	if listed[0].Status != ai.StatusCompleted || listed[0].StoryCount != len(items) {
+		t.Fatalf("ListDigests() metadata = %+v", listed[0])
+	}
+	if listed[0].Overview != "" || listed[0].Themes != nil || listed[0].Priorities != nil || listed[0].Omissions != nil || listed[0].Stories != nil {
+		t.Fatalf("ListDigests() generated text = %+v, want metadata only", listed[0])
+	}
 }
 
 func TestStoryStoreMarkDigestReadMarksSnapshotStories(t *testing.T) {

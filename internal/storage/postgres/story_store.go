@@ -220,9 +220,17 @@ func (store *StoryStore) SearchPage(ctx context.Context, query story.Query) (sto
 	state := strings.TrimSpace(query.State)
 	tag := strings.TrimSpace(query.Tag)
 	sourceID := strings.TrimSpace(query.SourceID)
-	total, counts, err := store.storyReaderCounts(ctx, search, state, tag, sourceID)
-	if err != nil {
-		return story.Page{}, err
+	// Reader counts aggregate the whole stories table, so they are only
+	// computed for first pages. Cursor pages carry zero counts; clients read
+	// the authoritative numbers from the page they loaded without a cursor.
+	var total int
+	var counts story.ReaderCounts
+	if strings.TrimSpace(query.Cursor) == "" {
+		var err error
+		total, counts, err = store.storyReaderCounts(ctx, search, state, tag, sourceID)
+		if err != nil {
+			return story.Page{}, err
+		}
 	}
 	query.Limit++
 	items, err := store.Search(ctx, query)
