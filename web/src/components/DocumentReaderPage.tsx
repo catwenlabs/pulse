@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { createDocumentNote, getDocument, listDocumentNotes, saveDocumentProgress, type Document, type DocumentNote } from '../api'
 import { resolveDocumentAssets } from './documentAssets'
 import { SelectionChatSurface } from './SelectionChatSurface'
+import { ReaderTypographyButton, readerTypographyStyle, useReaderTypography } from './readerTypography'
 
 const PROGRESS_SAVE_DELAY_MS = 1200
 // Progress is recorded from an anchor line this many pixels below the
@@ -67,6 +68,8 @@ function ReaderBody({ document: doc }: { document: Document }) {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSavedRef = useRef('')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const typographyControls = useReaderTypography()
+  const contentStyle = useMemo(() => readerTypographyStyle(typographyControls.typography), [typographyControls.typography])
 
   const scrollToChapter = useCallback((index: number, block: ScrollLogicalPosition = 'start') => {
     sectionRefs.current.get(index)?.scrollIntoView({ block, behavior: 'auto' })
@@ -267,7 +270,8 @@ function ReaderBody({ document: doc }: { document: Document }) {
                 }}
               >
                 <div
-                  className="document-content leading-7"
+                  className="document-content"
+                  style={contentStyle}
                   dangerouslySetInnerHTML={{ __html: resolveDocumentAssets(chapter.content_html, doc.id) }}
                 />
               </SelectionChatSurface>
@@ -275,6 +279,7 @@ function ReaderBody({ document: doc }: { document: Document }) {
           ))}
         </div>
       </main>
+      <ReaderTypographyButton controls={typographyControls} />
     </div>
   )
 }
