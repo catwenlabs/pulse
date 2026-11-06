@@ -48,6 +48,8 @@ type fakeBackend struct {
 	getDocumentAsset           func(context.Context, document.ID, string) ([]byte, string, error)
 	getDocumentOriginal        func(context.Context, document.ID) ([]byte, string, error)
 	createDocumentNote         func(context.Context, document.ID, document.NoteInput) (document.Note, error)
+	updateDocumentNote         func(context.Context, string, document.NoteTextInput) (document.Note, error)
+	deleteDocumentNote         func(context.Context, string) error
 	listDocumentNotes          func(context.Context, document.ID) ([]document.Note, error)
 	importDocumentNotes        func(context.Context, document.NoteImportFile) (document.NoteImportSummary, error)
 	listAllDocumentNotes       func(context.Context, string) ([]document.Note, error)
@@ -221,6 +223,14 @@ func (fake fakeBackend) GetDocumentOriginal(ctx context.Context, id document.ID)
 
 func (fake fakeBackend) CreateDocumentNote(ctx context.Context, id document.ID, input document.NoteInput) (document.Note, error) {
 	return fake.createDocumentNote(ctx, id, input)
+}
+
+func (fake fakeBackend) UpdateDocumentNote(ctx context.Context, noteID string, input document.NoteTextInput) (document.Note, error) {
+	return fake.updateDocumentNote(ctx, noteID, input)
+}
+
+func (fake fakeBackend) DeleteDocumentNote(ctx context.Context, noteID string) error {
+	return fake.deleteDocumentNote(ctx, noteID)
 }
 
 func (fake fakeBackend) ListDocumentNotes(ctx context.Context, id document.ID) ([]document.Note, error) {
@@ -1871,6 +1881,83 @@ func TestLinkDocumentNote(t *testing.T) {
 	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodPut, "/api/v1/documents/notes/note-1/link", body(t, map[string]any{
 		"document_id": "doc-9",
 	})))
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("missing-note status = %d, want 404", resp.Code)
+	}
+}
+
+func TestUpdateDocumentNote(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.updateDocumentNote = func(_ context.Context, noteID string, input document.NoteTextInput) (document.Note, error) {
+		if noteID != "note-1" {
+			t.Errorf("noteID = %q, want note-1", noteID)
+		}
+		if input.Text != "后补的想法" {
+			t.Errorf("input = %+v, want 后补的想法", input)
+		}
+		return document.Note{ID: noteID, DocumentID: "doc-1", ChapterIndex: 2, Highlight: "重要段落", Text: input.Text}, nil
+	}
+
+	resp := httptest.NewRecorder()
+	newHandler(backend, nil, nil).ServeHTTP(resp, httptest.NewRequest(http.MethodPut, "/api/v1/notes/note-1", body(t, map[string]any{
+		"note": "后补的想法",
+	})))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+	var updated document.Note
+	if err := json.NewDecoder(resp.Body).Decode(&updated); err != nil {
+		t.Fatalf("decode updated: %v", err)
+	}
+	if updated.ID != "note-1" || updated.Text != "后补的想法" || updated.Highlight != "重要段落" {
+		t.Errorf("updated = %+v", updated)
+	}
+
+	backend.updateDocumentNote = func(context.Context, string, document.NoteTextInput) (document.Note, error) {
+		return document.Note{}, document.ErrNotFound
+	}
+	resp = httptest.NewRecorder()
+	newHandler(backend, nil, nil).ServeHTTP(resp, httptest.NewRequest(http.MethodPut, "/api/v1/notes/note-1", body(t, map[string]any{
+		"note": "x",
+	})))
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("missing-note status = %d, want 404", resp.Code)
+	}
+}
+
+func TestUpdateDocumentNoteRejectsOversizedText(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.updateDocumentNote = func(context.Context, string, document.NoteTextInput) (document.Note, error) {
+		t.Fatal("update must not run for an invalid payload")
+		return document.Note{}, nil
+	}
+
+	resp := httptest.NewRecorder()
+	newHandler(backend, nil, nil).ServeHTTP(resp, httptest.NewRequest(http.MethodPut, "/api/v1/notes/note-1",
+		bytes.NewBufferString(`{"note":"`+strings.Repeat("字", document.MaxNoteTextCharacters+1)+`"}`)))
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", resp.Code)
+	}
+}
+
+func TestDeleteDocumentNote(t *testing.T) {
+	backend := completeFakeBackend()
+	backend.deleteDocumentNote = func(_ context.Context, noteID string) error {
+		if noteID != "note-1" {
+			t.Errorf("noteID = %q, want note-1", noteID)
+		}
+		return nil
+	}
+
+	resp := httptest.NewRecorder()
+	newHandler(backend, nil, nil).ServeHTTP(resp, httptest.NewRequest(http.MethodDelete, "/api/v1/notes/note-1", nil))
+	if resp.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.Code)
+	}
+
+	backend.deleteDocumentNote = func(context.Context, string) error { return document.ErrNotFound }
+	resp = httptest.NewRecorder()
+	newHandler(backend, nil, nil).ServeHTTP(resp, httptest.NewRequest(http.MethodDelete, "/api/v1/notes/note-1", nil))
 	if resp.Code != http.StatusNotFound {
 		t.Fatalf("missing-note status = %d, want 404", resp.Code)
 	}

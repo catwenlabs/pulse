@@ -96,6 +96,24 @@ type NoteInput struct {
 	Color        string `json:"highlight_color,omitempty"`
 }
 
+// MaxNoteTextCharacters bounds the personal note attached to a highlight.
+const MaxNoteTextCharacters = 10000
+
+// NoteTextInput carries the editable part of an existing note: highlights
+// are saved instantly while reading and the note is filled in afterwards.
+type NoteTextInput struct {
+	Text string `json:"note"`
+}
+
+// Validate checks the note text bounds. Empty text is valid: it clears the
+// note.
+func (input NoteTextInput) Validate() error {
+	if len([]rune(strings.TrimSpace(input.Text))) > MaxNoteTextCharacters {
+		return &ValidationError{Field: "note", Message: "must not exceed " + strconv.Itoa(MaxNoteTextCharacters) + " characters"}
+	}
+	return nil
+}
+
 // Validate checks the note bounds.
 func (input NoteInput) Validate() error {
 	if input.ChapterIndex < 0 {

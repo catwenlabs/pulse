@@ -1011,6 +1011,44 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/DocumentNote"
+  /notes/{noteId}:
+    parameters:
+      - name: noteId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: updateDocumentNote
+      summary: Rewrite the personal note of an existing highlight
+      description: >
+        Highlights are saved instantly while reading; the note text is
+        filled in or edited afterwards through this endpoint.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentNoteUpdate"
+      responses:
+        "200":
+          description: Updated note
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentNote"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteDocumentNote
+      summary: Remove one highlight and its note
+      responses:
+        "204":
+          description: Note deleted
+        "404":
+          $ref: "#/components/responses/Problem"
   /documents:
     post:
       operationId: importDocument
@@ -2485,6 +2523,13 @@ components:
           type: string
         highlight_color:
           type: string
+    DocumentNoteUpdate:
+      type: object
+      required: [note]
+      properties:
+        note:
+          type: string
+          maxLength: 10000
     DocumentNote:
       type: object
       required: [id, chapter_index, highlight]
