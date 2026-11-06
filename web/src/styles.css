@@ -435,7 +435,8 @@
   .reader-state { @apply p-[30px] text-center text-xs text-muted-foreground; }
 }
 
-/* External Entry HTML is the only intentionally selector-based content surface. */
+/* Selector-based content surfaces: external Entry HTML (.entry-prose) and
+   imported Document chapter HTML (.document-content). */
 @layer components {
   .entry-prose { @apply mt-8 break-words font-serif text-[19px] leading-[1.75] text-[#403e38] max-md:text-lg max-md:leading-[1.72]; }
   .entry-prose > :first-child { margin-top: 0; }
@@ -464,6 +465,52 @@
   .entry-prose th, .entry-prose td { padding: 9px 11px; border: 1px solid #ddd9cf; text-align: left; }
   .entry-prose th { background: #f2efe8; }
   .entry-prose hr { margin: 2.2em 0; border: 0; border-top: 1px solid var(--color-border); }
+}
+
+/* Imported Document chapters (EPUB/TXT/Markdown): book typography with a
+   two-character first-line indent, spaced paragraphs, and headings set apart
+   from the serif body. Chapter HTML is sanitized at import; these rules own
+   the reading style regardless of publisher classes (their stylesheets are
+   not imported). */
+@layer components {
+  .document-content { @apply break-words font-serif text-[17px]; }
+  .document-content > :first-child { margin-top: 0; }
+  .document-content > :last-child { margin-bottom: 0; }
+  /* Chinese book convention: body paragraphs open indented two characters. */
+  .document-content p { margin: 0 0 1em; text-indent: 2em; }
+  .document-content p:has(> img:only-child) { text-indent: 0; }
+  .document-content blockquote p, .document-content li p, .document-content figcaption { text-indent: 0; }
+  .document-content h1, .document-content h2, .document-content h3, .document-content h4, .document-content h5, .document-content h6 {
+    margin: 1.6em 0 .6em;
+    color: #2f2d28;
+    font-family: var(--font-sans);
+    font-weight: 650;
+    line-height: 1.35;
+    letter-spacing: -.012em;
+  }
+  .document-content h1 { font-size: 1.45em; }
+  .document-content h2 { font-size: 1.28em; }
+  .document-content h3 { font-size: 1.14em; }
+  .document-content h4, .document-content h5, .document-content h6 { font-size: 1em; }
+  .document-content blockquote { margin: 1.2em 0; padding: .2em 0 .2em 1.1em; border-left: 3px solid #d8a28e; color: #656158; }
+  .document-content blockquote p { margin-bottom: .6em; }
+  .document-content blockquote p:last-child { margin-bottom: 0; }
+  .document-content ul, .document-content ol { margin: 1em 0; padding-left: 1.6em; }
+  .document-content ul { list-style: disc; }
+  .document-content ol { list-style: decimal; }
+  .document-content li { margin: .4em 0; }
+  .document-content li p { margin: .2em 0; }
+  .document-content a { color: #a84326; text-decoration-color: rgba(168,67,38,.35); text-underline-offset: .18em; }
+  .document-content img { display: block; width: auto; max-width: 100%; height: auto; margin: 1.2em auto; border-radius: 8px; background: #f0eee8; }
+  .document-content figure { margin: 1.2em 0; text-align: center; }
+  .document-content figure img { margin-bottom: .5em; }
+  .document-content figcaption { color: #737067; font: 13px/1.6 var(--font-sans); }
+  .document-content hr { margin: 2.2em auto; border: 0; border-top: 1px solid var(--color-border); }
+  .document-content pre { max-width: 100%; overflow-x: auto; padding: 14px 16px; border: 1px solid #dedbd2; border-radius: 8px; color: #34322d; background: #f3f1eb; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .document-content :not(pre) > code { padding: .12em .35em; border-radius: 4px; color: #8c3d26; background: #f0e9e3; font: .82em ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .document-content table { display: block; width: 100%; overflow-x: auto; border-collapse: collapse; font: 13px/1.6 var(--font-sans); }
+  .document-content th, .document-content td { padding: 8px 10px; border: 1px solid #ddd9cf; text-align: left; }
+  .document-content th { background: #f2efe8; }
 }
 
 @media (prefers-reduced-motion: reduce) {
