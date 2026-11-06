@@ -506,6 +506,13 @@
   .document-content figure img { margin-bottom: .5em; }
   .document-content figcaption { color: #737067; font: 13px/1.6 var(--font-sans); }
   .document-content hr { margin: 2.2em auto; border: 0; border-top: 1px solid var(--color-border); }
+  .document-content mark.document-highlight {
+    color: inherit;
+    background-color: rgb(253 230 138 / .55);
+    border-radius: 2px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
   .document-content pre { max-width: 100%; overflow-x: auto; padding: 14px 16px; border: 1px solid #dedbd2; border-radius: 8px; color: #34322d; background: #f3f1eb; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
   .document-content :not(pre) > code { padding: .12em .35em; border-radius: 4px; color: #8c3d26; background: #f0e9e3; font: .82em ui-monospace, SFMono-Regular, Menlo, monospace; }
   .document-content table { display: block; width: 100%; overflow-x: auto; border-collapse: collapse; font: 13px/1.6 var(--font-sans); }

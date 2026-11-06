@@ -18,6 +18,7 @@ export function SelectionChatSurface({
   label,
   context,
   onHighlight,
+  onUnhighlight,
 }: {
   children: ReactNode
   label?: string
@@ -26,6 +27,9 @@ export function SelectionChatSurface({
   context?: ConversationContext
   /** Adds a 划线 toolbar action writing the selection as a document note. */
   onHighlight?: (selection: string) => void
+  /** Swaps the built-in action for 取消划线 when the selection sits inside an
+      existing highlight mark. */
+  onUnhighlight?: (noteId: string) => void
 }) {
   const toolsQuery = useQuery({
     queryKey: queryKeys.chatTools,
@@ -47,6 +51,7 @@ export function SelectionChatSurface({
         onSelect={handleSelect}
         label={label}
         actions={onHighlight ? [{ label: '划线', onSelect: onHighlight }] : []}
+        onUnhighlight={onUnhighlight}
       >
         {children}
       </SelectionTarget>

@@ -341,6 +341,42 @@ func matchImportedBook(ctx context.Context, tx pgx.Tx, entry document.NoteImport
 	return id, nil
 }
 
+// UpdateNoteText rewrites the personal note of an existing highlight and
+// returns the updated note. Highlights are written instantly while reading;
+// the note is filled in afterwards through this method.
+func (store *DocumentStore) UpdateNoteText(ctx context.Context, noteID string, input document.NoteTextInput) (document.Note, error) {
+	if err := input.Validate(); err != nil {
+		return document.Note{}, err
+	}
+	var note document.Note
+	row := store.pool.QueryRow(ctx, `
+		UPDATE document_notes SET note = $2
+		WHERE id = $1::uuid
+		RETURNING id, document_id, book_identifier, book_title, book_author,
+		       chapter_index, location, highlight, note, highlight_color, source, highlighted_at
+	`, noteID, strings.TrimSpace(input.Text))
+	note, err := scanNote(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return document.Note{}, document.ErrNotFound
+	}
+	if err != nil {
+		return document.Note{}, fmt.Errorf("update document note: %w", err)
+	}
+	return note, nil
+}
+
+// DeleteNote removes one highlight by id. Missing notes are not found.
+func (store *DocumentStore) DeleteNote(ctx context.Context, noteID string) error {
+	tag, err := store.pool.Exec(ctx, `DELETE FROM document_notes WHERE id = $1::uuid`, noteID)
+	if err != nil {
+		return fmt.Errorf("delete document note: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return document.ErrNotFound
+	}
+	return nil
+}
+
 // LinkNote manually assigns one unmatched imported note to a document.
 // Already-linked or missing notes, and missing documents, are not found.
 func (store *DocumentStore) LinkNote(ctx context.Context, noteID string, id document.ID) error {

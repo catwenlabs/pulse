@@ -238,6 +238,8 @@ type documentRepository interface {
 	ReadAsset(context.Context, document.ID, string) ([]byte, string, error)
 	ReadOriginal(context.Context, document.ID) ([]byte, string, error)
 	CreateNote(context.Context, document.ID, document.NoteInput) (document.Note, error)
+	UpdateNoteText(context.Context, string, document.NoteTextInput) (document.Note, error)
+	DeleteNote(context.Context, string) error
 	ListNotes(context.Context, document.ID) ([]document.Note, error)
 	ImportNotes(context.Context, document.NoteImportFile) (document.NoteImportSummary, error)
 	ListUnmatchedNotes(context.Context) ([]document.Note, error)
@@ -308,6 +310,20 @@ func (service *backend) CreateDocumentNote(ctx context.Context, id document.ID, 
 		return document.Note{}, document.ErrUnavailable
 	}
 	return service.documents.CreateNote(ctx, id, input)
+}
+
+func (service *backend) UpdateDocumentNote(ctx context.Context, noteID string, input document.NoteTextInput) (document.Note, error) {
+	if service.documents == nil {
+		return document.Note{}, document.ErrUnavailable
+	}
+	return service.documents.UpdateNoteText(ctx, noteID, input)
+}
+
+func (service *backend) DeleteDocumentNote(ctx context.Context, noteID string) error {
+	if service.documents == nil {
+		return document.ErrUnavailable
+	}
+	return service.documents.DeleteNote(ctx, noteID)
 }
 
 func (service *backend) ListDocumentNotes(ctx context.Context, id document.ID) ([]document.Note, error) {

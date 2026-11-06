@@ -73,6 +73,46 @@ describe('SelectionTarget', () => {
     expect(screen.getByRole('toolbar')).toBeTruthy()
   })
 
+  it('swaps 划线 for 取消划线 when the selection sits inside a highlight mark', () => {
+    const onHighlight = vi.fn()
+    const onUnhighlight = vi.fn()
+    const { container } = render(
+      <SelectionTarget
+        tools={[]}
+        onSelect={vi.fn()}
+        actions={[{ label: '划线', onSelect: onHighlight }]}
+        onUnhighlight={onUnhighlight}
+      >
+        <p><mark className="document-highlight" data-note-id="note-7">划过的句子</mark></p>
+      </SelectionTarget>,
+    )
+    const mark = container.querySelector('mark') as HTMLElement
+    const textNode = mark.firstChild as Text
+    const range = {
+      getBoundingClientRect: () => ({ top: 100, left: 100, width: 40, height: 20, right: 140, bottom: 120, x: 100, y: 100, toJSON: () => ({}) }),
+      startContainer: textNode,
+      endContainer: textNode,
+    }
+    vi.stubGlobal('getSelection', () => ({
+      isCollapsed: false,
+      toString: () => '划过的句子',
+      anchorNode: textNode,
+      getRangeAt: () => range,
+      removeAllRanges: () => {},
+    }))
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: false, media: query,
+      addEventListener: () => {}, removeEventListener: () => {},
+    }))
+    fireSelectionChange()
+
+    expect(screen.queryByRole('button', { name: '划线' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '取消划线' }))
+    expect(onUnhighlight).toHaveBeenCalledWith('note-7')
+    expect(onHighlight).not.toHaveBeenCalled()
+    expect(screen.queryByRole('toolbar')).toBeNull()
+  })
+
   it('shows tools for a selection inside the target and reports the selection', () => {
     const onSelect = vi.fn()
     const { container } = render(

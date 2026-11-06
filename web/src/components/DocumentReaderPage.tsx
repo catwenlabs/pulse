@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
-import { createDocumentNote, getDocument, listDocumentNotes, saveDocumentProgress, type Document, type DocumentNote } from '../api'
+import { createDocumentNote, deleteDocumentNote, getDocument, listDocumentNotes, saveDocumentProgress, updateDocumentNote, type Document, type DocumentNote } from '../api'
+import { highlightContentHtml, normalizePassage, type HighlightPassage } from '../lib/documentHighlights'
 import { resolveDocumentAssets } from './documentAssets'
 import { SelectionChatSurface } from './SelectionChatSurface'
 import { ReaderTypographyButton, readerTypographyStyle, useReaderTypography } from './readerTypography'
@@ -37,30 +38,77 @@ function ReaderBody({ document: doc }: { document: Document }) {
     queryFn: () => listDocumentNotes(doc.id),
   })
   const [createdNotes, setCreatedNotes] = useState<DocumentNote[]>([])
-  const notes = useMemo(() => [...(notesQuery.data ?? []), ...createdNotes], [notesQuery.data, createdNotes])
+  // Note edits applied on top of query data and created notes, keyed by id.
+  const [noteRevisions, setNoteRevisions] = useState<Map<string, DocumentNote>>(() => new Map())
+  // Note ids removed while this reader is open; filtered from every list.
+  const [deletedNoteIds, setDeletedNoteIds] = useState<Set<string>>(() => new Set())
+  const withRevisions = useCallback(
+    (note: DocumentNote) => noteRevisions.get(note.id) ?? note,
+    [noteRevisions],
+  )
+  const notes = useMemo(
+    () => [...(notesQuery.data ?? []).map(withRevisions), ...createdNotes.map(withRevisions)]
+      .filter((note) => !deletedNoteIds.has(note.id)),
+    [notesQuery.data, createdNotes, withRevisions, deletedNoteIds],
+  )
   const [panelOpen, setPanelOpen] = useState(false)
-  const [pendingHighlight, setPendingHighlight] = useState<{ chapter_index: number; selection: string } | null>(null)
+  // Apple-Books-style highlighting: 划线 saves immediately and colors the
+  // text; the note is added or edited afterwards.
+  const [highlightNotice, setHighlightNotice] = useState<DocumentNote | null>(null)
+  const [editingNote, setEditingNote] = useState<DocumentNote | null>(null)
   const [noteDraft, setNoteDraft] = useState('')
   const [highlightError, setHighlightError] = useState('')
-  const [savingHighlight, setSavingHighlight] = useState(false)
+  const [savingNote, setSavingNote] = useState(false)
+  const [noteError, setNoteError] = useState('')
 
-  const saveHighlight = async () => {
-    if (!pendingHighlight) return
-    setSavingHighlight(true)
+  const saveHighlight = async (chapterIndex: number, selection: string) => {
     setHighlightError('')
+    // Selecting the same passage twice must not create duplicate notes: the
+    // existing note wins and the notice still offers 添加笔记.
+    const duplicate = notes.find((note) =>
+      note.chapter_index === chapterIndex && normalizePassage(note.highlight) === normalizePassage(selection))
+    if (duplicate) {
+      setHighlightNotice(duplicate)
+      return
+    }
     try {
       const created = await createDocumentNote(doc.id, {
-        chapter_index: pendingHighlight.chapter_index,
-        highlight: pendingHighlight.selection,
-        note: noteDraft,
+        chapter_index: chapterIndex,
+        highlight: selection,
       })
       setCreatedNotes((current) => [...current, created])
-      setPendingHighlight(null)
-      setNoteDraft('')
+      setHighlightNotice(created)
     } catch (cause) {
       setHighlightError(cause instanceof Error ? cause.message : '保存划线失败')
+    }
+  }
+
+  const removeHighlight = async (noteId: string) => {
+    setHighlightError('')
+    try {
+      await deleteDocumentNote(noteId)
+      setDeletedNoteIds((current) => new Set(current).add(noteId))
+      setHighlightNotice((notice) => (notice?.id === noteId ? null : notice))
+      setEditingNote((note) => (note?.id === noteId ? null : note))
+    } catch (cause) {
+      setHighlightError(cause instanceof Error ? cause.message : '取消划线失败')
+    }
+  }
+
+  const saveNote = async () => {
+    if (!editingNote) return
+    setSavingNote(true)
+    setNoteError('')
+    try {
+      const updated = await updateDocumentNote(editingNote.id, { note: noteDraft })
+      setNoteRevisions((current) => new Map(current).set(updated.id, updated))
+      setEditingNote(null)
+      setNoteDraft('')
+      setHighlightNotice(null)
+    } catch (cause) {
+      setNoteError(cause instanceof Error ? cause.message : '保存笔记失败')
     } finally {
-      setSavingHighlight(false)
+      setSavingNote(false)
     }
   }
   const sectionRefs = useRef(new Map<number, HTMLElement>())
@@ -153,6 +201,28 @@ function ReaderBody({ document: doc }: { document: Document }) {
   }, [scheduleSave, saveProgressNow])
 
   const chapters = useMemo(() => doc.chapters, [doc.chapters])
+  const highlightsByChapter = useMemo(() => {
+    const map = new Map<number, HighlightPassage[]>()
+    for (const note of notes) {
+      const passages = map.get(note.chapter_index)
+      if (passages) passages.push({ id: note.id, highlight: note.highlight })
+      else map.set(note.chapter_index, [{ id: note.id, highlight: note.highlight }])
+    }
+    return map
+  }, [notes])
+
+  // Highlight marks are baked into the chapter HTML before React renders it.
+  // Painting them onto the live DOM would be wiped by React 19, which resets
+  // innerHTML on every re-render of dangerouslySetInnerHTML content.
+  const chapterHtml = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const chapter of chapters) {
+      const resolved = resolveDocumentAssets(chapter.content_html, doc.id)
+      const passages = highlightsByChapter.get(chapter.index) ?? []
+      map.set(chapter.index, passages.length > 0 ? highlightContentHtml(resolved, passages) : resolved)
+    }
+    return map
+  }, [chapters, doc.id, highlightsByChapter])
 
   return (
     <div ref={containerRef} data-testid="reader-scroll" className="flex h-full min-h-0 w-full overflow-y-auto">
@@ -208,10 +278,33 @@ function ReaderBody({ document: doc }: { document: Document }) {
                     <li key={note.id} className="text-sm">
                       <p className="border-l-2 border-primary/60 pl-2 text-muted-foreground">{note.highlight}</p>
                       {note.note && <p className="mt-1 pl-2">{note.note}</p>}
-                      <p className="mt-1 pl-2 text-xs text-muted-foreground">
-                        {chapters[note.chapter_index]?.title || `第 ${note.chapter_index + 1} 章`}
-                        {' · '}
-                        {note.source === 'import' ? '导入' : 'Pulse'}
+                      <p className="mt-1 flex items-center gap-2 pl-2 text-xs text-muted-foreground">
+                        <span>
+                          {chapters[note.chapter_index]?.title || `第 ${note.chapter_index + 1} 章`}
+                          {' · '}
+                          {note.source === 'import' ? '导入' : 'Pulse'}
+                        </span>
+                        <button
+                          type="button"
+                          className="cursor-pointer rounded border-0 bg-transparent px-0 text-xs text-primary-hover hover:underline"
+                          onClick={() => {
+                            setEditingNote(note)
+                            setNoteDraft(note.note ?? '')
+                            setNoteError('')
+                          }}
+                        >
+                          {note.note ? '编辑' : '添加笔记'}
+                        </button>
+                        <button
+                          type="button"
+                          className="cursor-pointer rounded border-0 bg-transparent px-0 text-xs text-destructive hover:underline"
+                          onClick={() => {
+                            setHighlightError('')
+                            void removeHighlight(note.id)
+                          }}
+                        >
+                          删除
+                        </button>
                       </p>
                     </li>
                   ))}
@@ -219,33 +312,67 @@ function ReaderBody({ document: doc }: { document: Document }) {
               )}
             </section>
           )}
-          {pendingHighlight && (
-            <div role="dialog" aria-label="保存划线" className="mb-6 rounded-lg border border-border p-3">
-              <p className="mb-2 border-l-2 border-primary/60 pl-2 text-sm text-muted-foreground">{pendingHighlight.selection}</p>
+          {highlightNotice && !editingNote && (
+            <div role="status" aria-label="已添加划线" className="mb-6 flex items-center gap-3 rounded-lg border border-border p-3">
+              <p className="min-w-0 flex-1 truncate border-l-2 border-primary/60 pl-2 text-sm text-muted-foreground">
+                {highlightNotice.highlight}
+              </p>
+              <button
+                type="button"
+                className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
+                onClick={() => {
+                  setEditingNote(highlightNotice)
+                  setNoteDraft(highlightNotice.note ?? '')
+                  setNoteError('')
+                }}
+              >
+                添加笔记
+              </button>
+              <button
+                type="button"
+                aria-label="关闭提示"
+                className="shrink-0 cursor-pointer rounded-md border-0 bg-transparent text-xl text-muted-foreground"
+                onClick={() => setHighlightNotice(null)}
+              >
+                ×
+              </button>
+            </div>
+          )}
+          {editingNote && (
+            <div role="dialog" aria-label="编辑笔记" className="mb-6 rounded-lg border border-border p-3">
+              <p className="mb-2 border-l-2 border-primary/60 pl-2 text-sm text-muted-foreground">{editingNote.highlight}</p>
               <textarea
                 className="mb-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                placeholder="这条划线想记录什么？(可选)"
+                placeholder="这条划线想记录什么？"
                 value={noteDraft}
                 onChange={(event) => setNoteDraft(event.target.value)}
               />
-              {highlightError !== '' && <p className="mb-2 text-sm text-destructive">{highlightError}</p>}
+              {noteError !== '' && <p className="mb-2 text-sm text-destructive">{noteError}</p>}
               <div className="flex gap-2">
                 <button
                   type="button"
                   className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
-                  disabled={savingHighlight}
-                  onClick={() => void saveHighlight()}
+                  disabled={savingNote}
+                  onClick={() => void saveNote()}
                 >
-                  保存划线
+                  保存笔记
                 </button>
                 <button
                   type="button"
                   className="rounded-md border border-border px-3 py-1.5 text-sm"
-                  onClick={() => setPendingHighlight(null)}
+                  onClick={() => {
+                    setEditingNote(null)
+                    setNoteDraft('')
+                  }}
                 >
                   取消
                 </button>
               </div>
+            </div>
+          )}
+          {highlightError !== '' && (
+            <div role="alert" className="mb-6 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+              {highlightError}
             </div>
           )}
           {chapters.map((chapter) => (
@@ -264,15 +391,18 @@ function ReaderBody({ document: doc }: { document: Document }) {
                 label={`${doc.title} ${chapter.title || `第 ${chapter.index + 1} 章`}`}
                 context={{ document_id: doc.id, chapter_index: chapter.index }}
                 onHighlight={(selection) => {
-                  setNoteDraft('')
                   setHighlightError('')
-                  setPendingHighlight({ chapter_index: chapter.index, selection })
+                  void saveHighlight(chapter.index, selection)
+                }}
+                onUnhighlight={(noteId) => {
+                  setHighlightError('')
+                  void removeHighlight(noteId)
                 }}
               >
                 <div
                   className="document-content"
                   style={contentStyle}
-                  dangerouslySetInnerHTML={{ __html: resolveDocumentAssets(chapter.content_html, doc.id) }}
+                  dangerouslySetInnerHTML={{ __html: chapterHtml.get(chapter.index) ?? '' }}
                 />
               </SelectionChatSurface>
             </section>

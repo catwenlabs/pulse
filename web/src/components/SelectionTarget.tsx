@@ -17,6 +17,9 @@ export interface SelectionTargetProps {
   onSelect: (tool: SelectionTool, selection: string) => void
   /** Built-in actions (e.g. highlighting) shown ahead of the AI tools. */
   actions?: ToolbarAction[]
+  /** When set, selecting inside an existing highlight mark swaps the built-in
+      actions for a single 取消划线 action carrying the mark's note id. */
+  onUnhighlight?: (noteId: string) => void
   children: ReactNode
   /** aria-label for the landmark wrapping selectable content. */
   label?: string
@@ -37,11 +40,12 @@ interface ToolbarPosition {
  * viewport); touch layouts use a bottom action bar so the toolbar does not
  * collide with the browser's native selection menu.
  */
-export function SelectionTarget({ tools, onSelect, actions = [], children, label = '可选中的内容区域' }: SelectionTargetProps) {
+export function SelectionTarget({ tools, onSelect, actions = [], onUnhighlight, children, label = '可选中的内容区域' }: SelectionTargetProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState('')
   const [position, setPosition] = useState<ToolbarPosition | null>(null)
   const [isTouch, setIsTouch] = useState(false)
+  const [unhighlightId, setUnhighlightId] = useState<string | null>(null)
 
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return
@@ -55,6 +59,7 @@ export function SelectionTarget({ tools, onSelect, actions = [], children, label
   const clearToolbar = useCallback(() => {
     setSelection('')
     setPosition(null)
+    setUnhighlightId(null)
   }, [])
 
   useEffect(() => {
@@ -87,10 +92,11 @@ export function SelectionTarget({ tools, onSelect, actions = [], children, label
       const left = clamp(rect.left - containerRect.left + rect.width / 2, 0, containerRect.width)
       setSelection(text)
       setPosition({ top, left })
+      setUnhighlightId(onUnhighlight ? enclosingHighlightNoteId(active.getRangeAt(0)) : null)
     }
     document.addEventListener('selectionchange', handleSelection)
     return () => document.removeEventListener('selectionchange', handleSelection)
-  }, [clearToolbar])
+  }, [clearToolbar, onUnhighlight])
 
   useEffect(() => {
     const handleScroll = () => {
@@ -134,10 +140,22 @@ export function SelectionTarget({ tools, onSelect, actions = [], children, label
     window.getSelection()?.removeAllRanges()
   }
 
-  const showToolbar = Boolean(position) && selection.length > 0 && (enabledTools.length > 0 || actions.length > 0)
+  const chooseUnhighlight = () => {
+    if (!unhighlightId || !onUnhighlight) return
+    onUnhighlight(unhighlightId)
+    clearToolbar()
+    window.getSelection()?.removeAllRanges()
+  }
+
+  const showToolbar = Boolean(position) && selection.length > 0 && (enabledTools.length > 0 || actions.length > 0 || Boolean(onUnhighlight))
   const excerpt = selection.length > selectionExcerptLimit
     ? `${selection.slice(0, selectionExcerptLimit)}…`
     : selection
+
+  // Re-selecting highlighted text swaps the built-in actions for removal.
+  const visibleActions: ToolbarAction[] = unhighlightId && onUnhighlight
+    ? [{ label: '取消划线', onSelect: () => chooseUnhighlight() }]
+    : actions
 
   return (
     <div ref={containerRef} className="relative" aria-label={label}>
@@ -149,7 +167,7 @@ export function SelectionTarget({ tools, onSelect, actions = [], children, label
           className="absolute z-40 flex -translate-x-1/2 -translate-y-full items-center gap-1 rounded-lg border border-border bg-popover p-1 shadow-lg"
           style={{ top: position!.top - 8, left: position!.left }}
         >
-          {actions.map((action) => (
+          {visibleActions.map((action) => (
             <ToolbarButton key={action.label} onClick={() => chooseAction(action)}>{action.label}</ToolbarButton>
           ))}
           {direct.map((tool) => (
@@ -172,7 +190,7 @@ export function SelectionTarget({ tools, onSelect, actions = [], children, label
           className="fixed inset-x-0 bottom-0 z-40 flex items-center gap-1 border-t border-border bg-popover px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 shadow-lg"
         >
           <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={selection}>{excerpt}</span>
-          {actions.map((action) => (
+          {visibleActions.map((action) => (
             <ToolbarButton key={action.label} onClick={() => chooseAction(action)}>{action.label}</ToolbarButton>
           ))}
           {direct.map((tool) => (
@@ -245,6 +263,21 @@ function isEditableTarget(node: Node): boolean {
   if (!current || !(current instanceof HTMLElement)) return false
   const element = current.closest('input, textarea, [contenteditable="true"], [contenteditable=""]')
   return Boolean(element)
+}
+
+// enclosingHighlightNoteId reports the note id of the highlight mark that
+// fully contains the selection, or null when the selection is not inside a
+// single existing mark.
+function enclosingHighlightNoteId(range: Range): string | null {
+  let start: Node | null = range.startContainer ?? null
+  while (start && start.nodeType !== Node.ELEMENT_NODE) start = start.parentNode
+  if (!(start instanceof HTMLElement)) return null
+  const mark = start.closest('mark.document-highlight')
+  if (!(mark instanceof HTMLElement)) return null
+  let end: Node | null = range.endContainer ?? null
+  while (end && end !== mark) end = end.parentNode
+  if (end !== mark) return null
+  return mark.dataset.noteId ?? null
 }
 
 function clamp(value: number, min: number, max: number): number {

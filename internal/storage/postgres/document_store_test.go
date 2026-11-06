@@ -416,6 +416,75 @@ func TestDocumentStoreLinkNoteAssignsUnmatchedNote(t *testing.T) {
 	}
 }
 
+func TestDocumentStoreUpdateNoteTextRewritesNote(t *testing.T) {
+	pool := testPool(t)
+	store := NewDocumentStore(pool)
+	ctx := context.Background()
+
+	doc, err := store.Import(ctx, document.ImportRequest{
+		Filename: "后补笔记.txt",
+		Content:  []byte("划线段落。"),
+	})
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	created, err := store.CreateNote(ctx, doc.ID, document.NoteInput{ChapterIndex: 0, Highlight: "划线段落"})
+	if err != nil {
+		t.Fatalf("CreateNote() error = %v", err)
+	}
+	if created.Text != "" {
+		t.Fatalf("CreateNote() text = %q, want empty", created.Text)
+	}
+
+	updated, err := store.UpdateNoteText(ctx, created.ID, document.NoteTextInput{Text: " 后补的想法 "})
+	if err != nil {
+		t.Fatalf("UpdateNoteText() error = %v", err)
+	}
+	if updated.ID != created.ID || updated.Text != "后补的想法" || updated.Highlight != "划线段落" || updated.DocumentID != doc.ID {
+		t.Fatalf("UpdateNoteText() = %+v", updated)
+	}
+
+	if _, err := store.UpdateNoteText(ctx, "00000000-0000-0000-0000-000000000000", document.NoteTextInput{Text: "x"}); err != document.ErrNotFound {
+		t.Errorf("UpdateNoteText(missing note) error = %v, want document.ErrNotFound", err)
+	}
+	if _, err := store.UpdateNoteText(ctx, created.ID, document.NoteTextInput{Text: strings.Repeat("字", document.MaxNoteTextCharacters+1)}); err == nil {
+		t.Error("UpdateNoteText(oversized text) error = nil, want validation error")
+	}
+}
+
+func TestDocumentStoreDeleteNoteRemovesHighlight(t *testing.T) {
+	pool := testPool(t)
+	store := NewDocumentStore(pool)
+	ctx := context.Background()
+
+	doc, err := store.Import(ctx, document.ImportRequest{
+		Filename: "删除划线.txt",
+		Content:  []byte("要删除的段落。"),
+	})
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	created, err := store.CreateNote(ctx, doc.ID, document.NoteInput{ChapterIndex: 0, Highlight: "要删除的段落"})
+	if err != nil {
+		t.Fatalf("CreateNote() error = %v", err)
+	}
+
+	if err := store.DeleteNote(ctx, created.ID); err != nil {
+		t.Fatalf("DeleteNote() error = %v", err)
+	}
+	notes, err := store.ListNotes(ctx, doc.ID)
+	if err != nil || len(notes) != 0 {
+		t.Fatalf("ListNotes() = %v, %v; want empty", notes, err)
+	}
+
+	if err := store.DeleteNote(ctx, created.ID); err != document.ErrNotFound {
+		t.Errorf("DeleteNote(again) error = %v, want document.ErrNotFound", err)
+	}
+	if err := store.DeleteNote(ctx, "00000000-0000-0000-0000-000000000000"); err != document.ErrNotFound {
+		t.Errorf("DeleteNote(missing) error = %v, want document.ErrNotFound", err)
+	}
+}
+
 func TestDocumentStoreListAllNotesAcrossBooksAndSearch(t *testing.T) {
 	pool := testPool(t)
 	store := NewDocumentStore(pool)

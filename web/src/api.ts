@@ -958,6 +958,22 @@ export function createDocumentNote(id: string, input: DocumentNoteInput): Promis
   })
 }
 
+// updateDocumentNote rewrites the personal note of an existing highlight:
+// highlights are saved instantly while reading and the note is filled in
+// afterwards.
+export function updateDocumentNote(noteId: string, input: { note: string }): Promise<DocumentNote> {
+  return request<DocumentNote>(`/api/v1/notes/${noteId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+// deleteDocumentNote removes one highlight and its note.
+export function deleteDocumentNote(noteId: string): Promise<void> {
+  return request<void>(`/api/v1/notes/${noteId}`, { method: 'DELETE' })
+}
+
 export function listDocumentNotes(id: string): Promise<DocumentNote[]> {
   return requestList<DocumentNote>(`/api/v1/documents/${id}/notes`)
 }

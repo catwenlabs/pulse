@@ -65,6 +65,8 @@ type Backend interface {
 	GetDocumentAsset(context.Context, document.ID, string) ([]byte, string, error)
 	GetDocumentOriginal(context.Context, document.ID) ([]byte, string, error)
 	CreateDocumentNote(context.Context, document.ID, document.NoteInput) (document.Note, error)
+	UpdateDocumentNote(context.Context, string, document.NoteTextInput) (document.Note, error)
+	DeleteDocumentNote(context.Context, string) error
 	ListDocumentNotes(context.Context, document.ID) ([]document.Note, error)
 	ImportDocumentNotes(context.Context, document.NoteImportFile) (document.NoteImportSummary, error)
 	ListUnmatchedDocumentNotes(context.Context) ([]document.Note, error)
@@ -145,6 +147,8 @@ func newHandler(backend Backend, web fs.FS, hub *events.LibraryChangeHub) http.H
 	mux.HandleFunc("GET /api/v1/documents/{id}/asset/{path...}", getDocumentAsset(backend))
 	mux.HandleFunc("GET /api/v1/documents/{id}/original", getDocumentOriginal(backend))
 	mux.HandleFunc("POST /api/v1/documents/{id}/notes", createDocumentNote(backend))
+	mux.HandleFunc("PUT /api/v1/notes/{id}", updateDocumentNote(backend))
+	mux.HandleFunc("DELETE /api/v1/notes/{id}", deleteDocumentNote(backend))
 	mux.HandleFunc("GET /api/v1/documents/{id}/notes", listDocumentNotes(backend))
 	mux.HandleFunc("POST /api/v1/documents/notes/import", importDocumentNotes(backend))
 	mux.HandleFunc("GET /api/v1/documents/notes/unmatched", listUnmatchedDocumentNotes(backend))
@@ -1266,6 +1270,17 @@ func createDocumentNote(backend Backend) http.HandlerFunc {
 	}
 }
 
+// deleteDocumentNote removes one highlight, clearing its mark in the reader.
+func deleteDocumentNote(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		if err := backend.DeleteDocumentNote(request.Context(), request.PathValue("id")); err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 func listDocumentNotes(backend Backend) http.HandlerFunc {
 	return func(w http.ResponseWriter, request *http.Request) {
 		notes, err := backend.ListDocumentNotes(request.Context(), document.ID(request.PathValue("id")))
@@ -1274,6 +1289,30 @@ func listDocumentNotes(backend Backend) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, notes)
+	}
+}
+
+// updateDocumentNote rewrites the personal note of an existing highlight.
+// Highlights are saved instantly while reading; the note text is filled in
+// afterwards through this endpoint.
+func updateDocumentNote(backend Backend) http.HandlerFunc {
+	return func(w http.ResponseWriter, request *http.Request) {
+		request.Body = http.MaxBytesReader(w, request.Body, 1<<20)
+		var input document.NoteTextInput
+		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error(), "")
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		updated, err := backend.UpdateDocumentNote(request.Context(), request.PathValue("id"), input)
+		if err != nil {
+			writeDomainError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, updated)
 	}
 }
 
