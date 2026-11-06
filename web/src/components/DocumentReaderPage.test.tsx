@@ -170,6 +170,16 @@ describe('highlighting', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.includes('/ai/tools')) return new Response('[]', { status: 200 })
+      if (url.includes('/api/v1/notes/') && init?.method === 'PUT') {
+        const body = JSON.parse(String(init.body))
+        return new Response(JSON.stringify({
+          id: url.split('/').pop(), document_id: 'doc-1', book_title: '测试之书',
+          chapter_index: 1, highlight: '该机制', source: 'pulse', ...body,
+        }), { status: 200 })
+      }
+      if (url.includes('/api/v1/notes/') && init?.method === 'DELETE') {
+        return new Response(null, { status: 204 })
+      }
       if (url.endsWith('/notes')) {
         if (init?.method === 'POST') {
           const body = JSON.parse(String(init.body))
@@ -220,27 +230,101 @@ describe('highlighting', () => {
     expect(screen.getByText('第八章 · 导入')).toBeTruthy()
   })
 
-  it('writes a highlight from the selection toolbar', async () => {
+  it('paints saved highlights onto the chapter text', async () => {
     mockReaderFetches()
     await screen.findByRole('heading', { name: '测试之书' })
 
-    selectInChapter(1, '该机制')
+    await waitFor(() => {
+      const mark = document.querySelector('section[data-chapter-index="1"] mark.document-highlight')
+      expect(mark?.textContent).toBe('该机制')
+    })
+  })
+
+  it('saves a highlight instantly and adds the note afterwards', async () => {
+    mockReaderFetches()
+    await screen.findByRole('heading', { name: '测试之书' })
+
+    selectInChapter(1, '复杂性')
     fireEvent.click(screen.getByRole('button', { name: '划线' }))
 
-    const noteField = await screen.findByPlaceholderText('这条划线想记录什么？(可选)')
-    fireEvent.change(noteField, { target: { value: '想法' } })
-    fireEvent.click(screen.getByRole('button', { name: '保存划线' }))
-
+    // Instant save: the POST fires without any intermediate dialog.
     await waitFor(() => {
       expect(vi.mocked(fetch).mock.calls.some((call) => {
         if (!String(call[0]).endsWith('/notes') || call[1]?.method !== 'POST') return false
         const body = JSON.parse(String(call[1]?.body))
-        return body.chapter_index === 1 && body.highlight === '该机制' && body.note === '想法'
+        return body.chapter_index === 1 && body.highlight === '复杂性'
       })).toBe(true)
+    })
+    expect(await screen.findByRole('status', { name: '已添加划线' })).toBeTruthy()
+    await waitFor(() => {
+      const mark = document.querySelector('section[data-chapter-index="1"] mark.document-highlight')
+      expect(mark?.textContent).toBe('该机制')
+    })
+
+    // The note is added afterwards from the notice.
+    fireEvent.click(screen.getByRole('button', { name: '添加笔记' }))
+    const noteField = await screen.findByPlaceholderText('这条划线想记录什么？')
+    fireEvent.change(noteField, { target: { value: '想法' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存笔记' }))
+
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.some((call) =>
+        String(call[0]).endsWith('/api/v1/notes/note-9') && call[1]?.method === 'PUT')).toBe(true)
     })
 
     fireEvent.click(screen.getByRole('button', { name: '笔记 (2)' }))
     expect(await screen.findByText('想法')).toBeTruthy()
     expect(screen.getByText('第八章 · Pulse')).toBeTruthy()
+  })
+
+  it('does not create a duplicate note for an already highlighted passage', async () => {
+    mockReaderFetches()
+    await screen.findByRole('heading', { name: '测试之书' })
+    // Wait until the fixture note has loaded before selecting it again.
+    await waitFor(() => expect(screen.getByRole('button', { name: /笔记/ }).textContent).toBe('笔记 (1)'))
+
+    // Chapter 1 already carries the fixture note '该机制'.
+    selectInChapter(1, '该机制')
+    fireEvent.click(screen.getByRole('button', { name: '划线' }))
+
+    expect(await screen.findByRole('status', { name: '已添加划线' })).toBeTruthy()
+    const posted = vi.mocked(fetch).mock.calls.filter((call) =>
+      String(call[0]).endsWith('/notes') && call[1]?.method === 'POST')
+    expect(posted).toHaveLength(0)
+    fireEvent.click(await screen.findByRole('button', { name: '笔记 (1)' }))
+    expect(await screen.findByText('呼应上一章')).toBeTruthy()
+  })
+
+  it('removes a highlight by re-selecting it and choosing 取消划线', async () => {
+    mockReaderFetches()
+    await screen.findByRole('heading', { name: '测试之书' })
+
+    await waitFor(() => {
+      expect(document.querySelector('section[data-chapter-index="1"] mark.document-highlight')).toBeTruthy()
+    })
+    const mark = document.querySelector('section[data-chapter-index="1"] mark.document-highlight') as HTMLElement
+    const textNode = mark.firstChild as Text
+    const range = {
+      getBoundingClientRect: () => ({ top: 100, left: 100, width: 40, height: 20, right: 140, bottom: 120, x: 100, y: 100, toJSON: () => ({}) }),
+      startContainer: textNode,
+      endContainer: textNode,
+    }
+    vi.stubGlobal('getSelection', () => ({
+      isCollapsed: false,
+      toString: () => '该机制',
+      anchorNode: textNode,
+      getRangeAt: () => range,
+      removeAllRanges: () => {},
+    }))
+    act(() => { document.dispatchEvent(new Event('selectionchange')) })
+
+    fireEvent.click(screen.getByRole('button', { name: '取消划线' }))
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.some((call) =>
+        String(call[0]).endsWith('/api/v1/notes/note-1') && call[1]?.method === 'DELETE')).toBe(true)
+    })
+    await waitFor(() => {
+      expect(document.querySelector('section[data-chapter-index="1"] mark.document-highlight')).toBeNull()
+    })
   })
 })
