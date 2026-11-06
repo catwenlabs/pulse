@@ -108,6 +108,28 @@ describe('DocumentReaderPage', () => {
     expect(scrollSpy).toHaveBeenCalled()
   })
 
+  it('applies typography settings to chapter content', async () => {
+    localStorage.clear()
+    renderPage()
+
+    await screen.findByRole('heading', { name: '测试之书' })
+    const content = document.querySelector('.document-content') as HTMLElement
+    expect(content.style.fontSize).toBe('17px')
+
+    fireEvent.click(screen.getByRole('button', { name: '排版设置' }))
+    expect(screen.getByRole('dialog', { name: '排版设置' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '增大字号' }))
+    expect(content.style.fontSize).toBe('18px')
+    fireEvent.click(screen.getByRole('button', { name: '黑体' }))
+    expect(content.style.fontFamily).toBe('var(--font-sans)')
+    expect(JSON.parse(String(localStorage.getItem('pulse.reader-typography'))).fontSize).toBe(18)
+
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('dialog', { name: '排版设置' })).toBeNull()
+    localStorage.clear()
+  })
+
   it('persists progress on scroll', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(documentFixture), { status: 200 }))
