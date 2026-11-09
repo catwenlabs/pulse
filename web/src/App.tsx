@@ -9,6 +9,7 @@ import {
   Clock3,
   FolderClosed,
   Inbox,
+  MailOpen,
   Menu,
   MessageSquareText,
   MoreHorizontal,
@@ -49,7 +50,7 @@ import { useLibraryRealtime, type LibraryRealtimeSignal, type RealtimeConnection
 import { toast } from 'sonner'
 import './styles.css'
 
-export type View = 'sources' | 'inbox' | 'starred' | 'later' | 'ai' | 'story' | 'settings' | 'ai-conversations' | 'tools' | 'documents' | 'notes' | 'document-reader'
+export type View = 'sources' | 'unread' | 'inbox' | 'starred' | 'later' | 'ai' | 'story' | 'settings' | 'ai-conversations' | 'tools' | 'documents' | 'notes' | 'document-reader'
 export type ToolKey = 'ai-conversations' | 'sources' | 'settings'
 type SaveRequest = { url: string; title: string }
 type ReaderEntry = Entry & {
@@ -700,9 +701,9 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '', doc
   }
 
   const activeView = view
-  const isReaderView = activeView === 'inbox' || activeView === 'starred' || activeView === 'later'
+  const isReaderView = activeView === 'unread' || activeView === 'inbox' || activeView === 'starred' || activeView === 'later'
   const isToolsView = activeView === 'tools'
-  const showSourceTree = activeView !== 'tools' && activeView !== 'ai' && (isMobile || activeView === 'inbox')
+  const showSourceTree = activeView !== 'tools' && activeView !== 'ai' && (isMobile || activeView === 'inbox' || activeView === 'unread')
   const showToolsMenu = activeView === 'tools' && !isMobile
   const showDigestsHistory = activeView === 'ai'
   const showMiddlePanel = showSourceTree || showToolsMenu || showDigestsHistory
@@ -719,7 +720,9 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '', doc
   const mobileTitle = activeView === 'sources'
     ? '信息源'
     : activeSourceName || (
-      activeView === 'starred'
+      activeView === 'unread'
+        ? '未读'
+        : activeView === 'starred'
         ? '收藏'
         : activeView === 'later'
           ? '稍后阅读'
@@ -831,12 +834,19 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '', doc
           </div>
           <div className="mb-3 border-b border-border/70 pb-3">
             <Link
-              className={navItemClass(activeView === 'inbox' && !selectedSourceID, 'min-h-10 max-md:min-h-11')}
+              className={navItemClass(activeView === 'unread' && !selectedSourceID, 'min-h-10 max-md:min-h-11')}
               to="/"
               onClick={reopenReaderStream}
             >
-              <NavIcon name="inbox" />全部文章
+              <NavIcon name="unread" />未读
               <UnreadBadge count={totalUnread} className="ml-auto" />
+            </Link>
+            <Link
+              className={navItemClass(activeView === 'inbox' && !selectedSourceID, 'min-h-10 max-md:min-h-11')}
+              to="/inbox"
+              onClick={reopenReaderStream}
+            >
+              <NavIcon name="inbox" />全部文章
             </Link>
           </div>
           {loading && <p className="border-0 bg-transparent px-2 py-1 text-left text-xs text-muted-foreground">正在同步信息源…</p>}
@@ -954,7 +964,7 @@ export function AppContent({ view, sourceID: selectedSourceID, storyID = '', doc
           )}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button unstyled className={navItemClass(activeView !== 'inbox', 'min-h-11 w-full justify-between gap-3 border border-border/80 bg-card px-2.5 shadow-sm hover:border-primary/25')} aria-label="更多导航">
+                <Button unstyled className={navItemClass(activeView !== 'inbox' && activeView !== 'unread', 'min-h-11 w-full justify-between gap-3 border border-border/80 bg-card px-2.5 shadow-sm hover:border-primary/25')} aria-label="更多导航">
                   <span className="flex items-center gap-2.5">
                     <span className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary">
                       <MoreHorizontal className="size-4" aria-hidden="true" />
@@ -2003,10 +2013,28 @@ function Reader({
       if (change.kind === 'patched' && change.patch.read !== undefined) {
         void refreshSources()
       }
+      // Expanding an entry auto-marks it read; the row must stay visible
+      // (styled read) while the user is reading it and only fall away on
+      // the next refetch. Hiding is an explicit dismissal, so it leaves the
+      // unread stream immediately.
+      if (change.kind === 'patched' && state === 'unread' && (change.patch.hidden ?? false)) {
+        removeStoryFromReader(change.story.id)
+      }
       if (change.kind === 'representative') {
         showReaderNotice('已更新默认来源')
       }
     }
+  }
+
+  function removeStoryFromReader(storyId: string) {
+    setEntries((current) => current.filter((candidate) => storiesByEntry[candidate.id]?.id !== storyId))
+    setStoriesByEntry((current) => Object.fromEntries(
+      Object.entries(current).filter(([, story]) => story.id !== storyId),
+    ))
+    setExpandedEntryId((current) => {
+      if (current === null) return null
+      return storiesByEntry[current]?.id === storyId ? null : current
+    })
   }
 
   function handleStoryRemoved(_storyId: string, entryId: string) {
@@ -2032,6 +2060,15 @@ function Reader({
           story.read_at ? story : { ...story, read_at: readAt },
         ]),
       ))
+      if (state === 'unread') {
+        // Everything in the unread stream just stopped matching the query.
+        // Reset to the (now empty or shorter) first page instead of leaving
+        // read rows rendered or letting "load more" resume from a stale
+        // cursor that would pour them back in.
+        setEntries([])
+        setStoriesByEntry({})
+        void readerQuery.refetch()
+      }
       void queryClient.invalidateQueries({ queryKey: ['story'] })
       showReaderNotice(
         result.updated_count > 0 ? `已将 ${result.updated_count} 篇文章标记为已读` : '没有未读文章',
@@ -2045,7 +2082,7 @@ function Reader({
     }
   }
 
-  const title = sourceName || (view === 'starred' ? '收藏' : view === 'later' ? '稍后阅读' : '全部文章')
+  const title = sourceName || (view === 'unread' ? '未读' : view === 'starred' ? '收藏' : view === 'later' ? '稍后阅读' : '全部文章')
   const sourceNames = Object.fromEntries(sources.map((source) => [source.id, source.name]))
   const orderedEntries = entries
   const mergeCandidates = orderedEntries
@@ -2153,7 +2190,7 @@ function Reader({
     >
           {loading && <p className="p-8 text-center text-sm text-muted-foreground">正在加载文章…</p>}
           {error && <p className="p-8 text-center text-sm text-muted-foreground text-destructive">{error}</p>}
-          {!loading && !error && entries.length === 0 && <p className="p-8 text-center text-sm text-muted-foreground">这里还没有文章。</p>}
+          {!loading && !error && entries.length === 0 && <p className="p-8 text-center text-sm text-muted-foreground">{view === 'unread' ? '没有未读文章。' : '这里还没有文章。'}</p>}
           {orderedEntries.map((item) => {
             const story = storiesByEntry[item.id]
             return (
@@ -2573,6 +2610,7 @@ function CreateSourceDialog({
 function NavIcon({ name }: { name: string }) {
   const icons: Record<string, LucideIcon> = {
     inbox: Inbox,
+    unread: MailOpen,
     source: Rss,
     star: Star,
     clock: Clock3,
