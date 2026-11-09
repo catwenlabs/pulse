@@ -415,6 +415,7 @@ describe('App', () => {
   })
 
   it('shows folders, subscriptions, and an expandable article stream', async () => {
+    window.history.replaceState(null, '', '/inbox')
     renderApp()
 
     expect(await screen.findByRole('heading', { name: '全部文章' })).toBeInTheDocument()
@@ -431,6 +432,88 @@ describe('App', () => {
     expect(screen.getByRole('img', { name: 'Cover' })).toHaveAttribute('loading', 'lazy')
     expect(document.querySelector('.entry-prose script')).toBeNull()
     expect(screen.getByRole('button', { name: '更多操作' })).toBeInTheDocument()
+  })
+
+  it('defaults the home route to the unread stream', async () => {
+    renderApp()
+
+    expect(await screen.findByRole('heading', { name: '未读' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.some(([url]) =>
+        String(url).includes('/api/v1/stories?') && String(url).includes('state=unread'),
+      )).toBe(true)
+    })
+  })
+
+  it('keeps /inbox as the all-articles stream with both rail entries', async () => {
+    window.history.replaceState(null, '', '/inbox')
+    renderApp()
+
+    expect(await screen.findByRole('heading', { name: '全部文章' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.some(([url]) =>
+        String(url).includes('/api/v1/stories?') && String(url).includes('state=inbox'),
+      )).toBe(true)
+    })
+    expect(screen.getByRole('link', { name: /未读/ })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '全部文章' })).toBeInTheDocument()
+  })
+
+  it('keeps a just-read story in the unread stream until the next refresh', async () => {
+    renderApp()
+    expect(await screen.findByText('Reader article')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Reader article'))
+    await waitFor(() => {
+      expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/v1/stories/story-1', expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ read: true }),
+      }))
+    })
+
+    // Expanding auto-marks read, but the row must stay on screen while the
+    // reader is inside it; it disappears on the next refetch, not mid-read.
+    expect(screen.getByText('Article body')).toBeInTheDocument()
+    expect(screen.getAllByText('Reader article').length).toBeGreaterThan(0)
+  })
+
+  it('empties the unread stream after marking everything read', async () => {
+    let bulkRead = false
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/v1/stories' && init?.method === 'PATCH') {
+        bulkRead = true
+        return new Response(JSON.stringify({ updated_count: 1 }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (bulkRead && url.includes('/api/v1/stories?') && url.includes('state=unread') && !init?.method) {
+        return new Response(JSON.stringify({
+          stories: [],
+          total_stories: 0,
+          reader_counts: {
+            inbox_stories: 0,
+            unread_stories: 0,
+            starred_stories: 0,
+            later_stories: 0,
+            hidden_stories: 0,
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return defaultFetch(input, init)
+    })
+    renderApp()
+    expect(await screen.findByText('Reader article')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '将全部文章标记为已读' }))
+    await waitFor(() => {
+      expect(screen.getByText('没有未读文章。')).toBeInTheDocument()
+    })
+    const unreadFetches = vi.mocked(fetch).mock.calls.filter(([url, init]) =>
+      String(url).includes('/api/v1/stories?') && String(url).includes('state=unread') && !init?.method)
+    expect(unreadFetches.length).toBeGreaterThanOrEqual(2)
   })
 
   it('persists independent drag order for folders, root Sources, and Folder Sources', async () => {
@@ -1016,6 +1099,7 @@ describe('App', () => {
   })
 
   it('orders initial reader data without moving the article while reading', async () => {
+    window.history.replaceState(null, '', '/inbox')
     const defaultFetch = vi.mocked(fetch).getMockImplementation()!
     const makeStory = (id: string, title: string, readAt?: string) => {
       const entry = {
@@ -1313,6 +1397,7 @@ describe('App', () => {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     })))
+    window.history.replaceState(null, '', '/inbox')
 
     renderApp()
     await screen.findByText('Reader article')
@@ -1378,6 +1463,7 @@ describe('App', () => {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     })))
+    window.history.replaceState(null, '', '/inbox')
 
     renderApp()
     await screen.findByText('Reader article')
@@ -1837,7 +1923,7 @@ describe('App', () => {
     expect(within(quiet).queryByText('0')).not.toBeInTheDocument()
   })
 
-  it('shows the total unread count on the all-articles item', async () => {
+  it('shows the total unread count on the unread stream item', async () => {
     const defaultFetch = vi.mocked(fetch).getMockImplementation()!
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
@@ -1852,13 +1938,14 @@ describe('App', () => {
 
     renderApp()
     const sidebar = await screen.findByRole('navigation', { name: '移动导航抽屉' })
-    const allArticles = await within(sidebar).findByRole('link', { name: /全部文章/ })
-    expect(within(allArticles).getByText('7')).toBeInTheDocument()
+    const unreadLink = await within(sidebar).findByRole('link', { name: /未读/ })
+    expect(within(unreadLink).getByText('7')).toBeInTheDocument()
     await waitFor(() => expect(document.title).toBe('(7) Pulse'))
   })
 
   it.each([
-    { path: '/', link: /全部文章/, heading: '全部文章' },
+    { path: '/', link: /未读/, heading: '未读' },
+    { path: '/inbox', link: /全部文章/, heading: '全部文章' },
     { path: '/starred', link: '收藏', heading: '收藏' },
     { path: '/later', link: '稍后阅读', heading: '稍后阅读' },
   ])('scrolls the stream back to the top when re-clicking $heading', async ({ path, link, heading }) => {

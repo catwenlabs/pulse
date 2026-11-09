@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/ingestion"
+	"github.com/catwenlabs/pulse/internal/pagination"
 	"github.com/catwenlabs/pulse/internal/source"
 	"github.com/catwenlabs/pulse/internal/story"
 )
@@ -301,4 +304,101 @@ func claimTestAcquisition(
 		t.Fatalf("claim test acquisition: %v", err)
 	}
 	return acquisition
+}
+
+func TestSearchSourceEntriesCursorPagesUseIndex(t *testing.T) {
+	pool := testPool(t)
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	entryStore := NewEntryStore(pool)
+	ctx := context.Background()
+
+	locator := "source-cursor-index-" + time.Now().UTC().Format("20060102150405.000000000")
+	src := createTestSource(t, sourceStore, locator)
+	acquisition := claimTestAcquisition(t, acquisitionStore, src.ID, locator)
+
+	words := []string{
+		"alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel",
+		"india", "juliet", "kilo", "lima", "mike", "november", "oscar", "papa",
+	}
+	base := time.Date(2026, 8, 1, 8, 0, 0, 0, time.UTC)
+	candidates := make([]ingestion.Candidate, 0, 120)
+	for i := 0; i < 120; i++ {
+		published := base.Add(time.Duration(119-i) * time.Minute)
+		candidates = append(candidates, ingestion.Candidate{
+			ExternalID:  fmt.Sprintf("source-entry-%03d", i),
+			Title:       fmt.Sprintf("Source entry %03d %s", i, words[i%len(words)]),
+			ContentHTML: fmt.Sprintf("<p>source body %03d paragraph %s</p>", i, words[(i+3)%len(words)]),
+			PublishedAt: &published,
+		})
+	}
+	if err := entryStore.CommitBatch(ctx, acquisition, "worker", candidates, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("CommitBatch() error = %v", err)
+	}
+
+	// Walk every page: duplicate-free and globally ordered by
+	// (discovered_at, id) DESC. Entries committed in one batch share
+	// discovered_at, so ordering rides the id tie-break arm of the cursor
+	// comparison.
+	var seen []story.SourceEntry
+	ids := make(map[string]struct{}, 120)
+	pageTwoCursor := ""
+	cursor := ""
+	for {
+		page, err := entryStore.SearchSourceEntryPage(ctx, entry.Query{Limit: 50, SourceID: src.ID, Cursor: cursor})
+		if err != nil {
+			t.Fatalf("SearchSourceEntryPage() error = %v", err)
+		}
+		seen = append(seen, page.Entries...)
+		if len(seen) == 100 {
+			pageTwoCursor = page.NextCursor
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if len(seen) != 120 {
+		t.Fatalf("paged through %d entries, want 120", len(seen))
+	}
+	for i, item := range seen {
+		if _, dup := ids[string(item.Entry.ID)]; dup {
+			t.Fatalf("entry %s returned by two pages (index %d)", item.Entry.ID, i)
+		}
+		ids[string(item.Entry.ID)] = struct{}{}
+		if i > 0 {
+			prev := seen[i-1]
+			timeAfter := prev.Entry.DiscoveredAt.After(item.Entry.DiscoveredAt)
+			idAfter := prev.Entry.DiscoveredAt.Equal(item.Entry.DiscoveredAt) && string(prev.Entry.ID) > string(item.Entry.ID)
+			if !timeAfter && !idAfter {
+				t.Fatalf("order violated at index %d: (%v, %s) followed by (%v, %s)",
+					i, prev.Entry.DiscoveredAt, prev.Entry.ID, item.Entry.DiscoveredAt, item.Entry.ID)
+			}
+		}
+	}
+	if pageTwoCursor == "" {
+		t.Fatal("page two cursor was not captured")
+	}
+
+	// EXPLAIN page two with the store's exact parameters: the cursor
+	// predicate must be an index boundary on entries_source_order_idx
+	// (equality on source_id plus the row-wise (discovered_at, id)
+	// comparison) instead of forcing a Sort over the whole Source.
+	position, err := pagination.Decode(pageTwoCursor, "source_entries", "", "", "", string(src.ID))
+	if err != nil {
+		t.Fatalf("Decode() page-two cursor: %v", err)
+	}
+	plan := explainWithSortDisabled(t, pool, sourceEntriesSearchSQL,
+		51, "", "", "", string(src.ID), 0,
+		position.Time, position.ID)
+	entriesNode, ok := findExplainNode(plan, "entries")
+	if !ok {
+		t.Fatal("no entries scan found in EXPLAIN plan")
+	}
+	if entriesNode.IndexName != "entries_source_order_idx" {
+		t.Fatalf("entries scan uses index %q, want entries_source_order_idx", entriesNode.IndexName)
+	}
+	if !strings.Contains(entriesNode.IndexCond, "discovered_at") {
+		t.Fatalf("entries scan Index Cond = %q, want the row-wise cursor comparison on (discovered_at, id)", entriesNode.IndexCond)
+	}
 }

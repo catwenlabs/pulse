@@ -13,6 +13,9 @@ describe('file-based router', () => {
     await router.navigate({ to: '/sources/$sourceID', params: { sourceID: 'source-1' } })
     expect(router.state.location.pathname).toBe('/sources/source-1')
 
+    await router.navigate({ to: '/inbox' })
+    expect(router.state.location.pathname).toBe('/inbox')
+
     await router.navigate({ to: '/starred' })
     expect(router.state.location.pathname).toBe('/starred')
 

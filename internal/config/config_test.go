@@ -39,7 +39,7 @@ func TestLoadUsesDefaults(t *testing.T) {
 		t.Errorf("EmbeddingModel = %q", cfg.EmbeddingModel)
 	}
 	if cfg.AIProvider != "disabled" || cfg.AIBaseURL != "http://127.0.0.1:11434/v1" ||
-		cfg.AIModel != "qwen3:8b" || cfg.AITimeout != 2*time.Minute || cfg.AIMaxDigestStories != 100 ||
+		cfg.AIModel != "qwen3:8b" || cfg.AITimeout != 2*time.Minute || cfg.AIMaxDigestStories != 200 ||
 		cfg.AIMaxDigestOutputTokens != 4096 || cfg.AIMaxActiveJobs != 4 {
 		t.Errorf("AI defaults = %#v", cfg)
 	}
