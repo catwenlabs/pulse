@@ -60,7 +60,7 @@ func Load(lookup LookupEnv) (Config, error) {
 		AIBaseURL:               "http://127.0.0.1:11434/v1",
 		AIModel:                 "qwen3:8b",
 		AITimeout:               2 * time.Minute,
-		AIMaxDigestStories:      100,
+		AIMaxDigestStories:      200,
 		AIMaxDigestOutputTokens: 4096,
 		AIMaxActiveJobs:         4,
 		AIChatMaxInputTokens:    16000,
