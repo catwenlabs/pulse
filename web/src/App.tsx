@@ -1893,9 +1893,10 @@ function Reader({
     entryStreamElement.current?.scrollTo({ top: 0 })
   }, [debouncedSearch, sourceID, view])
 
-  // Re-clicking the "全部文章" navigation entry while already in the inbox
-  // keeps the same route, so the reset effect above never fires. The shell
-  // bumps this token on those clicks to bring the newest items back into view.
+  // Re-clicking the "未读" or "全部文章" navigation entry while already on
+  // its route keeps the route unchanged, so the reset effect above never
+  // fires. The shell bumps this token on those clicks to bring the newest
+  // items back into view.
   useEffect(() => {
     entryStreamElement.current?.scrollTo({ top: 0 })
   }, [scrollToTopToken])

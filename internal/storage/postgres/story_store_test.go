@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -774,9 +775,10 @@ func TestSearchCursorPagesUseReaderOrderIndex(t *testing.T) {
 	for i := 0; i < 120; i++ {
 		published := base.Add(time.Duration(119-i) * time.Minute)
 		if i%14 == 4 {
-			// Duplicate the previous same-parity sort time so the
-			// (sort_time, id) tie-break arm of the cursor comparison is
-			// exercised within one reader bucket.
+			// Duplicate the sort time of i-2 (same 14-candidate block) so
+			// the (sort_time, id) tie-break arm of the cursor comparison is
+			// exercised; the read marking below keeps each pair inside a
+			// single reader bucket instead of splitting it across buckets.
 			published = base.Add(time.Duration(119-(i-2)) * time.Minute)
 		}
 		candidates = append(candidates, ingestion.Candidate{
@@ -798,9 +800,17 @@ func TestSearchCursorPagesUseReaderOrderIndex(t *testing.T) {
 	if len(all) != 120 {
 		t.Fatalf("seed Search() returned %d stories, want 120 (clustering must not merge them)", len(all))
 	}
-	readIDs := make([]string, 0, 60)
-	for i, item := range all {
-		if i%2 == 0 {
+	// Mark whole 14-candidate blocks read (even block index). Block parity
+	// keeps every same-sort-time pair inside one bucket, so the within-bucket
+	// tie-break arm is actually reached; marking by list position would split
+	// each pair across the read and unread buckets.
+	readIDs := make([]string, 0, 64)
+	for _, item := range all {
+		index, err := strconv.Atoi(strings.TrimPrefix(item.Representative.ExternalID, "cursor-story-"))
+		if err != nil {
+			t.Fatalf("parse candidate index from %q: %v", item.Representative.ExternalID, err)
+		}
+		if index/14%2 == 0 {
 			readIDs = append(readIDs, string(item.ID))
 		}
 	}

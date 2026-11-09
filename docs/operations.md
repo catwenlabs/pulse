@@ -108,7 +108,7 @@ make export-entry ID=ENTRY_UUID
 | `PULSE_AI_MAX_DIGEST_OUTPUT_TOKENS` | `4096` | Catch-up Digest 单次生成的输出 token 上限；调大单次条数（如 1000 条）时需同步调大，否则 JSON 会被截断导致解析失败 |
 | `PULSE_AI_MAX_ACTIVE_JOBS` | `4` | 全局 AI Provider 的排队、运行和重试 Job 上限 |
 
-> 历史遗留:旧版本默认上限为 1000 的既有 Digest 仍会在详情页渲染全部快照条目,首屏较重(不做前端虚拟化)。部署后手动生成一份新的 Digest 即可让"最新"一条恢复轻量;旧 Digest 仍可打开,只是较重。
+> 历史遗留:曾将 `PULSE_AI_MAX_DIGEST_STORIES` 配置为 1000 的既有部署中,旧 Digest 仍会在详情页渲染全部快照条目,首屏较重(不做前端虚拟化)。部署新版本后手动生成一份新的 Digest 即可让"最新"一条恢复轻量;旧 Digest 仍可打开,只是较重。
 
 ### Story 语义聚合（可选）
 
