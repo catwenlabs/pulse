@@ -25,30 +25,23 @@ func NewStoryStore(pool *pgxpool.Pool) *StoryStore {
 	return &StoryStore{pool: pool}
 }
 
-func (store *StoryStore) Search(ctx context.Context, query story.Query) ([]story.Story, error) {
-	if query.Limit <= 0 || query.Limit > 201 {
-		query.Limit = 50
-	}
-	if query.Offset < 0 {
-		query.Offset = 0
-	}
-	search := strings.TrimSpace(query.Search)
-	state := strings.TrimSpace(query.State)
-	tag := strings.TrimSpace(query.Tag)
-	sourceID := strings.TrimSpace(query.SourceID)
-	cursor, err := pagination.Decode(query.Cursor, "stories", search, state, tag, sourceID)
-	if err != nil {
-		return nil, err
-	}
-	cursorBucket := -1
-	var cursorTime any
-	var cursorID any
-	if cursor.Kind != "" {
-		cursorBucket = cursor.Bucket
-		cursorTime = cursor.Time
-		cursorID = cursor.ID
-	}
-	rows, err := store.pool.Query(ctx, `
+// storySearchSQL is the reader's Story list query. It is a package-level
+// constant so the cursor-index regression tests can EXPLAIN this exact SQL
+// (instead of a drifting copy) and assert that the cursor predicate remains
+// an index boundary condition on stories_reader_order_idx.
+//
+// The cursor predicate is a row-wise comparison against the index key
+// ((read_at IS NULL), sort_time, id): lexicographic row comparison is
+// exactly the "already-seen position" relation of the reader ordering, and
+// it is the only form Postgres can push into the index as a boundary.
+// The historical three-arm expansion (bucket < cursor bucket, or bucket =
+// and (time, id) lexicographically before the cursor) could only run as a
+// filter, so every page rescanned the index from the top — measured at
+// ~50k heap tuples walked per deep page. Boolean ordering (false < true)
+// mirrors the old integer bucket ordering (0 < 1), so unread-first pages
+// and read-bucket pages share one predicate. When the cursor is absent,
+// $7 is NULL and the IS NULL arm admits every row.
+const storySearchSQL = `
 		SELECT
 			story.id, story.sort_time, story.display_title, story.note,
 			COALESCE((
@@ -129,19 +122,41 @@ func (store *StoryStore) Search(ctx context.Context, query story.Query) ([]story
 				)
 			)
 			AND (
-				$7 < 0
-				OR CASE WHEN story.read_at IS NULL THEN 1 ELSE 0 END < $7
-				OR (
-					CASE WHEN story.read_at IS NULL THEN 1 ELSE 0 END = $7
-					AND (
-						story.sort_time < $8::timestamptz
-						OR (story.sort_time = $8::timestamptz AND story.id < $9::uuid)
-					)
-				)
+				$7::boolean IS NULL
+				OR ((story.read_at IS NULL), story.sort_time, story.id)
+					< ($7::boolean, $8::timestamptz, $9::uuid)
 			)
 		ORDER BY (story.read_at IS NULL) DESC, story.sort_time DESC, story.id DESC
 		LIMIT $1 OFFSET $6
-	`, query.Limit, search, state, tag, sourceID, query.Offset,
+	`
+
+func (store *StoryStore) Search(ctx context.Context, query story.Query) ([]story.Story, error) {
+	if query.Limit <= 0 || query.Limit > 201 {
+		query.Limit = 50
+	}
+	if query.Offset < 0 {
+		query.Offset = 0
+	}
+	search := strings.TrimSpace(query.Search)
+	state := strings.TrimSpace(query.State)
+	tag := strings.TrimSpace(query.Tag)
+	sourceID := strings.TrimSpace(query.SourceID)
+	cursor, err := pagination.Decode(query.Cursor, "stories", search, state, tag, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	// The cursor bucket is a nil-able boolean matching the leading key of
+	// stories_reader_order_idx: true = unread bucket, false = read bucket.
+	// nil means "no cursor" and disables the row-wise boundary predicate.
+	var cursorBucket any
+	var cursorTime any
+	var cursorID any
+	if cursor.Kind != "" {
+		cursorBucket = cursor.Bucket == 1
+		cursorTime = cursor.Time
+		cursorID = cursor.ID
+	}
+	rows, err := store.pool.Query(ctx, storySearchSQL, query.Limit, search, state, tag, sourceID, query.Offset,
 		cursorBucket, cursorTime, cursorID)
 	if err != nil {
 		return nil, fmt.Errorf("search Stories: %w", err)

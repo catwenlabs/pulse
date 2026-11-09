@@ -3,11 +3,16 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/catwenlabs/pulse/internal/entry"
 	"github.com/catwenlabs/pulse/internal/ingestion"
+	"github.com/catwenlabs/pulse/internal/pagination"
 	"github.com/catwenlabs/pulse/internal/source"
 	"github.com/catwenlabs/pulse/internal/story"
 )
@@ -681,6 +686,203 @@ func TestReaderPagesUseExactCountsAndCursors(t *testing.T) {
 	}
 	if entryPage2.TotalEntries != 0 {
 		t.Fatalf("second Source Entry page total = %d, want zero on cursor pages", entryPage2.TotalEntries)
+	}
+}
+
+// explainNode mirrors the subset of EXPLAIN (FORMAT JSON) output that the
+// cursor-index regression tests assert on.
+type explainNode struct {
+	NodeType            string        `json:"Node Type"`
+	RelationName        string        `json:"Relation Name"`
+	IndexName           string        `json:"Index Name"`
+	IndexCond           string        `json:"Index Cond"`
+	RowsRemovedByFilter *float64      `json:"Rows Removed by Filter"`
+	Plans               []explainNode `json:"Plans"`
+}
+
+func findExplainNode(node explainNode, relation string) (explainNode, bool) {
+	if node.RelationName == relation {
+		return node, true
+	}
+	for _, child := range node.Plans {
+		if found, ok := findExplainNode(child, relation); ok {
+			return found, true
+		}
+	}
+	return explainNode{}, false
+}
+
+// explainWithSortDisabled runs EXPLAIN (ANALYZE) on a dedicated pooled
+// connection with enable_sort turned off. Small test fixtures would
+// otherwise let the planner satisfy ORDER BY with a cheap explicit Sort
+// over the whole (tiny) table, hiding whether the cursor predicate can act
+// as an index boundary — the property these tests exist to pin down. The
+// setting is reset before the connection returns to the pool.
+func explainWithSortDisabled(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) explainNode {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire EXPLAIN connection: %v", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, "SET enable_sort = off"); err != nil {
+		t.Fatalf("disable sort for EXPLAIN: %v", err)
+	}
+	defer func() { _, _ = conn.Exec(ctx, "RESET enable_sort") }()
+	var raw []byte
+	if err := conn.QueryRow(ctx, "EXPLAIN (ANALYZE, FORMAT JSON) "+sql, args...).Scan(&raw); err != nil {
+		t.Fatalf("EXPLAIN failed: %v", err)
+	}
+	var plan []struct {
+		Plan explainNode `json:"Plan"`
+	}
+	if err := json.Unmarshal(raw, &plan); err != nil {
+		t.Fatalf("unmarshal EXPLAIN JSON: %v\n%s", err, raw)
+	}
+	if len(plan) != 1 {
+		t.Fatalf("expected exactly one EXPLAIN statement, got %d", len(plan))
+	}
+	return plan[0].Plan
+}
+
+func TestSearchCursorPagesUseReaderOrderIndex(t *testing.T) {
+	pool := testPool(t)
+	sourceStore := NewSourceStore(pool)
+	acquisitionStore := NewAcquisitionStore(pool)
+	entryStore := NewEntryStore(pool)
+	storyStore := NewStoryStore(pool)
+	ctx := context.Background()
+
+	locator := "cursor-index-" + time.Now().UTC().Format("20060102150405.000000000")
+	src := createTestSource(t, sourceStore, locator)
+	acquisition := claimTestAcquisition(t, acquisitionStore, src.ID, locator)
+
+	words := []string{
+		"alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel",
+		"india", "juliet", "kilo", "lima", "mike", "november", "oscar", "papa",
+		"quebec", "romeo", "sierra", "tango", "uniform", "victor", "whiskey", "xray",
+	}
+	base := time.Date(2026, 8, 1, 8, 0, 0, 0, time.UTC)
+	candidates := make([]ingestion.Candidate, 0, 120)
+	for i := 0; i < 120; i++ {
+		published := base.Add(time.Duration(119-i) * time.Minute)
+		if i%14 == 4 {
+			// Duplicate the previous same-parity sort time so the
+			// (sort_time, id) tie-break arm of the cursor comparison is
+			// exercised within one reader bucket.
+			published = base.Add(time.Duration(119-(i-2)) * time.Minute)
+		}
+		candidates = append(candidates, ingestion.Candidate{
+			ExternalID:  fmt.Sprintf("cursor-story-%03d", i),
+			Title:       fmt.Sprintf("Cursor story %03d %s", i, words[i%len(words)]),
+			ContentHTML: fmt.Sprintf("<p>cursor body %03d paragraph %s</p>", i, words[(i+5)%len(words)]),
+			PublishedAt: &published,
+		})
+	}
+	if err := entryStore.CommitBatch(ctx, acquisition, "worker", candidates, json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("CommitBatch() error = %v", err)
+	}
+
+	// Split the stories across both reader-order buckets: even indexes read.
+	all, err := storyStore.Search(ctx, story.Query{Limit: 200, SourceID: string(src.ID)})
+	if err != nil {
+		t.Fatalf("seed Search() error = %v", err)
+	}
+	if len(all) != 120 {
+		t.Fatalf("seed Search() returned %d stories, want 120 (clustering must not merge them)", len(all))
+	}
+	readIDs := make([]string, 0, 60)
+	for i, item := range all {
+		if i%2 == 0 {
+			readIDs = append(readIDs, string(item.ID))
+		}
+	}
+	if _, err := storyStore.MarkRead(ctx, "", readIDs); err != nil {
+		t.Fatalf("MarkRead() error = %v", err)
+	}
+
+	// Walk every page: the concatenation must be duplicate-free and globally
+	// ordered (unread bucket first, then read, each (sort_time, id) DESC).
+	// This pins the semantic equivalence of the row-wise cursor predicate.
+	var seen []story.Story
+	ids := make(map[string]struct{}, 120)
+	pageTwoCursor := ""
+	cursor := ""
+	for {
+		page, err := storyStore.SearchPage(ctx, story.Query{Limit: 50, SourceID: string(src.ID), Cursor: cursor})
+		if err != nil {
+			t.Fatalf("SearchPage() error = %v", err)
+		}
+		seen = append(seen, page.Stories...)
+		if len(seen) == 100 {
+			pageTwoCursor = page.NextCursor
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if len(seen) != 120 {
+		t.Fatalf("paged through %d stories, want 120", len(seen))
+	}
+	lastBucket, lastTime, lastID := -1, time.Time{}, ""
+	for i, item := range seen {
+		if _, dup := ids[string(item.ID)]; dup {
+			t.Fatalf("story %s returned by two pages (index %d)", item.ID, i)
+		}
+		ids[string(item.ID)] = struct{}{}
+		if item.SortTime == nil {
+			t.Fatalf("story %s has nil SortTime", item.ID)
+		}
+		bucket := 1
+		if item.ReadAt != nil {
+			bucket = 0
+		}
+		if i > 0 {
+			if lastBucket == 0 && bucket == 1 {
+				t.Fatalf("reader bucket regressed at index %d: read before unread", i)
+			}
+			if lastBucket == bucket {
+				timeAfter := lastTime.After(*item.SortTime)
+				idAfter := lastTime.Equal(*item.SortTime) && lastID > string(item.ID)
+				if !timeAfter && !idAfter {
+					t.Fatalf("order violated at index %d: (%v, %s) followed by (%v, %s)",
+						i, lastTime, lastID, *item.SortTime, item.ID)
+				}
+			}
+		}
+		lastBucket, lastTime, lastID = bucket, *item.SortTime, string(item.ID)
+	}
+	if pageTwoCursor == "" {
+		t.Fatal("page two cursor was not captured")
+	}
+
+	// Re-run page two under EXPLAIN with the exact parameters the store
+	// sends and require the cursor predicate to be an index boundary on
+	// stories_reader_order_idx. The pre-row-value predicate degraded to a
+	// filter that rescanned the index from the top (~50k rows removed per
+	// deep page in production).
+	position, err := pagination.Decode(pageTwoCursor, "stories", "", "", "", string(src.ID))
+	if err != nil {
+		t.Fatalf("Decode() page-two cursor: %v", err)
+	}
+	plan := explainWithSortDisabled(t, pool, storySearchSQL,
+		51, "", "", "", string(src.ID), 0,
+		position.Bucket == 1, position.Time, position.ID)
+	storiesNode, ok := findExplainNode(plan, "stories")
+	if !ok {
+		t.Fatal("no stories scan found in EXPLAIN plan")
+	}
+	if storiesNode.IndexName != "stories_reader_order_idx" {
+		t.Fatalf("stories scan uses index %q, want stories_reader_order_idx", storiesNode.IndexName)
+	}
+	if !strings.Contains(storiesNode.IndexCond, "ROW(") {
+		t.Fatalf("stories scan Index Cond = %q, want the row-wise cursor comparison", storiesNode.IndexCond)
+	}
+	if storiesNode.RowsRemovedByFilter != nil && *storiesNode.RowsRemovedByFilter > 0 {
+		t.Fatalf("stories scan removed %v rows by filter; the cursor is not an index boundary",
+			*storiesNode.RowsRemovedByFilter)
 	}
 }
 

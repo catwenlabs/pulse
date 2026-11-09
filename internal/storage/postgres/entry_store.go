@@ -37,7 +37,7 @@ func (store *EntryStore) List(ctx context.Context, limit int) ([]entry.Entry, er
 }
 
 func (store *EntryStore) Search(ctx context.Context, query entry.Query) ([]entry.Entry, error) {
-	items, err := store.searchSourceEntries(ctx, query, true)
+	items, err := store.searchSourceEntries(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -52,31 +52,22 @@ func (store *EntryStore) Search(ctx context.Context, query entry.Query) ([]entry
 // metadata are returned under the real owning Story rather than copied onto
 // the source Entry or represented by a synthetic singleton Story.
 func (store *EntryStore) SearchSourceEntries(ctx context.Context, query entry.Query) ([]story.SourceEntry, error) {
-	return store.searchSourceEntries(ctx, query, true)
+	return store.searchSourceEntries(ctx, query)
 }
 
-func (store *EntryStore) searchSourceEntries(ctx context.Context, query entry.Query, sourceOrder bool) ([]story.SourceEntry, error) {
-	if query.Limit <= 0 || query.Limit > 201 {
-		query.Limit = 50
-	}
-	if query.Offset < 0 {
-		query.Offset = 0
-	}
-	search := strings.TrimSpace(query.Search)
-	state := strings.TrimSpace(query.State)
-	tag := strings.TrimSpace(query.Tag)
-	sourceID := strings.TrimSpace(string(query.SourceID))
-	cursor, err := pagination.Decode(query.Cursor, "source_entries", search, state, tag, sourceID)
-	if err != nil {
-		return nil, err
-	}
-	var cursorTime any
-	var cursorID any
-	if cursor.Kind != "" {
-		cursorTime = cursor.Time
-		cursorID = cursor.ID
-	}
-	rows, err := store.pool.Query(ctx, `
+// sourceEntriesSearchSQL is the Source browsing stream query. It is a
+// package-level constant so the cursor-index regression tests can EXPLAIN
+// this exact SQL (instead of a drifting copy) and assert the cursor
+// predicate stays an index boundary condition on entries_source_order_idx.
+//
+// The stream is ordered purely by (discovered_at DESC, id DESC) and the
+// cursor predicate is the matching row-wise comparison, so pages flow out
+// of the index instead of sorting the whole Source per page. If a future
+// caller needs unread-first ordering for a Source view, it must introduce
+// the reader bucket as the leading cursor term (and relax the
+// pagination.Decode guard that pins source_entries cursors to bucket 0) —
+// the two orderings cannot share one cursor space.
+const sourceEntriesSearchSQL = `
 		SELECT
 			entry.id, entry.source_id, entry.identity_key, entry.external_id, entry.canonical_url,
 			entry.source_title, entry.author, entry.summary, entry.content_html,
@@ -151,20 +142,39 @@ func (store *EntryStore) searchSourceEntries(ctx context.Context, query entry.Qu
 			AND ($5 = '' OR entry.source_id = $5::uuid)
 			AND (
 				$7::timestamptz IS NULL
-				OR entry.discovered_at < $7::timestamptz
-				OR (entry.discovered_at = $7::timestamptz AND entry.id < $8::uuid)
+				OR (entry.discovered_at, entry.id) < ($7::timestamptz, $8::uuid)
 			)
-		ORDER BY
-			CASE WHEN $9 THEN 0 ELSE CASE WHEN story.read_at IS NULL THEN 1 ELSE 0 END END DESC,
-			entry.discovered_at DESC, entry.id DESC
+		ORDER BY entry.discovered_at DESC, entry.id DESC
 		LIMIT $1
 		OFFSET $6
-	`,
+	`
+
+func (store *EntryStore) searchSourceEntries(ctx context.Context, query entry.Query) ([]story.SourceEntry, error) {
+	if query.Limit <= 0 || query.Limit > 201 {
+		query.Limit = 50
+	}
+	if query.Offset < 0 {
+		query.Offset = 0
+	}
+	search := strings.TrimSpace(query.Search)
+	state := strings.TrimSpace(query.State)
+	tag := strings.TrimSpace(query.Tag)
+	sourceID := strings.TrimSpace(string(query.SourceID))
+	cursor, err := pagination.Decode(query.Cursor, "source_entries", search, state, tag, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	var cursorTime any
+	var cursorID any
+	if cursor.Kind != "" {
+		cursorTime = cursor.Time
+		cursorID = cursor.ID
+	}
+	rows, err := store.pool.Query(ctx, sourceEntriesSearchSQL,
 		query.Limit,
 		search, state, tag, query.SourceID,
 		query.Offset,
 		cursorTime, cursorID,
-		sourceOrder,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("search entries: %w", err)
@@ -206,7 +216,7 @@ func (store *EntryStore) SearchSourceEntryPage(ctx context.Context, query entry.
 		}
 	}
 	query.Limit++
-	items, err := store.searchSourceEntries(ctx, query, true)
+	items, err := store.searchSourceEntries(ctx, query)
 	if err != nil {
 		return story.SourceEntryPage{}, fmt.Errorf("search Source Entry page: %w", err)
 	}
