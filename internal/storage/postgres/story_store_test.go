@@ -713,11 +713,14 @@ func findExplainNode(node explainNode, relation string) (explainNode, bool) {
 }
 
 // explainWithSortDisabled runs EXPLAIN (ANALYZE) on a dedicated pooled
-// connection with enable_sort turned off. Small test fixtures would
-// otherwise let the planner satisfy ORDER BY with a cheap explicit Sort
-// over the whole (tiny) table, hiding whether the cursor predicate can act
-// as an index boundary — the property these tests exist to pin down. The
-// setting is reset before the connection returns to the pool.
+// connection with enable_sort turned off for a single transaction. Small
+// test fixtures would otherwise let the planner satisfy ORDER BY with a
+// cheap explicit Sort over the whole (tiny) table, hiding whether the
+// cursor predicate can act as an index boundary — the property these tests
+// exist to pin down. SET LOCAL scopes the toggle to the transaction, so the
+// setting can never leak to whichever test borrows the connection next,
+// even if the rollback itself fails; ANALYZE only executes read-only
+// SELECTs.
 func explainWithSortDisabled(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) explainNode {
 	t.Helper()
 	ctx := context.Background()
@@ -726,10 +729,13 @@ func explainWithSortDisabled(t *testing.T, pool *pgxpool.Pool, sql string, args 
 		t.Fatalf("acquire EXPLAIN connection: %v", err)
 	}
 	defer conn.Release()
-	if _, err := conn.Exec(ctx, "SET enable_sort = off"); err != nil {
+	if _, err := conn.Exec(ctx, "BEGIN"); err != nil {
+		t.Fatalf("begin EXPLAIN transaction: %v", err)
+	}
+	defer func() { _, _ = conn.Exec(ctx, "ROLLBACK") }()
+	if _, err := conn.Exec(ctx, "SET LOCAL enable_sort = off"); err != nil {
 		t.Fatalf("disable sort for EXPLAIN: %v", err)
 	}
-	defer func() { _, _ = conn.Exec(ctx, "RESET enable_sort") }()
 	var raw []byte
 	if err := conn.QueryRow(ctx, "EXPLAIN (ANALYZE, FORMAT JSON) "+sql, args...).Scan(&raw); err != nil {
 		t.Fatalf("EXPLAIN failed: %v", err)
