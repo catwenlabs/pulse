@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useState, type CSSProperties, type ReactNode } from 'react'
 
 // Reader typography preferences, Apple-Books style: the reader exposes font
 // family, font size, line height, and letter spacing for chapter content.
@@ -147,7 +147,7 @@ function OptionRow({ label, children }: { label: string; children: ReactNode }) 
 
 // ReaderTypographyPanel renders the settings card body: a font-size stepper
 // plus segmented font, line-height, and letter-spacing pickers. It lives
-// inside the ReaderTypographyButton popover.
+// inside the ReaderToolbar popover.
 export function ReaderTypographyPanel({ controls }: { controls: ReaderTypographyControls }) {
   const { typography, update, reset } = controls
   const spacingButton = (options: readonly SpacingOption[], current: number, pick: (value: number) => void) => (
@@ -225,53 +225,3 @@ export function ReaderTypographyPanel({ controls }: { controls: ReaderTypography
   )
 }
 
-// ReaderTypographyButton is the always-reachable reading control: a floating
-// "Aa" button pinned to the bottom-right of the reader that opens the
-// typography popover above it. Stays z-30 so the z-40 selection toolbar
-// covers it while text is selected. Closes on Escape and on outside pointer
-// presses; scrolling keeps it open so changes apply live.
-export function ReaderTypographyButton({ controls }: { controls: ReaderTypographyControls }) {
-  const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (event: PointerEvent) => {
-      if (rootRef.current && event.target instanceof Node && !rootRef.current.contains(event.target)) {
-        setOpen(false)
-      }
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [open])
-
-  return (
-    <div ref={rootRef} className="fixed bottom-6 right-6 z-30 max-md:bottom-[max(1rem,env(safe-area-inset-bottom))] max-md:right-4">
-      {open && (
-        <div
-          role="dialog"
-          aria-label="排版设置"
-          className="absolute bottom-14 right-0 w-[min(320px,calc(100vw-2rem))] rounded-xl border border-border bg-card p-4 shadow-[0_18px_50px_rgba(32,29,23,.22)]"
-        >
-          <ReaderTypographyPanel controls={controls} />
-        </div>
-      )}
-      <button
-        type="button"
-        aria-label="排版设置"
-        aria-expanded={open}
-        className="grid size-11 cursor-pointer place-items-center rounded-full border border-border bg-card text-sm font-semibold text-muted-foreground shadow-[0_8px_24px_rgba(32,29,23,.18)] transition-colors hover:bg-accent hover:text-primary-hover"
-        onClick={() => setOpen((value) => !value)}
-      >
-        Aa
-      </button>
-    </div>
-  )
-}

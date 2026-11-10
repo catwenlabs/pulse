@@ -116,7 +116,8 @@ describe('DocumentReaderPage', () => {
     const content = document.querySelector('.document-content') as HTMLElement
     expect(content.style.fontSize).toBe('17px')
 
-    fireEvent.click(screen.getByRole('button', { name: '排版设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '阅读工具' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /排版设置/ }))
     expect(screen.getByRole('dialog', { name: '排版设置' })).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: '增大字号' }))
@@ -219,15 +220,18 @@ describe('highlighting', () => {
     act(() => { document.dispatchEvent(new Event('selectionchange')) })
   }
 
-  it('lists existing notes in the notes panel', async () => {
+  it('lists existing notes in the toolbar highlights panel', async () => {
     mockReaderFetches()
     await screen.findByRole('heading', { name: '测试之书' })
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /笔记/ }).textContent).toBe('笔记 (1)'))
-    fireEvent.click(screen.getByRole('button', { name: '笔记 (1)' }))
+    await waitFor(() => {
+      expect(document.querySelector('section[data-chapter-index="1"] mark.document-highlight')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '阅读工具' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /本书划线/ }))
 
     expect(await screen.findByText('呼应上一章')).toBeTruthy()
-    expect(screen.getByText('第八章 · 导入')).toBeTruthy()
+    expect(screen.getByText(/第八章 · 导入/)).toBeTruthy()
   })
 
   it('paints saved highlights onto the chapter text', async () => {
@@ -261,7 +265,7 @@ describe('highlighting', () => {
       expect(mark?.textContent).toBe('该机制')
     })
 
-    // The note is added afterwards from the notice.
+    // The note is added afterwards: the notice opens the toolbar editor.
     fireEvent.click(screen.getByRole('button', { name: '添加笔记' }))
     const noteField = await screen.findByPlaceholderText('这条划线想记录什么？')
     fireEvent.change(noteField, { target: { value: '想法' } })
@@ -272,16 +276,17 @@ describe('highlighting', () => {
         String(call[0]).endsWith('/api/v1/notes/note-9') && call[1]?.method === 'PUT')).toBe(true)
     })
 
-    fireEvent.click(screen.getByRole('button', { name: '笔记 (2)' }))
     expect(await screen.findByText('想法')).toBeTruthy()
-    expect(screen.getByText('第八章 · Pulse')).toBeTruthy()
+    expect(screen.getByText(/第八章 · Pulse/)).toBeTruthy()
   })
 
   it('does not create a duplicate note for an already highlighted passage', async () => {
     mockReaderFetches()
     await screen.findByRole('heading', { name: '测试之书' })
-    // Wait until the fixture note has loaded before selecting it again.
-    await waitFor(() => expect(screen.getByRole('button', { name: /笔记/ }).textContent).toBe('笔记 (1)'))
+    // Wait until the fixture note has painted before selecting it again.
+    await waitFor(() => {
+      expect(document.querySelector('section[data-chapter-index="1"] mark.document-highlight')).toBeTruthy()
+    })
 
     // Chapter 1 already carries the fixture note '该机制'.
     selectInChapter(1, '该机制')
@@ -291,7 +296,8 @@ describe('highlighting', () => {
     const posted = vi.mocked(fetch).mock.calls.filter((call) =>
       String(call[0]).endsWith('/notes') && call[1]?.method === 'POST')
     expect(posted).toHaveLength(0)
-    fireEvent.click(await screen.findByRole('button', { name: '笔记 (1)' }))
+    fireEvent.click(screen.getByRole('button', { name: '阅读工具' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /本书划线/ }))
     expect(await screen.findByText('呼应上一章')).toBeTruthy()
   })
 
