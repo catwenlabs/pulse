@@ -5,7 +5,8 @@ import { createDocumentNote, deleteDocumentNote, getDocument, listDocumentNotes,
 import { highlightContentHtml, normalizePassage, type HighlightPassage } from '../lib/documentHighlights'
 import { resolveDocumentAssets } from './documentAssets'
 import { SelectionChatSurface } from './SelectionChatSurface'
-import { ReaderTypographyButton, readerTypographyStyle, useReaderTypography } from './readerTypography'
+import { ReaderToolbar, type ReaderToolView } from './readerToolbar'
+import { readerTypographyStyle, useReaderTypography } from './readerTypography'
 
 const PROGRESS_SAVE_DELAY_MS = 1200
 // Progress is recorded from an anchor line this many pixels below the
@@ -51,7 +52,8 @@ function ReaderBody({ document: doc }: { document: Document }) {
       .filter((note) => !deletedNoteIds.has(note.id)),
     [notesQuery.data, createdNotes, withRevisions, deletedNoteIds],
   )
-  const [panelOpen, setPanelOpen] = useState(false)
+  // The floating reader toolbar and its active panel; null means closed.
+  const [tool, setTool] = useState<ReaderToolView | null>(null)
   // Apple-Books-style highlighting: 划线 saves immediately and colors the
   // text; the note is added or edited afterwards.
   const [highlightNotice, setHighlightNotice] = useState<DocumentNote | null>(null)
@@ -89,11 +91,29 @@ function ReaderBody({ document: doc }: { document: Document }) {
       await deleteDocumentNote(noteId)
       setDeletedNoteIds((current) => new Set(current).add(noteId))
       setHighlightNotice((notice) => (notice?.id === noteId ? null : notice))
-      setEditingNote((note) => (note?.id === noteId ? null : note))
+      // Removing the note being edited drops the editor back to the list.
+      if (editingNote?.id === noteId) {
+        setEditingNote(null)
+        setTool((current) => (current === 'edit' ? 'notes' : current))
+      }
     } catch (cause) {
       setHighlightError(cause instanceof Error ? cause.message : '取消划线失败')
     }
   }
+
+  const startEditingNote = useCallback((note: DocumentNote) => {
+    setEditingNote(note)
+    setNoteDraft(note.note ?? '')
+    setNoteError('')
+    setTool('edit')
+  }, [])
+
+  const cancelEditingNote = useCallback(() => {
+    setEditingNote(null)
+    setNoteDraft('')
+    setNoteError('')
+    setTool('notes')
+  }, [])
 
   const saveNote = async () => {
     if (!editingNote) return
@@ -105,6 +125,7 @@ function ReaderBody({ document: doc }: { document: Document }) {
       setEditingNote(null)
       setNoteDraft('')
       setHighlightNotice(null)
+      setTool('notes')
     } catch (cause) {
       setNoteError(cause instanceof Error ? cause.message : '保存笔记失败')
     } finally {
@@ -122,6 +143,16 @@ function ReaderBody({ document: doc }: { document: Document }) {
   const scrollToChapter = useCallback((index: number, block: ScrollLogicalPosition = 'start') => {
     sectionRefs.current.get(index)?.scrollIntoView({ block, behavior: 'auto' })
   }, [])
+
+  // jumpToNote centers the note's highlight mark in the reading flow and
+  // closes the toolbar; when the passage no longer matches the chapter text
+  // it falls back to the chapter top.
+  const jumpToNote = useCallback((note: DocumentNote) => {
+    const mark = containerRef.current?.querySelector(`mark.document-highlight[data-note-id="${CSS.escape(note.id)}"]`)
+    if (mark instanceof HTMLElement) mark.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    else scrollToChapter(note.chapter_index)
+    setTool(null)
+  }, [scrollToChapter])
 
   // scrollToProgress places the anchor line at the exact point currentProgress
   // records from: the section top plus the saved fraction of its height.
@@ -255,63 +286,12 @@ function ReaderBody({ document: doc }: { document: Document }) {
           </button>
           <h1 className="mb-1 text-2xl font-semibold">{doc.title}</h1>
           {doc.author && <p className="mb-6 text-sm text-muted-foreground">{doc.author}</p>}
-          <button
-            type="button"
-            className="mb-4 ml-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground"
-            onClick={() => setPanelOpen((open) => !open)}
-          >
-            笔记 ({notes.length})
-          </button>
           <a
             className="mb-4 ml-2 inline-block rounded-md border border-border px-2 py-1 text-xs text-muted-foreground"
             href={`/api/v1/documents/${doc.id}/original`}
           >
             下载原件
           </a>
-          {panelOpen && (
-            <section aria-label="本书笔记" className="mb-6 rounded-lg border border-border p-3">
-              {notes.length === 0 ? (
-                <p className="text-sm text-muted-foreground">还没有笔记</p>
-              ) : (
-                <ul className="space-y-3">
-                  {notes.map((note) => (
-                    <li key={note.id} className="text-sm">
-                      <p className="border-l-2 border-primary/60 pl-2 text-muted-foreground">{note.highlight}</p>
-                      {note.note && <p className="mt-1 pl-2">{note.note}</p>}
-                      <p className="mt-1 flex items-center gap-2 pl-2 text-xs text-muted-foreground">
-                        <span>
-                          {chapters[note.chapter_index]?.title || `第 ${note.chapter_index + 1} 章`}
-                          {' · '}
-                          {note.source === 'import' ? '导入' : 'Pulse'}
-                        </span>
-                        <button
-                          type="button"
-                          className="cursor-pointer rounded border-0 bg-transparent px-0 text-xs text-primary-hover hover:underline"
-                          onClick={() => {
-                            setEditingNote(note)
-                            setNoteDraft(note.note ?? '')
-                            setNoteError('')
-                          }}
-                        >
-                          {note.note ? '编辑' : '添加笔记'}
-                        </button>
-                        <button
-                          type="button"
-                          className="cursor-pointer rounded border-0 bg-transparent px-0 text-xs text-destructive hover:underline"
-                          onClick={() => {
-                            setHighlightError('')
-                            void removeHighlight(note.id)
-                          }}
-                        >
-                          删除
-                        </button>
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          )}
           {highlightNotice && !editingNote && (
             <div role="status" aria-label="已添加划线" className="mb-6 flex items-center gap-3 rounded-lg border border-border p-3">
               <p className="min-w-0 flex-1 truncate border-l-2 border-primary/60 pl-2 text-sm text-muted-foreground">
@@ -320,11 +300,7 @@ function ReaderBody({ document: doc }: { document: Document }) {
               <button
                 type="button"
                 className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
-                onClick={() => {
-                  setEditingNote(highlightNotice)
-                  setNoteDraft(highlightNotice.note ?? '')
-                  setNoteError('')
-                }}
+                onClick={() => startEditingNote(highlightNotice)}
               >
                 添加笔记
               </button>
@@ -336,38 +312,6 @@ function ReaderBody({ document: doc }: { document: Document }) {
               >
                 ×
               </button>
-            </div>
-          )}
-          {editingNote && (
-            <div role="dialog" aria-label="编辑笔记" className="mb-6 rounded-lg border border-border p-3">
-              <p className="mb-2 border-l-2 border-primary/60 pl-2 text-sm text-muted-foreground">{editingNote.highlight}</p>
-              <textarea
-                className="mb-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                placeholder="这条划线想记录什么？"
-                value={noteDraft}
-                onChange={(event) => setNoteDraft(event.target.value)}
-              />
-              {noteError !== '' && <p className="mb-2 text-sm text-destructive">{noteError}</p>}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
-                  disabled={savingNote}
-                  onClick={() => void saveNote()}
-                >
-                  保存笔记
-                </button>
-                <button
-                  type="button"
-                  className="rounded-md border border-border px-3 py-1.5 text-sm"
-                  onClick={() => {
-                    setEditingNote(null)
-                    setNoteDraft('')
-                  }}
-                >
-                  取消
-                </button>
-              </div>
             </div>
           )}
           {highlightError !== '' && (
@@ -409,7 +353,26 @@ function ReaderBody({ document: doc }: { document: Document }) {
           ))}
         </div>
       </main>
-      <ReaderTypographyButton controls={typographyControls} />
+      <ReaderToolbar
+        tool={tool}
+        onToolChange={setTool}
+        typographyControls={typographyControls}
+        notes={notes}
+        chapterTitle={(index) => chapters[index]?.title || `第 ${index + 1} 章`}
+        editingNote={editingNote}
+        noteDraft={noteDraft}
+        onNoteDraftChange={setNoteDraft}
+        savingNote={savingNote}
+        noteError={noteError}
+        onSaveNote={() => { void saveNote() }}
+        onCancelEdit={cancelEditingNote}
+        onEditNote={startEditingNote}
+        onRemoveNote={(noteId) => {
+          setHighlightError('')
+          void removeHighlight(noteId)
+        }}
+        onJumpToNote={jumpToNote}
+      />
     </div>
   )
 }

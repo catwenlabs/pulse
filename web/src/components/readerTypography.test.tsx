@@ -2,7 +2,6 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
-  ReaderTypographyButton,
   ReaderTypographyPanel,
   defaultReaderTypography,
   loadReaderTypography,
@@ -104,32 +103,3 @@ describe('ReaderTypographyPanel', () => {
   })
 })
 
-describe('ReaderTypographyButton', () => {
-  function ButtonHarness() {
-    const controls = useReaderTypography()
-    return <ReaderTypographyButton controls={controls} />
-  }
-
-  it('opens the settings dialog and keeps it open for inside presses', () => {
-    render(<ButtonHarness />)
-    expect(screen.queryByRole('dialog', { name: '排版设置' })).toBeNull()
-
-    fireEvent.click(screen.getByRole('button', { name: '排版设置' }))
-    expect(screen.getByRole('dialog', { name: '排版设置' })).toBeTruthy()
-
-    fireEvent.pointerDown(screen.getByRole('button', { name: '增大字号' }))
-    expect(screen.getByRole('dialog', { name: '排版设置' })).toBeTruthy()
-  })
-
-  it('closes on Escape and outside pointer presses', () => {
-    render(<ButtonHarness />)
-    fireEvent.click(screen.getByRole('button', { name: '排版设置' }))
-
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(screen.queryByRole('dialog', { name: '排版设置' })).toBeNull()
-
-    fireEvent.click(screen.getByRole('button', { name: '排版设置' }))
-    fireEvent.pointerDown(document.body)
-    expect(screen.queryByRole('dialog', { name: '排版设置' })).toBeNull()
-  })
-})
